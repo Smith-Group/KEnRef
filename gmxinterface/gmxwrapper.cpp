@@ -101,6 +101,16 @@ int main(int argc, char* argv[]) {// This should be the main function that loads
 		toy_d_array_vec.emplace_back(toy_d_array.row(i));
 	};
 
+	for (int gg = 0; gg < 3; gg++) {
+		std::cout << "Calculating g" << gg+1 << std::endl;
+		auto [toy_g_array, toy_g_array_grad] = KEnRef::d_array_to_g(toy_d_array_vec, toy_grouping_list[gg], true);
+		std::cout << "toy_g_array" << std::endl << toy_g_array << std::endl;
+		std::cout << "toy_g_array_grad" << std::endl;
+		for(auto matrix: toy_g_array_grad){
+			std::cout << matrix << /*std::endl <<*/ std::endl;
+		}
+		std::cout << "----------" << std::endl;
+	}
 
 	Eigen::Matrix<float, Eigen::Dynamic, 3> model1(5, 3);
 	model1 <<
@@ -137,6 +147,19 @@ int main(int argc, char* argv[]) {// This should be the main function that loads
 		auto matrix = eros3_sub_d_array_grad[i];
 		std::cout << "eros3_sub_d_array_grad " << i+1 << std::endl << matrix << std::endl;
 	}
+
+
+	for (int gg = 0; gg < 2; gg++) {
+			std::cout << "Calculating eros3_sub g" << gg+1 << std::endl;
+			auto [eros3_sub_g_list, eros3_sub_g_list_grad] = KEnRef::d_array_to_g(eros3_sub_d_array, eros3_grouping_list[gg], true);
+			std::cout << "eros3_sub_g_list" << std::endl << eros3_sub_g_list << std::endl;
+			std::cout << "eros3_sub_g_list_grad" << std::endl;
+			for(auto matrix: eros3_sub_g_list_grad){
+				std::cout << matrix << /*std::endl <<*/ std::endl;
+				std::cout << "----------" << std::endl;
+			}
+			std::cout << "=============" << std::endl;
+		}
 
 
 

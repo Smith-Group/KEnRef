@@ -129,6 +129,91 @@ KEnRef::r_array_to_d_array(const std::vector<Eigen::MatrixX3f>& models_Nxyz, boo
 	return {ret1, ret2};
 }
 
+std::tuple<Eigen::VectorX<float>, std::vector<Eigen::Matrix<float, Eigen::Dynamic, 5>>>
+KEnRef::d_array_to_g(
+		const std::vector<Eigen::Matrix<float, Eigen::Dynamic, 5>>& d_arrays, //vector (models<pairId, tensor_elements>) with interaction tensors
+		const std::vector<std::vector<int>>& grouping, //groupings of models to average interaction tensors (per dipole dipole interaction pair), i.e. outer list for pairId and inner list for modelId
+		bool gradient){
+
+	int num_models = d_arrays.size();
+	int num_pairIds = d_arrays[0].rows();
+	int num_groups = grouping.size();
+
+//	std::cout << "num_models " 	<< num_models << std::endl;
+//	std::cout << "num_pairIds "	<< num_pairIds << std::endl;
+//	std::cout << "num_groups "	<< num_groups << std::endl;
+	Eigen::VectorX<float> ret1(num_pairIds);
+	ret1.fill(0.0);
+
+	//Every element of ret2 (every d_matrix_grad) is a matrix(num_pairIds x 5)
+	std::vector<Eigen::Matrix<float, Eigen::Dynamic, 5>> ret2;
+	if(gradient){
+		ret2.reserve(num_models);
+		for (int i = 0; i < num_models; ++i) {
+			ret2.emplace_back(Eigen::Matrix<float, Eigen::Dynamic, 5>(num_pairIds, 5)); // d_matrix_grad
+		}
+	}else{
+		ret2 = std::vector<Eigen::Matrix<float, Eigen::Dynamic, 5>>(0);
+	}
+
+	for (int i = 0; i < num_groups; ++i) { //for every grouping block
+		//create a new empty d_matrix (filled with 0) to carry "average dipole interaction tensor" every group
+		std::vector<Eigen::Matrix<float, Eigen::Dynamic, 5>> d_matrix;// d_matrix is in the form num_pairIds<1 x 5> (previosly I thought it is num_pairIds<num_groups x 5> but it seems that I am wrong. in such case it would be just an Eigen::vector
+		//TODO remove the vector altogether and keep only an Eigen::Matrix(num_pairIds, 5)
+		d_matrix.reserve(num_pairIds);
+		for (int temp = 0; temp < num_pairIds; ++temp) {
+			Eigen::Matrix<float, Eigen::Dynamic, 5> d_matrix_temp(num_pairIds, 5); // TODO 95% confirmed
+			d_matrix_temp.fill(0);
+			d_matrix.emplace_back(d_matrix_temp);
+		}
+
+		std::vector<int> currentGrouping = grouping[i];
+		int currentGroupSize = currentGrouping.size();
+
+		// sum the dipole interaction tensors within each group/block
+		for (int j = 0; j < currentGroupSize; ++j) { //for every member of the grouping block
+			//sum relevant models into relevant groups (e.g. model 1 & 2 into group 1, and models 3 & 4 into group 2)
+			//d_matrix += d_array[currentGrouping[j]]
+			for(auto& d_matrix_temp : d_matrix){
+//				std::cout << "d_matrix_temp               (" << d_matrix_temp.rows() << " x " << d_matrix_temp.cols() << ")" <<std::endl;
+//				std::cout << "d_arrays[currentGrouping[j]](" << d_arrays[currentGrouping[j]].rows() << " x " << d_arrays[currentGrouping[j]].cols() << ")" <<std::endl;
+				d_matrix_temp += d_arrays[currentGrouping[j]];
+			}
+		}
+
+		if(gradient){
+			//# matrix is pairIDs * interaction tensor elements
+			Eigen::Matrix<float, Eigen::Dynamic, 5> d_matrix_grad_temp(num_pairIds, 5);
+			// calculate  d_matrix_grad
+			for (int j = 0; j < num_pairIds; j++) {
+//				d_matrix_grad_temp.row(j) = d_matrix[j].row(i) * 2 / num_models / currentGroupSize; //just left the line in case I need it later
+				d_matrix_grad_temp = d_matrix[j] * 2 / num_models / currentGroupSize;
+			}
+			for(int k = 0; k < currentGroupSize; k++){
+				// All models of the same group equally share the same value
+				// All elements are equal (i.e. all models get the same overall (average ?) value at the end.
+//				Eigen::Matrix<float, Eigen::Dynamic, 5> d_matrix_grad_lvalue = ret2[currentGrouping[k]]; //Matrix(num_pairIds x 5)
+				ret2[currentGrouping[k]] = d_matrix_grad_temp;
+			}
+		}
+
+		// Divide d_matrix by currentGroupSize to get the average
+		for(int j = 0; j < num_pairIds; j++){
+			auto& d_matrix_temp = d_matrix[j];
+			d_matrix_temp.array() /= currentGroupSize;
+		}
+
+		// calculate self dot product (norm squared) and accumulate group's contribution to mean g
+		for(int j = 0; j < num_pairIds; j++){
+			auto& d_matrix_temp = d_matrix[j];
+//			std::cout << "d_matrix_temp " << j << std::endl << d_matrix_temp << std::endl;
+			ret1(j) += d_matrix_temp.row(j).squaredNorm() * currentGroupSize / num_models;
+		}
+	}
+//	std::cout << "ret1" << std::endl << ret1 << std::endl;
+	return {ret1, ret2};
+}
+
 std::vector<Eigen::MatrixX3<float>>
 KEnRef::coord_array_to_r_array(
 		std::vector<Eigen::MatrixX3<float>> coord_array,

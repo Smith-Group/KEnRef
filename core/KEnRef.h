@@ -36,6 +36,14 @@ public:
 			bool gradient
 			);
 
+	// Calculate group norm squared from dipole-dipole interaction tensors
+	static std::tuple<Eigen::VectorX<float>, std::vector<Eigen::Matrix<float, Eigen::Dynamic, 5>>>
+	d_array_to_g(
+			const std::vector<Eigen::Matrix<float, Eigen::Dynamic, 5>>& d_arrays, //vector (models<pairId, tensor_elements>) with interaction tensors
+			const std::vector<std::vector<int>>& grouping, //groupings of models to average interaction tensors
+			bool gradient=false
+			);
+
 	//Calculate internuclear vectors from atomic coordinates
 	//!\param coord_array vector of Nx3 Matrix (models<atoms, xyz>) with atomic coordinates
 	//!\param atom_pairs matrix with each row having the names or indices of an atom pair (first dimension in `coord_array` Matrices)
