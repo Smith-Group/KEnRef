@@ -8,6 +8,7 @@
 #include <memory>
 #include <Eigen/Dense>
 #include "KEnRef.h"
+#include <iostream>//FIXME for testing only
 
 KEnRef::KEnRef() {
 	// TODO Auto-generated constructor stub
@@ -24,8 +25,7 @@ KEnRef::KEnRef(KEnRef &&other) {
 //KEnRef& KEnRef::operator=(const KEnRef &other) {}
 //KEnRef& KEnRef::operator=(KEnRef &&other) {}
 
-// Equivalen to r_array_to_d_array() in KE.R
-std::tuple<Eigen::MatrixXf, Eigen::MatrixXf> KEnRef::r_array_to_d_array(const Eigen::MatrixX3f& Nxyz, bool gradient){
+std::tuple<Eigen::Matrix<float, Eigen::Dynamic, 5>, Eigen::Matrix<float, Eigen::Dynamic, 15>> KEnRef::r_array_to_d_array(const Eigen::MatrixX3f& Nxyz, bool gradient){
 	int N = Nxyz.rows();
 
 	auto x 			= Nxyz.col(0).array();
@@ -41,7 +41,7 @@ std::tuple<Eigen::MatrixXf, Eigen::MatrixXf> KEnRef::r_array_to_d_array(const Ei
 		x2_y2_z2_p52, x2_y2_z2_p72,
 //		sqrt3_x2_y2_z2_p52, sqrt3_x2_y2_z2_p72,
 		half_minusx2_minusy2__z2,
-		sqrt3_over_x2_y2_z2_p52, neg5_over_x2_y2_z2_p72, neg5_over_2_x2_y2_z2_p72, neg5sqrt3_over_x2_y2_z2_p72
+		sqrt3_over_x2_y2_z2_p52, neg5_over_x2_y2_z2_p72, neg5sqrt3_over_x2_y2_z2_p72, neg5sqrt3_over_2_x2_y2_z2_p72
 	};
 
 
@@ -55,8 +55,8 @@ std::tuple<Eigen::MatrixXf, Eigen::MatrixXf> KEnRef::r_array_to_d_array(const Ei
 	CACHE(xz) 			= x * z;
 	CACHE(yz) 			= y * z;
 //	CACHE(xyz) 			= CACHE(xy) * z;
-	CACHE(x2_y2_z2) 	= Nxyz.squaredNorm(); //x2 + y2 + z2;
-	CACHE(x2_minusy2) 	= x2 - y2;
+	CACHE(x2_y2_z2) 	= CACHE(x2) + CACHE(y2) + CACHE(z2); //x2 + y2 + z2;
+	CACHE(x2_minusy2) 	= CACHE(x2) - CACHE(y2);
 	CACHE(x2_y2_z2_p52) = CACHE(x2_y2_z2).pow(5).sqrt();
 	CACHE(half_minusx2_minusy2__z2) = ((-CACHE(x2) - CACHE(y2)) / 2) + CACHE(z2);
 
@@ -67,10 +67,14 @@ std::tuple<Eigen::MatrixXf, Eigen::MatrixXf> KEnRef::r_array_to_d_array(const Ei
 	ret1.col(2) = sqrt3 * CACHE(xz);
 	ret1.col(3) = sqrt3 * CACHE(yz);
 	ret1.col(4) = sqrt3 * CACHE(xy);
+//	std::cout << "ret1 before division" << std::endl << ret1 << std::endl;
+//	std::cout << "x2_y2_z2" << std::endl << CACHE(x2_y2_z2) << std::endl;
+//	std::cout << "x2_y2_z2 power 5/2" << std::endl << CACHE(x2_y2_z2_p52).rowwise().replicate<5>() << std::endl;
+
 	ret1.array() /= CACHE(x2_y2_z2_p52).rowwise().replicate<5>(); //TODO double check this line
 
 	if(!gradient){
-		return {ret1, Eigen::MatrixXf(0, 0)};
+		return {ret1, Eigen::Matrix<float, Eigen::Dynamic, 15>{}};
 	}
 
 	CACHE(x2_y2_z2_p72) = CACHE(x2_y2_z2).pow(7).sqrt();
@@ -78,8 +82,8 @@ std::tuple<Eigen::MatrixXf, Eigen::MatrixXf> KEnRef::r_array_to_d_array(const Ei
 //	CACHE(sqrt3_x2_y2_z2_p72) = sqrt3 * CACHE(x2_y2_z2_p72);
 	CACHE(sqrt3_over_x2_y2_z2_p52)			= sqrt3      / CACHE(x2_y2_z2_p52);
 	CACHE(neg5_over_x2_y2_z2_p72) 			= -5.0       / CACHE(x2_y2_z2_p72);
-	CACHE(neg5_over_2_x2_y2_z2_p72)			= -2.5       / CACHE(x2_y2_z2_p72);
 	CACHE(neg5sqrt3_over_x2_y2_z2_p72)		= -5 * sqrt3 / CACHE(x2_y2_z2_p72);
+	CACHE(neg5sqrt3_over_2_x2_y2_z2_p72)	= CACHE(neg5sqrt3_over_x2_y2_z2_p72) / 2;
 //	CACHE(sqrt3_over_x2_y2_z2_p52)			=  sqrt3 / CACHE(x2_y2_z2).pow(5).sqrt();
 //	CACHE(_neg10_over_sqrt3_x2_y2_z2_p72) 	= -10 / (sqrt3 * CACHE(x2_y2_z2).pow(7).sqrt());
 
@@ -89,9 +93,9 @@ std::tuple<Eigen::MatrixXf, Eigen::MatrixXf> KEnRef::r_array_to_d_array(const Ei
 	ret2.col(1)  = (y * CACHE(half_minusx2_minusy2__z2) * CACHE(neg5_over_x2_y2_z2_p72))	- (    y / CACHE(x2_y2_z2_p52));
 	ret2.col(2)  = (z * CACHE(half_minusx2_minusy2__z2) * CACHE(neg5_over_x2_y2_z2_p72))	+ (2 * z / CACHE(x2_y2_z2_p52));
 
-	ret2.col(3)  = (x * CACHE(x2_minusy2) * CACHE(neg5_over_2_x2_y2_z2_p72))	+ (x * CACHE(sqrt3_over_x2_y2_z2_p52));
-	ret2.col(4)  = (y * CACHE(x2_minusy2) * CACHE(neg5_over_2_x2_y2_z2_p72)) 	- (y * CACHE(sqrt3_over_x2_y2_z2_p52));
-	ret2.col(5)  = (z * CACHE(x2_minusy2) * CACHE(neg5_over_2_x2_y2_z2_p72));
+	ret2.col(3)  = (x * CACHE(x2_minusy2) * CACHE(neg5sqrt3_over_2_x2_y2_z2_p72))	+ (x * CACHE(sqrt3_over_x2_y2_z2_p52));
+	ret2.col(4)  = (y * CACHE(x2_minusy2) * CACHE(neg5sqrt3_over_2_x2_y2_z2_p72)) 	- (y * CACHE(sqrt3_over_x2_y2_z2_p52));
+	ret2.col(5)  = (z * CACHE(x2_minusy2) * CACHE(neg5sqrt3_over_2_x2_y2_z2_p72));
 
 	ret2.col(6)  = (x * CACHE(xz) * CACHE(neg5sqrt3_over_x2_y2_z2_p72)) 		+ (z * CACHE(sqrt3_over_x2_y2_z2_p52));
 	ret2.col(7)  = (y * CACHE(xz) * CACHE(neg5sqrt3_over_x2_y2_z2_p72));
@@ -111,10 +115,12 @@ std::tuple<Eigen::MatrixXf, Eigen::MatrixXf> KEnRef::r_array_to_d_array(const Ei
 }
 
 //	std::tuple<Eigen::MatrixXf, Eigen::MatrixXf> KEnRef::r_array_to_d_array(const Eigen::MatrixX3f& Nxyz, bool gradient){
-std::tuple<std::vector<Eigen::MatrixXf>, std::vector<Eigen::MatrixXf>>
-KEnRef::r_array_to_d_array(std::vector<Eigen::MatrixX3f> models_Nxyz, bool gradient){
-	std::vector<Eigen::MatrixXf> ret1(models_Nxyz.size());
-	std::vector<Eigen::MatrixXf> ret2(models_Nxyz.size());
+std::tuple<std::vector<Eigen::Matrix<float, Eigen::Dynamic, 5>>, std::vector<Eigen::Matrix<float, Eigen::Dynamic, 15>>>
+KEnRef::r_array_to_d_array(const std::vector<Eigen::MatrixX3f>& models_Nxyz, bool gradient){
+	std::vector<Eigen::Matrix<float, Eigen::Dynamic, 5>> ret1;
+	std::vector<Eigen::Matrix<float, Eigen::Dynamic, 15>> ret2;
+	ret1.reserve(models_Nxyz.size());
+	ret2.reserve(models_Nxyz.size());
 	for (auto Nxyz: models_Nxyz) {
 		auto [arr1, arr2] = r_array_to_d_array(Nxyz, gradient);
 		ret1.emplace_back(arr1);
@@ -128,11 +134,12 @@ KEnRef::coord_array_to_r_array(
 		std::vector<Eigen::MatrixX3<float>> coord_array,
 		std::vector<std::tuple<int, int>> atomId_pairs)
 {
-	std::vector<Eigen::MatrixX3<float>> ret(coord_array.size());
+	std::vector<Eigen::MatrixX3<float>> ret;
+	ret.reserve(coord_array.size());
 	for (int model_no = 0; model_no < coord_array.size(); ++model_no) {
 		Eigen::MatrixX3<float> mat(atomId_pairs.size(), 3);
 		for (int i = 0; i < mat.rows(); ++i) {
-			auto [atom0, atom1] = atomId_pairs.at(model_no);
+			auto [atom0, atom1] = atomId_pairs.at(i);
 			mat.row(i) = coord_array[model_no].row(atom1) - coord_array[model_no].row(atom0);
 		}
 		ret.emplace_back(mat);
