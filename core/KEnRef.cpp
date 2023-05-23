@@ -71,7 +71,7 @@ std::tuple<Eigen::Matrix<float, Eigen::Dynamic, 5>, Eigen::Matrix<float, Eigen::
 //	std::cout << "x2_y2_z2" << std::endl << CACHE(x2_y2_z2) << std::endl;
 //	std::cout << "x2_y2_z2 power 5/2" << std::endl << CACHE(x2_y2_z2_p52).rowwise().replicate<5>() << std::endl;
 
-	ret1.array() /= CACHE(x2_y2_z2_p52).rowwise().replicate<5>(); //TODO double check this line
+	ret1.array() /= CACHE(x2_y2_z2_p52).rowwise().replicate<5>();
 
 	if(!gradient){
 		return {ret1, Eigen::Matrix<float, Eigen::Dynamic, 15>{}};
@@ -125,6 +125,26 @@ KEnRef::r_array_to_d_array(const std::vector<Eigen::MatrixX3f>& models_Nxyz, boo
 		auto [arr1, arr2] = r_array_to_d_array(Nxyz, gradient);
 		ret1.emplace_back(arr1);
 		ret2.emplace_back(arr2);
+	}
+	return {ret1, ret2};
+}
+
+std::tuple<std::vector<Eigen::VectorX<float>>, std::vector<std::vector<Eigen::Matrix<float, Eigen::Dynamic, 5>>>>
+KEnRef::d_arrays_to_g(
+		const std::vector<Eigen::Matrix<float, Eigen::Dynamic, 5>>& d_array, //vector (models<pairId, tensor_elements>) with interaction tensors
+		const std::vector<std::vector<std::vector<int>>>& groupings, //groupings of models to average interaction tensors (per dipole dipole interaction pair), i.e. outer list for pairId and inner list for modelId
+		bool gradient)
+{
+	std::vector<Eigen::VectorX<float>> ret1;
+	std::vector<std::vector<Eigen::Matrix<float, Eigen::Dynamic, 5>>> ret2;
+	ret1.reserve(d_array.size());
+
+	for(int i = 0; i < groupings.size(); i++){
+		auto grouping = groupings[i];
+		auto [ ret1_temp, ret2_temp] = d_array_to_g(d_array, grouping, gradient);
+		ret1.emplace_back(ret1_temp);
+		if(gradient)
+			ret2.emplace_back(ret2_temp);
 	}
 	return {ret1, ret2};
 }
@@ -214,6 +234,38 @@ KEnRef::d_array_to_g(
 	return {ret1, ret2};
 }
 
+
+
+// Calculate restraint energy from group norm squared values
+// returns restraint energy calculated using \eqn{k*(g-g0)^2} +/- gradient using \eqn{2*k(g-g0)}
+std::tuple<Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>, Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>>
+KEnRef::g_to_energy(
+		Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> g,	// current group norm squared values
+		Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> g0,	// target group norm squared values
+		float k,	// force constant
+		bool gradient)
+{
+	std::cout << "g   (" << g.rows() << " x " << g.cols() << ")" <<std::endl;
+	std::cout << "g0  (" << g0.rows() << " x " << g0.cols() << ")" <<std::endl;
+	Eigen::Array<float, Eigen::Dynamic, Eigen::Dynamic> g_minus_g0 = g.array() - g0.array();
+	auto ret1 = k * g_minus_g0.square().matrix();
+    if (gradient) {
+		auto ret2 = 2.0 * k *  g_minus_g0.matrix();
+		return {ret1, ret2};
+    }else{
+    	return {ret1, Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>{}};
+    }
+}
+
+Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>
+KEnRef::vectorOfVectors_to_Matrix(std::vector<Eigen::VectorX<float>> g_vect){
+	Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> g_mat(g_vect[0].rows(), g_vect.size());
+	for (int i = 0; i < g_vect.size(); ++i) {
+		g_mat.col(i) = g_vect[i];
+	}
+	return g_mat;
+}
+
 std::vector<Eigen::MatrixX3<float>>
 KEnRef::coord_array_to_r_array(
 		std::vector<Eigen::MatrixX3<float>> coord_array,
@@ -233,12 +285,13 @@ KEnRef::coord_array_to_r_array(
 }
 
 
-std::tuple<Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>, Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>>
+std::tuple<float, std::vector<Eigen::MatrixX3<float>>>
 KEnRef::coord_array_to_energy(
 		std::vector<Eigen::MatrixX3<float>> coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
 		std::vector<std::tuple<std::string, std::string>> atomName_pairs, 	// Matrix with each row having the names of an atom pair (related to first dimension in `coord_array` matrices)
-		std::vector<std::vector<int>> grouping_list,	// list of lists of integer vectors giving groupings of models to average interaction tensors
-		float g0, float k,
+		std::vector<std::vector<std::vector<int>>> grouping_list,	// list of lists of integer vectors giving groupings of models to average interaction tensors
+		Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> g0,
+		float k,
 		std::map<std::string, int> atomNames_2_atomIds,
 		bool gradient)
 {
@@ -252,32 +305,75 @@ KEnRef::coord_array_to_energy(
 }
 
 
-std::tuple<Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>, Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>>
+std::tuple<float, std::vector<Eigen::MatrixX3<float>>>
 KEnRef::coord_array_to_energy(
 		std::vector<Eigen::MatrixX3<float>> coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
 		std::vector<std::tuple<int, int>> atomId_pairs, 	// Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
-		std::vector<std::vector<int>> grouping_list,	// list of lists of integer vectors giving groupings of models to average interaction tensors
-		float g0, float k, bool gradient)
+		std::vector<std::vector<std::vector<int>>> grouping_list,	// list of lists of integer vectors giving groupings of models to average interaction tensors
+		Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> g0, float k, bool gradient)
+{
+	// calculate inter nuclear vectors
+	auto r_arrays = coord_array_to_r_array(coord_array, atomId_pairs);
+
+	// calculate dipole-dipole interaction tensors [and their derivates]
+	auto [d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, gradient);
+
+	// calculate norm squared for different groupings of dipole-dipole interaction tensors
+	auto [g_list, g_list_grad] = d_arrays_to_g(d_arrays, grouping_list, gradient);
+
+	auto g_matrix = vectorOfVectors_to_Matrix(g_list);
+
+	// calculate energies from the norm squared values
+	auto [energy_matrix, energy_matrix_grad] = g_to_energy(g_matrix, g0, k, gradient);
+	std::cout << "energy_matrix" << std::endl << energy_matrix << std::endl;
+
+	// return the sum of all the individual restraint energies
+	float sum = energy_matrix.sum();
+	std::cout << "sum" << std::endl << sum << std::endl;
+
+	//add derivates
+	if(gradient){
+		// TODO calculate de/dd = de/dg * dg/dd for all individual interaction tensor components
+
+
+
+
+
+		// TODO sum the contributions from the different norm squared values
+
+		//TODO
+
+		std::vector<Eigen::MatrixX3<float>> gradients;
+		gradients.reserve(coord_array.size());
+		for (int i = 0; i < coord_array.size(); ++i) { // seq_len(dim(d_energy_d_r_array)[1])
+
+		//TODO
+		}
+
+
+
+		return {sum, gradient};
+	}else{
+		return {sum, std::vector<Eigen::MatrixX3<float>>{}};
+	}
+}
+
+
+Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>
+KEnRef::coord_array_to_g(
+		std::vector<Eigen::MatrixX3<float>> coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
+		std::vector<std::tuple<int, int>> atomId_pairs, 	// Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
+		std::vector<std::vector<std::vector<int>>> grouping_list)	// list of lists of integer vectors giving groupings of models to average interaction tensors
 {
 	// calculate internuclear vectors
 	auto r_arrays = coord_array_to_r_array(coord_array, atomId_pairs);
 
-	// calculate dipole-dipole interaction tensors [and their derivates]
-	auto [d_arrays, d_arrays_derivatives] = r_array_to_d_array(r_arrays, gradient);
+	// calculate dipole-dipole interaction tensors [and their derivatives]
+	auto [d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, false); //TODO AMR Why this does not have default value for gradient
 
 	// calculate norm squared for different groupings of dipole-dipole interaction tensors
-	//g_list <- lapply(grouping_list, function(grouping) d_array_to_g(d_array, grouping, gradient=gradient))
+	//		g_list <- lapply(grouping_list, function(grouping) d_array_to_g(d_array, grouping, gradient=FALSE))
+	auto [g_list, ignore] = d_arrays_to_g(d_arrays, grouping_list);
 
-	// convert the list above into a matrix (pairs, groupings)
-	//g_matrix <- simplify2array(g_list)
-
-	// calculate energies from the norm squared values
-	//energy_matrix <- g_to_energy(g_matrix, g0, k, gradient=gradient)
-
-	// return the sum of all the individual restraint energies
-	//value <- sum(energy_matrix)
-
-	//add derivates
-
-	return {Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>(0,0), Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>(0,0)};
+	return vectorOfVectors_to_Matrix(g_list);
 }

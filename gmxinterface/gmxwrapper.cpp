@@ -80,7 +80,7 @@ int main(int argc, char* argv[]) {// This should be the main function that loads
 
 
 
-	std::vector<std::vector<int>> toy_grouping_list[] {{{0, 1, 2, 3}}, {{0, 1}, {2, 3}}, {{0}, {1}, {2}, {3}}};
+	std::vector<std::vector<std::vector<int>>> toy_grouping_list {{{0, 1, 2, 3}}, {{0, 1}, {2, 3}}, {{0}, {1}, {2}, {3}}};
 	Eigen::Matrix<float, Eigen::Dynamic, 3> toy_r_mat(4, 3);
 	toy_r_mat <<
 			0.848351683690084, -0.529433112659379, 0,
@@ -101,7 +101,7 @@ int main(int argc, char* argv[]) {// This should be the main function that loads
 		toy_d_array_vec.emplace_back(toy_d_array.row(i));
 	};
 
-	for (int gg = 0; gg < 3; gg++) {
+	for (int gg = 0; gg < toy_grouping_list.size(); gg++) {
 		std::cout << "Calculating g" << gg+1 << std::endl;
 		auto [toy_g_array, toy_g_array_grad] = KEnRef::d_array_to_g(toy_d_array_vec, toy_grouping_list[gg], true);
 		std::cout << "toy_g_array" << std::endl << toy_g_array << std::endl;
@@ -111,6 +111,8 @@ int main(int argc, char* argv[]) {// This should be the main function that loads
 		}
 		std::cout << "----------" << std::endl;
 	}
+
+	/////////////////////////////////////////////////////////////////////////
 
 	Eigen::Matrix<float, Eigen::Dynamic, 3> model1(5, 3);
 	model1 <<
@@ -127,10 +129,10 @@ int main(int argc, char* argv[]) {// This should be the main function that loads
 			33.471, 49.251, 21.415,
 			34.819, 49.854, 22.481;
 	std::vector<Eigen::Matrix<float, Eigen::Dynamic, 3>> eros3_sub_coord{model1, model2};
-	std::vector<std::tuple<int, int>> atom_idPairs{{0, 1}, {0, 2}, {0, 3}, {0, 4}};
-	std::vector<std::vector<int>> eros3_grouping_list[] {{{0}, {1}}, {{0, 1}}};
+	std::vector<std::tuple<int, int>> eros3_sub_atom_idPairs{{0, 1}, {0, 2}, {0, 3}, {0, 4}};
+	std::vector<std::vector<std::vector<int>>> eros3_grouping_list {{{0}, {1}}, {{0, 1}}};
 
-	auto eros3_sub_r_array = KEnRef::coord_array_to_r_array(eros3_sub_coord, atom_idPairs);
+	auto eros3_sub_r_array = KEnRef::coord_array_to_r_array(eros3_sub_coord, eros3_sub_atom_idPairs);
 	std::cout << "eros3_sub_r_array" << std::endl;
 	for (int i = 0; i < eros3_sub_r_array.size(); i++) {
 		auto r_array = eros3_sub_r_array[i];
@@ -148,23 +150,42 @@ int main(int argc, char* argv[]) {// This should be the main function that loads
 		std::cout << "eros3_sub_d_array_grad " << i+1 << std::endl << matrix << std::endl;
 	}
 
-
-	for (int gg = 0; gg < 2; gg++) {
-			std::cout << "Calculating eros3_sub g" << gg+1 << std::endl;
-			auto [eros3_sub_g_list, eros3_sub_g_list_grad] = KEnRef::d_array_to_g(eros3_sub_d_array, eros3_grouping_list[gg], true);
-			std::cout << "eros3_sub_g_list" << std::endl << eros3_sub_g_list << std::endl;
-			std::cout << "eros3_sub_g_list_grad" << std::endl;
-			for(auto matrix: eros3_sub_g_list_grad){
-				std::cout << matrix << /*std::endl <<*/ std::endl;
-				std::cout << "----------" << std::endl;
-			}
-			std::cout << "=============" << std::endl;
+	std::vector<Eigen::VectorX<float>> g_list;
+	for (int gg = 0; gg < eros3_grouping_list.size(); gg++) {
+		std::cout << "Calculating eros3_sub g" << gg+1 << std::endl;
+		auto [eros3_sub_g_list, eros3_sub_g_list_grad] = KEnRef::d_array_to_g(eros3_sub_d_array, eros3_grouping_list[gg], true); //TODO d_arrays_to_g ???
+		std::cout << "eros3_sub_g_list" << std::endl << eros3_sub_g_list << std::endl;
+		std::cout << "eros3_sub_g_list_grad" << std::endl;
+		for(auto matrix: eros3_sub_g_list_grad){
+			std::cout << matrix << /*std::endl <<*/ std::endl;
+			std::cout << "----------" << std::endl;
 		}
+		std::cout << "=============" << std::endl;
+		g_list.emplace_back(eros3_sub_g_list);
+	}
+
+	auto g_matrix = KEnRef::vectorOfVectors_to_Matrix(g_list);
+	std::cout << "g_matrix" << std::endl << g_matrix << std::endl;
+
+
+	auto eros3_sub_g = KEnRef::coord_array_to_g(eros3_sub_coord, eros3_sub_atom_idPairs, eros3_grouping_list);
+	std::cout << "eros3_sub_g" << std::endl << eros3_sub_g << std::endl;
+
+	std::vector<Eigen::MatrixX3<float>> m1_twice = {eros3_sub_coord[0], eros3_sub_coord[0]};
+	//get g values using M1 twice
+	auto eros3_sub_1_g = KEnRef::coord_array_to_g(m1_twice, eros3_sub_atom_idPairs, eros3_grouping_list);
+	std::cout << "eros3_sub_1_g" << std::endl << eros3_sub_1_g << std::endl;
+
+
+//	auto [g_list, eros3_sub_g_list_grad] = KEnRef::d_array_to_g(eros3_sub_d_array, eros3_grouping_list, true);
+//	KEnRef::g_to_energy(g_matrix, eros3_sub_1_g, 1.0, true);
 
 
 
-//		KEnRef::coord_array_to_energy(eros3_sub_coord, atomId_pairs, grouping_list, g0, k, gradient)
-//		exit(0);
+	KEnRef::coord_array_to_energy(eros3_sub_coord, eros3_sub_atom_idPairs, eros3_grouping_list, eros3_sub_1_g, 1.0, true);
+
+
+	exit(0);
 
 
 	//		KEnRefMDModule kEnRefMDModule;
