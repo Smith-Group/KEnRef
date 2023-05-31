@@ -33,10 +33,10 @@ public:
 	static std::tuple<std::vector<Eigen::Matrix<float, Eigen::Dynamic, 5>>, std::vector<Eigen::Matrix<float, Eigen::Dynamic, 15>>>
 	r_array_to_d_array(
 			const std::vector<Eigen::MatrixX3<float>>& r_array,	//model<pairID, XYZ>
-			bool gradient
+			bool gradient=false
 			);
 
-	// Calculate group norm squared from dipole-dipole interaction tensors
+	// Calculate group norm squared from dipole-dipole interaction tensors, and optionally their gradients in the 5 tensor dimensions.
 	static std::tuple<Eigen::VectorX<float>, std::vector<Eigen::Matrix<float, Eigen::Dynamic, 5>>>
 	d_array_to_g(
 			const std::vector<Eigen::Matrix<float, Eigen::Dynamic, 5>>& d_arrays, //vector (models<pairId, tensor_elements>) with interaction tensors
@@ -101,7 +101,7 @@ public:
 			bool gradient=false // whether to calculate the derivative
 			);
 
-	//Collects list/vector of norm squared of all groups in a single matrix (num_pairIds, num_models)
+	//Collects list/vector of norm squared of all groups in a single matrix (num_pairIds, num_models (or num of grouping vectors?))
 	static Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>
 	vectorOfVectors_to_Matrix(std::vector<Eigen::VectorX<float>> g_vect);
 

@@ -245,8 +245,8 @@ KEnRef::g_to_energy(
 		float k,	// force constant
 		bool gradient)
 {
-	std::cout << "g   (" << g.rows() << " x " << g.cols() << ")" <<std::endl;
-	std::cout << "g0  (" << g0.rows() << " x " << g0.cols() << ")" <<std::endl;
+//	std::cout << "g   (" << g.rows() << " x " << g.cols() << ")" <<std::endl;
+//	std::cout << "g0  (" << g0.rows() << " x " << g0.cols() << ")" <<std::endl;
 	Eigen::Array<float, Eigen::Dynamic, Eigen::Dynamic> g_minus_g0 = g.array() - g0.array();
 	auto ret1 = k * g_minus_g0.square().matrix();
     if (gradient) {
@@ -320,39 +320,95 @@ KEnRef::coord_array_to_energy(
 
 	// calculate norm squared for different groupings of dipole-dipole interaction tensors
 	auto [g_list, g_list_grad] = d_arrays_to_g(d_arrays, grouping_list, gradient);
+	std::cout << "g_list_grad" << std::endl;
+	for(int i = 0; i < g_list_grad.size(); i++){
+		auto g_list_grad_i = g_list_grad[i];
+		for (int j = 0; j < g_list_grad_i.size(); j++){
+			std::cout << "g_list_grad " << i+1 << " " << j+1 << std::endl;
+			std::cout << g_list_grad_i[j] << std::endl;
+		}
+	}
 
 	auto g_matrix = vectorOfVectors_to_Matrix(g_list);
 
 	// calculate energies from the norm squared values
 	auto [energy_matrix, energy_matrix_grad] = g_to_energy(g_matrix, g0, k, gradient);
 	std::cout << "energy_matrix" << std::endl << energy_matrix << std::endl;
+	std::cout << "energy_matrix_grad" << std::endl << energy_matrix_grad << std::endl;
 
 	// return the sum of all the individual restraint energies
 	float sum = energy_matrix.sum();
 	std::cout << "sum" << std::endl << sum << std::endl;
 
-	//add derivates
+	//Add derivates using the chain rule: de/dr = de/dd  * dd/dr = de/dg * dg/dd * dd/dr
 	if(gradient){
-		// TODO calculate de/dd = de/dg * dg/dd for all individual interaction tensor components
-
-
-
-
-
-		// TODO sum the contributions from the different norm squared values
-
-		//TODO
-
-		std::vector<Eigen::MatrixX3<float>> gradients;
-		gradients.reserve(coord_array.size());
-		for (int i = 0; i < coord_array.size(); ++i) { // seq_len(dim(d_energy_d_r_array)[1])
-
-		//TODO
+		int num_pairs = atomId_pairs.size();
+		int num_models = coord_array.size();
+		int num_atoms = coord_array[0].rows();
+		// First calculate de/dd = de/dg * dg/dd for all individual interaction tensor components
+		std::vector<Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>>d_energy_d_d_array; //<num_models(num_pairs, 5)>
+		d_energy_d_d_array.reserve(num_models); //num_models
+		for(int i = 0; i < num_models; i++){
+			d_energy_d_d_array.emplace_back(Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>::Zero(num_pairs, 5));
 		}
 
+		for(int i = 0; i < g_list.size(); i++){//for each grouping
+			auto e_matrix_grad_replicated = energy_matrix_grad.col(i).rowwise().replicate(5).array();
+			auto g_list_grad_group_i = g_list_grad[i]; //<num_models>(num_pairs x 5)
+			std::cout << "d_energy_d_d_array" << " after iteration " << i << std::endl;
+			for (int j = 0; j < g_list_grad_group_i.size(); j++) { //(num_pairs x 5)
+				d_energy_d_d_array[j].array() += (e_matrix_grad_replicated * g_list_grad_group_i[j].array());
+				std::cout << d_energy_d_d_array[j] << std::endl;
+			}
+		}
 
+		// Then calculate de/dr = de/dd  * dd/dr for each xyz component of the internuclear vectors
+		std::vector<Eigen::Matrix<float, Eigen::Dynamic, 15>> d_energy_d_r_array_all;
+		d_energy_d_r_array_all.reserve(num_models);
+		for(int i = 0; i < num_models; i++){
+//			std::cout << "d_energy_d_d_array[i].replicate(3,1).reshaped(num_pairs, 15)" << std::endl << d_energy_d_d_array[i].replicate(3,1).reshaped(num_pairs, 15) << std::endl;
+//			std::cout << "d_arrays_grad[i]" << std::endl << d_arrays_grad[i] << std::endl;
+			d_energy_d_r_array_all.emplace_back(d_arrays_grad[i].array() * d_energy_d_d_array[i].replicate(3,1).reshaped(num_pairs, 15).array());
+//			std::cout << "d_energy_d_d_array_all[" << i <<"]" << std::endl << d_energy_d_r_array_all[i] <<std::endl;
+		}
 
-		return {sum, gradient};
+		// sum the individual interaction tensor component derivatives associated with x, y, and z
+		std::vector<Eigen::Matrix<float, Eigen::Dynamic, 3>> d_energy_d_r_array;
+		d_energy_d_r_array.reserve(num_models);
+		for(int i = 0; i< num_models; i++){
+			d_energy_d_r_array.emplace_back(Eigen::MatrixX3<float>(num_pairs, 3));
+//			auto temp_array = d_energy_d_r_array[i];
+			Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> temp;
+			std::cout << "d_energy_d_r_array" << std::endl;
+			for(int j = 0; j< 3; j++){
+				temp = d_energy_d_r_array_all[i](Eigen::all, Eigen::seq(j, 15, Eigen::fix<3>));
+				d_energy_d_r_array[i].col(j) = temp.rowwise().sum();
+			}
+			std::cout << d_energy_d_r_array[i] << std::endl;
+		}
+
+		std::vector<Eigen::MatrixX3<float>> gradients;
+		gradients.reserve(num_models);
+		for(int i = 0; i < num_models; i++){
+			gradients.emplace_back(Eigen::MatrixX3<float>(num_atoms, 3));
+			gradients[i].setZero(); //TOOD There should be a better way than this
+		}
+		// propagate the internuclear vector derivatives back onto the atomic coordinates
+		for (int p = 0; p < num_pairs; ++p) { // seq_len(dim(d_energy_d_r_array)[1])
+			for(int m = 0; m < num_models; m++){
+				auto[atomId0, atomId1] = atomId_pairs[p];
+				auto pair_grad = d_energy_d_r_array[m].row(p);
+				gradients[m].row(atomId0) -= pair_grad;
+				gradients[m].row(atomId1) += pair_grad;
+			}
+		}
+
+		std::cout << "gradients" << std::endl;
+		for(int m = 0; m < num_models; m++){
+			std::cout << "model " << m << std::endl;
+			std::cout << gradients[m] << std::endl;
+		}
+		return {sum, gradients};
 	}else{
 		return {sum, std::vector<Eigen::MatrixX3<float>>{}};
 	}
@@ -369,7 +425,7 @@ KEnRef::coord_array_to_g(
 	auto r_arrays = coord_array_to_r_array(coord_array, atomId_pairs);
 
 	// calculate dipole-dipole interaction tensors [and their derivatives]
-	auto [d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, false); //TODO AMR Why this does not have default value for gradient
+	auto [d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays);
 
 	// calculate norm squared for different groupings of dipole-dipole interaction tensors
 	//		g_list <- lapply(grouping_list, function(grouping) d_array_to_g(d_array, grouping, gradient=FALSE))
