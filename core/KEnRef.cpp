@@ -10,22 +10,15 @@
 #include "KEnRef.h"
 #include <iostream>//FIXME for testing only
 
-KEnRef::KEnRef() {
-	// TODO Auto-generated constructor stub
-}
-KEnRef::~KEnRef() {
-	// TODO Auto-generated destructor stub
-}
-KEnRef::KEnRef(const KEnRef &other) {
-	// TODO Auto-generated constructor stub
-}
-KEnRef::KEnRef(KEnRef &&other) {
-	// TODO Auto-generated constructor stub
-}
+KEnRef::KEnRef() {}
+KEnRef::~KEnRef() {}
+KEnRef::KEnRef(const KEnRef &other) {}
+KEnRef::KEnRef(KEnRef &&other) {}
 //KEnRef& KEnRef::operator=(const KEnRef &other) {}
 //KEnRef& KEnRef::operator=(KEnRef &&other) {}
 
-std::tuple<Eigen::Matrix<float, Eigen::Dynamic, 5>, Eigen::Matrix<float, Eigen::Dynamic, 15>> KEnRef::r_array_to_d_array(const Eigen::MatrixX3f& Nxyz, bool gradient){
+std::tuple<Eigen::Matrix<float, Eigen::Dynamic, 5>, Eigen::Matrix<float, Eigen::Dynamic, 15>> KEnRef::r_array_to_d_array(const Eigen::MatrixX3<float>& Nxyz, bool gradient){
+//	std::cout << "r_array_to_d_array(Nxyz) called" << std::endl;
 	int N = Nxyz.rows();
 
 	auto x 			= Nxyz.col(0).array();
@@ -44,7 +37,6 @@ std::tuple<Eigen::Matrix<float, Eigen::Dynamic, 5>, Eigen::Matrix<float, Eigen::
 		sqrt3_over_x2_y2_z2_p52, neg5_over_x2_y2_z2_p72, neg5sqrt3_over_x2_y2_z2_p72, neg5sqrt3_over_2_x2_y2_z2_p72
 	};
 
-
 	//TODO use multiplying by inverse() instead of division
 	Eigen::ArrayXXf cache(N, 15); //must be Array (not Matrix) to allow item-wise operations
 #define CACHE(a) (cache.col(a))
@@ -60,7 +52,6 @@ std::tuple<Eigen::Matrix<float, Eigen::Dynamic, 5>, Eigen::Matrix<float, Eigen::
 	CACHE(x2_y2_z2_p52) = CACHE(x2_y2_z2).pow(5).sqrt();
 	CACHE(half_minusx2_minusy2__z2) = ((-CACHE(x2) - CACHE(y2)) / 2) + CACHE(z2);
 
-
 	Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> ret1(N, 5);
 	ret1.col(0) = CACHE(half_minusx2_minusy2__z2);
 	ret1.col(1) = sqrt3 * CACHE(x2_minusy2) / 2;
@@ -71,6 +62,7 @@ std::tuple<Eigen::Matrix<float, Eigen::Dynamic, 5>, Eigen::Matrix<float, Eigen::
 //	std::cout << "x2_y2_z2" << std::endl << CACHE(x2_y2_z2) << std::endl;
 //	std::cout << "x2_y2_z2 power 5/2" << std::endl << CACHE(x2_y2_z2_p52).rowwise().replicate<5>() << std::endl;
 
+//	std::cout << "ret1.array()" << ret1.array() << std::endl /*<< "CACHE(x2_y2_z2_p52)" << CACHE(x2_y2_z2_p52)*/ << std::endl << "CACHE(x2_y2_z2_p52).rowwise().replicate<5>()" << std::endl << CACHE(x2_y2_z2_p52).rowwise().replicate<5>() << std::endl;
 	ret1.array() /= CACHE(x2_y2_z2_p52).rowwise().replicate<5>();
 
 	if(!gradient){
@@ -117,7 +109,8 @@ std::tuple<Eigen::Matrix<float, Eigen::Dynamic, 5>, Eigen::Matrix<float, Eigen::
 //	std::tuple<Eigen::MatrixXf, Eigen::MatrixXf> KEnRef::r_array_to_d_array(const Eigen::MatrixX3f& Nxyz, bool gradient){
 std::tuple<std::vector<Eigen::Matrix<float, Eigen::Dynamic, 5>>, std::vector<Eigen::Matrix<float, Eigen::Dynamic, 15>>>
 KEnRef::r_array_to_d_array(const std::vector<Eigen::MatrixX3f>& models_Nxyz, bool gradient){
-	std::vector<Eigen::Matrix<float, Eigen::Dynamic, 5>> ret1;
+//	std::cout << "r_array_to_d_array(models_Nxyz) called" << std::endl;
+std::vector<Eigen::Matrix<float, Eigen::Dynamic, 5>> ret1;
 	std::vector<Eigen::Matrix<float, Eigen::Dynamic, 15>> ret2;
 	ret1.reserve(models_Nxyz.size());
 	ret2.reserve(models_Nxyz.size());
@@ -135,6 +128,7 @@ KEnRef::d_arrays_to_g(
 		const std::vector<std::vector<std::vector<int>>>& groupings, //groupings of models to average interaction tensors (per dipole dipole interaction pair), i.e. outer list for pairId and inner list for modelId
 		bool gradient)
 {
+//	std::cout << "d_arrays_to_g() called" << std::endl;
 	std::vector<Eigen::VectorX<float>> ret1;
 	std::vector<std::vector<Eigen::Matrix<float, Eigen::Dynamic, 5>>> ret2;
 	ret1.reserve(d_array.size());
@@ -195,7 +189,7 @@ KEnRef::d_array_to_g(
 			//sum relevant models into relevant groups (e.g. model 1 & 2 into group 1, and models 3 & 4 into group 2)
 			//d_matrix += d_array[currentGrouping[j]]
 			for(auto& d_matrix_temp : d_matrix){
-//				std::cout << "d_matrix_temp               (" << d_matrix_temp.rows() << " x " << d_matrix_temp.cols() << ")" <<std::endl;
+//				std::cout << "j = "<< j <<", d_matrix_temp        (" << d_matrix_temp.rows() << " x " << d_matrix_temp.cols() << ")" <<std::endl;
 //				std::cout << "d_arrays[currentGrouping[j]](" << d_arrays[currentGrouping[j]].rows() << " x " << d_arrays[currentGrouping[j]].cols() << ")" <<std::endl;
 				d_matrix_temp += d_arrays[currentGrouping[j]];
 			}
@@ -271,6 +265,7 @@ KEnRef::coord_array_to_r_array(
 		std::vector<Eigen::MatrixX3<float>> coord_array,
 		std::vector<std::tuple<int, int>> atomId_pairs)
 {
+//	std::cout << "coord_array_to_r_array() called" << std::endl;
 	std::vector<Eigen::MatrixX3<float>> ret;
 	ret.reserve(coord_array.size());
 	for (int model_no = 0; model_no < coord_array.size(); ++model_no) {
@@ -295,6 +290,7 @@ KEnRef::coord_array_to_energy(
 		std::map<std::string, int> atomNames_2_atomIds,
 		bool gradient)
 {
+//	std::cout << "coord_array_to_energy(atomName_pairs) called" << std::endl;
 	std::vector<std::tuple<int, int>> atomId_pairs{};
 	// Fill the vector using atomNames_2_atomIds
     for (const auto& [key, value] : atomName_pairs){
@@ -312,6 +308,7 @@ KEnRef::coord_array_to_energy(
 		std::vector<std::vector<std::vector<int>>> grouping_list,	// list of lists of integer vectors giving groupings of models to average interaction tensors
 		Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> g0, float k, bool gradient)
 {
+//	std::cout << "coord_array_to_energy(atomId_pairs) called" << std::endl;
 	// calculate inter nuclear vectors
 	auto r_arrays = coord_array_to_r_array(coord_array, atomId_pairs);
 
@@ -320,12 +317,12 @@ KEnRef::coord_array_to_energy(
 
 	// calculate norm squared for different groupings of dipole-dipole interaction tensors
 	auto [g_list, g_list_grad] = d_arrays_to_g(d_arrays, grouping_list, gradient);
-	std::cout << "g_list_grad" << std::endl;
+//	std::cout << "g_list_grad" << std::endl;
 	for(int i = 0; i < g_list_grad.size(); i++){
 		auto g_list_grad_i = g_list_grad[i];
 		for (int j = 0; j < g_list_grad_i.size(); j++){
-			std::cout << "g_list_grad " << i+1 << " " << j+1 << std::endl;
-			std::cout << g_list_grad_i[j] << std::endl;
+//			std::cout << "g_list_grad " << i+1 << " " << j+1 << std::endl;
+//			std::cout << g_list_grad_i[j] << std::endl;
 		}
 	}
 
@@ -333,12 +330,12 @@ KEnRef::coord_array_to_energy(
 
 	// calculate energies from the norm squared values
 	auto [energy_matrix, energy_matrix_grad] = g_to_energy(g_matrix, g0, k, gradient);
-	std::cout << "energy_matrix" << std::endl << energy_matrix << std::endl;
-	std::cout << "energy_matrix_grad" << std::endl << energy_matrix_grad << std::endl;
+//	std::cout << "energy_matrix" << std::endl << energy_matrix << std::endl;
+//	std::cout << "energy_matrix_grad" << std::endl << energy_matrix_grad << std::endl;
 
 	// return the sum of all the individual restraint energies
 	float sum = energy_matrix.sum();
-	std::cout << "sum" << std::endl << sum << std::endl;
+//	std::cout << "sum" << std::endl << sum << std::endl;
 
 	//Add derivates using the chain rule: de/dr = de/dd  * dd/dr = de/dg * dg/dd * dd/dr
 	if(gradient){
@@ -355,10 +352,10 @@ KEnRef::coord_array_to_energy(
 		for(int i = 0; i < g_list.size(); i++){//for each grouping
 			auto e_matrix_grad_replicated = energy_matrix_grad.col(i).rowwise().replicate(5).array();
 			auto g_list_grad_group_i = g_list_grad[i]; //<num_models>(num_pairs x 5)
-			std::cout << "d_energy_d_d_array" << " after iteration " << i << std::endl;
+//			std::cout << "d_energy_d_d_array" << " after iteration " << i << std::endl;
 			for (int j = 0; j < g_list_grad_group_i.size(); j++) { //(num_pairs x 5)
 				d_energy_d_d_array[j].array() += (e_matrix_grad_replicated * g_list_grad_group_i[j].array());
-				std::cout << d_energy_d_d_array[j] << std::endl;
+//				std::cout << d_energy_d_d_array[j] << std::endl;
 			}
 		}
 
@@ -379,12 +376,12 @@ KEnRef::coord_array_to_energy(
 			d_energy_d_r_array.emplace_back(Eigen::MatrixX3<float>(num_pairs, 3));
 //			auto temp_array = d_energy_d_r_array[i];
 			Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> temp;
-			std::cout << "d_energy_d_r_array" << std::endl;
+//			std::cout << "d_energy_d_r_array" << std::endl;
 			for(int j = 0; j< 3; j++){
 				temp = d_energy_d_r_array_all[i](Eigen::all, Eigen::seq(j, 15, Eigen::fix<3>));
 				d_energy_d_r_array[i].col(j) = temp.rowwise().sum();
 			}
-			std::cout << d_energy_d_r_array[i] << std::endl;
+//			std::cout << d_energy_d_r_array[i] << std::endl;
 		}
 
 		std::vector<Eigen::MatrixX3<float>> gradients;
@@ -403,10 +400,10 @@ KEnRef::coord_array_to_energy(
 			}
 		}
 
-		std::cout << "gradients" << std::endl;
+//		std::cout << "gradients" << std::endl;
 		for(int m = 0; m < num_models; m++){
-			std::cout << "model " << m << std::endl;
-			std::cout << gradients[m] << std::endl;
+//			std::cout << "model " << m << std::endl;
+//			std::cout << gradients[m] << std::endl;
 		}
 		return {sum, gradients};
 	}else{
@@ -421,6 +418,7 @@ KEnRef::coord_array_to_g(
 		std::vector<std::tuple<int, int>> atomId_pairs, 	// Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
 		std::vector<std::vector<std::vector<int>>> grouping_list)	// list of lists of integer vectors giving groupings of models to average interaction tensors
 {
+//	std::cout << "coord_array_to_g() called" << std::endl;
 	// calculate internuclear vectors
 	auto r_arrays = coord_array_to_r_array(coord_array, atomId_pairs);
 

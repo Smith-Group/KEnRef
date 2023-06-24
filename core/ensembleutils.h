@@ -63,7 +63,7 @@ void EnsembleUtils::get_ensemble_data(Eigen::Matrix3Xf coords_array, std::option
 	std::cout << "Cross product:\n" << v.cross(w) << std::endl;
 
 
-	Eigen::MatrixXf d {{0, 0, 0}, {1, 1, 1}, {1, 2, 3}, {1, 4, 9}};
+	Eigen::MatrixX3<float> d {{0, 0, 0}, {1, 1, 1}, {1, 2, 3}, {1, 4, 9}};
 //	d << 1 << 2 << 3;
 	std::cout << "input matrix:" << std::endl << d << std::endl;
 	auto [d_array, d_array_derivatives] = KEnRef::r_array_to_d_array(d);

@@ -26,7 +26,7 @@ public:
 //	KEnRef& operator=(KEnRef &&other);
 
 	static std::tuple<Eigen::Matrix<float, Eigen::Dynamic, 5>, Eigen::Matrix<float, Eigen::Dynamic, 15>>
-	r_array_to_d_array(const Eigen::MatrixX3f& Nxyz, bool gradient=false);
+	r_array_to_d_array(const Eigen::MatrixX3<float>& Nxyz, bool gradient=false);
 
 	//return tuple where item0 is dipole-dipole interaction tensors (model<pairs, 5_tensor_elements>)
 	//item1 is derivatives (It is a vector of 2D Matrix (models<pairId, (5_tensor_elements * XYZ)>).

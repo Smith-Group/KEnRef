@@ -66,12 +66,11 @@ void initSettingsNoNice(gmx::CommandLineModuleSettings* settings)
 	settings->setDefaultNiceLevel(0);
 }
 
-int main(int argc, char* argv[]) {// This should be the main function that loads GMXWrapper (which should replace GROMACS main class)
-
+//! Post-On Selef-Test
+void POST(){
 	std::filesystem::path p1;
 	p1 = "./";
 	std::cout << p1 << std::endl;
-
 	GmxKEnRefRunner gmxRunner;
 
 	Eigen::Matrix3f matrix3f{{1, 2, 3}, {4, 5.5, 6}, {7, 8, 9}};
@@ -177,16 +176,20 @@ int main(int argc, char* argv[]) {// This should be the main function that loads
 	std::cout << "eros3_sub_1_g" << std::endl << eros3_sub_1_g << std::endl;
 
 
-//	auto [g_list, eros3_sub_g_list_grad] = KEnRef::d_array_to_g(eros3_sub_d_array, eros3_grouping_list, true);
-//	KEnRef::g_to_energy(g_matrix, eros3_sub_1_g, 1.0, true);
+	auto[eros3_sub_energy, eros3_sub_energy_grad] = KEnRef::coord_array_to_energy(eros3_sub_coord, eros3_sub_atom_idPairs, eros3_grouping_list, eros3_sub_1_g, 1.0, true);
 
 
+	//	auto [g_list, eros3_sub_g_list_grad] = KEnRef::d_array_to_g(eros3_sub_d_array, eros3_grouping_list, true);
+	//	KEnRef::g_to_energy(g_matrix, eros3_sub_1_g, 1.0, true);
 
-	KEnRef::coord_array_to_energy(eros3_sub_coord, eros3_sub_atom_idPairs, eros3_grouping_list, eros3_sub_1_g, 1.0, true);
+	//	exit(0);
+
+}
 
 
-	exit(0);
+int main(int argc, char* argv[]) {// This should be the main function that loads GMXWrapper (which should replace GROMACS main class)
 
+	POST();
 
 	//		KEnRefMDModule kEnRefMDModule;
 	//		return 0;
@@ -196,4 +199,5 @@ int main(int argc, char* argv[]) {// This should be the main function that loads
 			argc, argv, &gmx::/*KEnRef_*/gmx_mdrun, &initSettingsNoNice);
 
 }
+
 #endif

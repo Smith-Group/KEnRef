@@ -14,7 +14,8 @@
 
 KEnRefMDModule::KEnRefMDModule() {
 	const char* H_HA_HA1_HA2 = "H_HA_HA1_HA2";
-	const char* indexFileLocation = "../../res/josh/KEnRefAtomIndex.ndx";
+	const char* guideCAlpha = "guideC-alpha";
+	const char* indexFileLocation = "../../res/KEnRefAtomIndex.ndx";
 //	auto indexGroups = GmxKEnRefInitializer::loadGmxIndexFile(indexFileLocation);
 //	for(auto group: indexGroups){
 //		std::cout << "'" << group.first << "':" << std::endl;
@@ -23,35 +24,24 @@ KEnRefMDModule::KEnRefMDModule() {
 //	const std::vector<int>& indices = indexGroups[H_HA_HA1_HA2];
 //	std::cout << "[" << H_HA_HA1_HA2 << "]:" << std::endl;
 //	IoUtils::printVector(indices);
-	std::vector<int>const& indices2 = GmxKEnRefInitializer::loadGmxIndexGroup(H_HA_HA1_HA2, indexFileLocation);
+	std::vector<int>const& indices2 = GmxKEnRefInitializer::loadGmxIndexGroup(guideCAlpha, indexFileLocation);
 	IoUtils::printVector(indices2);
 //	const auto& indices3 = IoUtils::getGmxNdxGroup(indexFileLocation, H_HA_HA1_HA2);
 //	IoUtils::printVector(indices3);
 
-	this->targetAtoms = std::make_shared<std::vector<int> const>(indices2.begin(), indices2.end());
+	this->guideAtoms = std::make_shared<std::vector<int> const>(indices2.begin(), indices2.end());
 //	for(auto v : *vv1){std::cout << v << " ";}std::cout << std::endl;
-//	std::cout << this->targetAtoms << std::endl;
+//	std::cout << this->guideAtoms << std::endl;
 
 }
 
-KEnRefMDModule::~KEnRefMDModule() {
-	// TODO Auto-generated destructor stub
-}
+KEnRefMDModule::~KEnRefMDModule() {}
 
-KEnRefMDModule::KEnRefMDModule(const KEnRefMDModule &other) {
-	// TODO Auto-generated constructor stub
-}
+KEnRefMDModule::KEnRefMDModule(const KEnRefMDModule &other) {}
 
-KEnRefMDModule::KEnRefMDModule(KEnRefMDModule &&other) {
-	// TODO Auto-generated constructor stub
-}
-
-//KEnRefMDModule& NENRefMDModule::operator=(const NENRefMDModule &other) {
-//	// TODO Auto-generated method stub
-//}
-//KEnRefMDModule& NENRefMDModule::operator=(NENRefMDModule &&other) {
-//	// TODO Auto-generated method stub
-//}
+KEnRefMDModule::KEnRefMDModule(KEnRefMDModule &&other) {}
+//KEnRefMDModule& NENRefMDModule::operator=(const NENRefMDModule &other) {}
+//KEnRefMDModule& NENRefMDModule::operator=(NENRefMDModule &&other) {}
 
 //! Returns an interface for handling mdp input (and tpr I/O).
 gmx::IMdpOptionProvider* KEnRefMDModule::mdpOptionProvider() {
@@ -68,7 +58,10 @@ void KEnRefMDModule::initForceProviders(gmx::ForceProviders* forceProviders) {
 	std::cout << "KEnRefMDModule::initForceProviders()" << std::endl;
 	forceProvider_ = std::make_unique<KEnRefForceProvider>();
 	forceProvider_->setSimulationContext(simulationContext);
-	forceProvider_->setTargetAtomIndices(this->targetAtoms);
+	forceProvider_->setGuideAtomIndices(this->guideAtoms);
+//	forceProvider_->setAtomNameAtomIdMap(this->atomName_atomId_map);
+//	forceProvider_->setSimulatedDataTable(this->simulatedData_table);
+
 	forceProviders->addForceProvider(forceProvider_.get());
 }
 

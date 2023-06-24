@@ -18,13 +18,16 @@
 
 class IoUtils final {
 private:
-	IoUtils();
+	IoUtils()=delete;
 
 
 public:
 	template<typename T>
 	static std::vector<std::vector<T>>
 	read_uniform_table_of(std::istream &ins);
+
+	static std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>
+	readTable(const std::string fileName, bool has_header=true);
 
 	static std::string
 	strip_enclosing_quotoes(const std::string& str, char delim = '\"');
@@ -44,8 +47,14 @@ public:
 	static std::map<std::string, std::vector<int>> getAllGmxNdxGroups(const std::string filename);
 
 	static void printVector(const std::vector<int>& vec);
-	template<typename T>
-	static void printVector(const std::vector<T, std::allocator<T>>& vec);
+	static void printVector(const std::vector<bool>& vec);
+	static void printVector(const std::vector<std::string>& vec);
+	template<typename TYPE>
+	static void printVector(const std::vector<TYPE>& vec);
+
+	static std::map<std::string, int>
+	getAtomNameMappingFromPdb(const std::string filename); //This method removes AltLoc and ChainID and keeps only the last one of each
+	static std::string& normalizeName(std::string &atomId, bool lowerMet=true);
 };
 
 #endif /* IOUTILS_H_ */

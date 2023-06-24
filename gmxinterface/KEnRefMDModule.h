@@ -85,7 +85,7 @@ class KEnRefMDModule final: public gmx::IMDModule {
     //! Object that evaluates the forces
     std::unique_ptr<KEnRefForceProvider> forceProvider_;
     gmx::SimulationContext* simulationContext = nullptr;
-    std::shared_ptr<std::vector<int> const> targetAtoms ; //= nullptr; // std::make_shared<std::vector<int>>();
+    std::shared_ptr<std::vector<int> const> guideAtoms ; //= nullptr; // std::make_shared<std::vector<int>>();
 
 public:
 	KEnRefMDModule();
