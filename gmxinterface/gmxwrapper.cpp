@@ -29,34 +29,16 @@
 #include "../core/KEnRef.h"
 
 
-GMXWrapper::GMXWrapper() {
-	// TODO Auto-generated constructor stub
+GMXWrapper::GMXWrapper() {}
 
-}
+GMXWrapper::~GMXWrapper() {}
 
-GMXWrapper::~GMXWrapper() {
-	// TODO Auto-generated destructor stub
-}
+GMXWrapper::GMXWrapper(const GMXWrapper &other) {}
 
-GMXWrapper::GMXWrapper(const GMXWrapper &other) {
-	// TODO Auto-generated constructor stub
+GMXWrapper::GMXWrapper(GMXWrapper &&other) {}
 
-}
-
-GMXWrapper::GMXWrapper(GMXWrapper &&other) {
-	// TODO Auto-generated constructor stub
-
-}
-
-//GMXWrapper& GMXWrapper::operator=(const GMXWrapper &other) {
-//	// TODO Auto-generated method stub
-//
-//}
-//
-//GMXWrapper& GMXWrapper::operator=(GMXWrapper &&other) {
-//	// TODO Auto-generated method stub
-//
-//}
+//GMXWrapper& GMXWrapper::operator=(const GMXWrapper &other) {}
+//GMXWrapper& GMXWrapper::operator=(GMXWrapper &&other) {}
 
 #if GROMACS_WRAPPER && ! _TEST_
 

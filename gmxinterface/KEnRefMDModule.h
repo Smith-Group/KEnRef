@@ -9,10 +9,10 @@
 
 #include <iostream>
 #include <gromacs/utility/keyvaluetreebuilder.h>//TODO you may remove it later
-#include <gromacs/options.h>
+//#include <gromacs/options.h>
 #include <gromacs/options/optionsection.h>
-#include <gromacs/selection.h>
 #include <gromacs/options/optionfiletype.h>
+#include <gromacs/selection/selection.h>
 //#include <gromacs/options/ioptionscontainerwithsections.h>
 #include <gromacs/mdtypes/imdmodule.h>
 #include <gromacs/mdtypes/imdoutputprovider.h>
@@ -48,19 +48,19 @@ class KEnRefOptions final : public gmx::IMdpOptionProvider{
      * module.
      */
     void initMdpOptions(gmx::IOptionsContainerWithSections* options) override {
-    	std::cout << "====> initMdpOptions() called" << std::endl;
-        auto section = options->addSection(gmx::OptionSection("KEnRef Options"));
-         section.addOption(gmx::FileNameOption("top")
-                               .filetype(gmx::OptionFileType::Topology)
-                               .inputFile()
-                               .store(&topfile_)
-                               .defaultBasename("topol")
-                               .description("Topology file"));
-         section.addOption(gmx::SelectionOption("select")
-//                               .storeVector(&selections_).multiValue()
-                               .store(&selection)
-							   .defaultSelectionText("resid 16 to 20 and pdbname CB")
-                               .description("Selection string for atoms used for calculations"));
+//    	std::cout << "====> initMdpOptions() called" << std::endl;
+//        auto section = options->addSection(gmx::OptionSection("KEnRef Options"));
+//         section.addOption(gmx::FileNameOption("top")
+//                               .filetype(gmx::OptionFileType::Topology)
+//                               .inputFile()
+//                               .store(&topfile_)
+//                               .defaultBasename("topol")
+//                               .description("Topology file"));
+//         section.addOption(gmx::SelectionOption("select")
+////                               .storeVector(&selections_).multiValue()
+//                               .store(&selection)
+//							   .defaultSelectionText("resid 16 to 20 and pdbname CB")
+//                               .description("Selection string for atoms used for calculations"));
     }
     //! Prepares to write a flat key-value tree like an mdp file.
     void buildMdpOutput(gmx::KeyValueTreeObjectBuilder* builder) const override {

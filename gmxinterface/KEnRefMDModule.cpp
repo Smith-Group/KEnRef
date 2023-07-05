@@ -13,7 +13,7 @@
 
 
 KEnRefMDModule::KEnRefMDModule() {
-	const char* H_HA_HA1_HA2 = "H_HA_HA1_HA2";
+//	const char* H_HA_HA1_HA2 = "H_HA_HA1_HA2";
 	const char* guideCAlpha = "guideC-alpha";
 	const char* indexFileLocation = "../../res/KEnRefAtomIndex.ndx";
 //	auto indexGroups = GmxKEnRefInitializer::loadGmxIndexFile(indexFileLocation);
