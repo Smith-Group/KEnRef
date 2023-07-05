@@ -5,6 +5,7 @@
  */
 
 #include <iostream>
+#include <memory>
 #include <Eigen/Dense>
 #include <Eigen/Core>
 #include "gromacs/pbcutil/pbc.h"
@@ -21,7 +22,7 @@
 
 
 #define VERBOSE false
-#define real double
+#define KEnRef_Real float //notice that it is defined in KEnRefForceProvider.h as well. TODO Remove this duplication later
 
 KEnRefForceProvider::KEnRefForceProvider() {}
 
@@ -76,7 +77,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput& forcePr
 ////    std::unique_ptr<gmx::SelectionCollection> selectionCollection = std::make_unique<gmx::SelectionCollection>();
 ////    gmx::SelectionList selectionList = selectionCollection->parseFromString(selectionString);
 ////    selectionCollection->compile();
-////    //TODO move the above declarations to constructor and use options
+////    //TO DO move the above declarations to constructor and use options
 ////    for (gmx::Selection selection: selectionList) {
 //        std::cout << selection.name() << ":" << selection.posCount() << std::endl;
 //        if(selection.atomIndices().empty())
@@ -111,10 +112,13 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput& forcePr
 		GMX_ASSERT(atomName_to_atomGlobalId_map->size() > 0, "No atom mapping found");
 		auto& atomName_to_atomGlobalId_map = *this->atomName_to_atomGlobalId_map;
 		if (VERBOSE) {
-			for(auto entry: atomName_to_atomGlobalId_map){
-				auto[name, globalId] = entry;
+			for (const auto& [name, globalId] : atomName_to_atomGlobalId_map){
 				std::cout << "[" << name << "]\t:" << globalId << std::endl;
 			}
+//			for(auto& entry: atomName_to_atomGlobalId_map){
+//				auto[name, globalId] = entry;
+//				std::cout << "[" << name << "]\t:" << globalId << std::endl;
+//			}
 		}
 		this->simulatedData_table = std::make_shared<std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>>(IoUtils::readTable("../singleton_data.csv"));
 		GMX_ASSERT(simulatedData_table && std::get<1>(*simulatedData_table).size() > 0, "No simulated data found");
@@ -197,9 +201,9 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput& forcePr
 			}
 		}
 
-		this->subAtomsX = std::make_shared<Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>>(subId_to_globalId.size(), 3);//contains needed atoms only
+		this->subAtomsX = std::make_shared<CoordsMatrixType>(subId_to_globalId.size(), 3);//contains needed atoms only
 		if(VERBOSE){auto subAtomsX = *this->subAtomsX; std::cout << "subAtomsX shape is (" << subAtomsX.rows() << ", " << subAtomsX.cols() << ")" << std::endl;}
-		this->allSimulationsSubAtomsX = std::make_shared<Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>>(numSimulations * subAtomsX->rows(), 3);
+		this->allSimulationsSubAtomsX = std::make_shared<CoordsMatrixType>(numSimulations * subAtomsX->rows(), 3);
 		if(VERBOSE){auto allSimulationsSubAtomsX = *this->allSimulationsSubAtomsX; std::cout << "allSimulationsSubAtomsX shape is (" << allSimulationsSubAtomsX.rows() << ", " << allSimulationsSubAtomsX.cols() << ")" << std::endl;}
     }
 
@@ -212,9 +216,9 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput& forcePr
 	auto simulatedData_table = *this->simulatedData_table;
 	auto atomName_pairs = *this->atomName_pairs;
 	auto g0 = *this->g0;
-	Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>& subAtomsX = *this->subAtomsX;
-	//setting the value to ZERO (or ONE) is dangerous because it causes Invalid floating point operation
-	Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>& allSimulationsSubAtomsX = *this->allSimulationsSubAtomsX;
+	CoordsMatrixType& subAtomsX = *this->subAtomsX;
+	CoordsMatrixType& allSimulationsSubAtomsX = *this->allSimulationsSubAtomsX;
+	//setting the coordinate values to ZERO (or ONE) is dangerous because it causes Invalid floating point operation
 	std::vector<std::vector<std::vector<int>>> simulated_grouping_list {{{0}, {1}, {2}}, {{0, 1, 2}}};
 	if(!isMultiSimulation){
 		simulated_grouping_list = {{{0}}, {{0}}};
@@ -235,21 +239,15 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput& forcePr
     	GMX_ASSERT(piLocal, "ERROR: Can't find local index of atom");
 		const gmx::RVec atom_x = x[*piLocal];
 
-//		//I left this block as a fail safe measure in case the faster rvec way (below) is found to be faulty
-//		for(auto j = 0; j < 3; j++){
-//			guideAtomsX_buffer[i * 3 + j] = atom_x[j];
-////			//FIXME test only
-////			guideAtomsX_buffer[i * 3 + j] = (isMultiSimulation? 100000 * simulationIndex : 0) + 100 * i + j;
-//		}
 		auto rvec = atom_x.as_vec();
 		std::copy(rvec, rvec + 3, &guideAtomsX_buffer[i*3]);
-//		//FIXME test only
+//		// for test only
 //		for(auto j = 0; j < 3; j++){
 //			guideAtomsX_buffer[i * 3 + j] = (isMultiSimulation? 100000 * simulationIndex : 0) + 100 * i + j;
 //		}
 
     }
-	Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> guideAtomsX = Eigen::Map<Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>>(guideAtomsX_buffer, guideAtomIndicesSize, 3);
+	CoordsMapType guideAtomsX = CoordsMapType(guideAtomsX_buffer, guideAtomIndicesSize, 3);//TODO CoordsMapType or CoordsMatrixType?
 	if(VERBOSE){
 		std::cout << "guideAtomsX shape is (" << guideAtomsX.rows() << ", " << guideAtomsX.cols() << ")" << std::endl;
 		std::cout << "guideAtomsX" << std::endl << guideAtomsX << std::endl;
@@ -269,13 +267,14 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput& forcePr
 	if(simulationIndex == 0){
 		std::copy(guideAtomsX_buffer, guideAtomsX_buffer + guideAtomIndicesSize * 3, guideAtoms_model0_X_buffer);
 	}else{
-//		//FIXME leave unintialized. this initialization is for testing only
+//		//Leave unintialized.
+		//This initialization is for testing only
 //		std::copy(guideAtomsX_buffer, guideAtomsX_buffer + targetAtomIndicesSize * 3, targetAtoms_model0_X_buffer);
 	}
 
-//	//FIXME for testing only
-//	Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> tempMatrix = Eigen::Map<Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>>(guideAtomsX_buffer, 5, 3); //guideAtomIndicesSize, 3);
-//	std::cout << "from simulation ((" << simulationIndex << ")) before bCast" << std::endl << tempMatrix << std::endl;
+//	//For testing only
+//	CoordsMapType tempMap = CoordsMapType(guideAtomsX_buffer, 5, 3); //guideAtomIndicesSize, 3);
+//	std::cout << "from simulation ((" << simulationIndex << ")) before bCast" << std::endl << tempMap << std::endl;
 
 	if (isMultiSimulation) {
 		//Broadcast guideAtomsX from rank 0 to all other ranks
@@ -284,16 +283,16 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput& forcePr
 		gmx_barrier(mainRanksComm);
 	}
 
-	Eigen::Matrix<float, Eigen::Dynamic, 3> model0guideAtomsX = Eigen::Map<Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>>(guideAtomsX_buffer, guideAtomIndicesSize, 3);
+	CoordsMapType model0guideAtomsX = CoordsMapType(guideAtomsX_buffer, guideAtomIndicesSize, 3);
 
-//	//FIXME for testing only
-//	Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> tempMatrix1 = Eigen::Map<Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>>(guideAtomsX_buffer, 5, 3); //guideAtomIndicesSize, 3);
+//	//For testing only
+//	CoordsMapType tempMatrix1 = CoordsMapType(guideAtomsX_buffer, 5, 3); //guideAtomIndicesSize, 3);
 //	std::cout << "from simulation ((" << simulationIndex << ")) after bCast" << std::endl << tempMatrix1 << std::endl;
 
-	Eigen::Transform<real, 3, Eigen::Affine> affine = (
+	Eigen::Transform<KEnRef_Real, 3, Eigen::Affine> affine = (
 			simulationIndex == 0 ?
-					Eigen::Transform<real, 3, Eigen::Affine>::Identity() :
-					Kabsch<real>::Find3DAffineTransform(guideAtomsX, model0guideAtomsX));
+					Eigen::Transform<KEnRef_Real, 3, Eigen::Affine>::Identity() :
+					Kabsch<KEnRef_Real>::Find3DAffineTransform(guideAtomsX, model0guideAtomsX));
 	if (VERBOSE) {
 		std::cout << "Affine Matrix" << std::endl << affine.matrix() << std::endl;
 	}
@@ -313,7 +312,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput& forcePr
 	if(simulationIndex == 0){
 		subAtomsXAfterFitting = subAtomsX;
 	}else{
-		subAtomsXAfterFitting = (subAtomsX.cast<real>().rowwise().homogeneous() * affine.matrix().transpose()).leftCols(3).cast<float>();
+		subAtomsXAfterFitting = (subAtomsX.cast<KEnRef_Real>().rowwise().homogeneous() * affine.matrix().transpose()).leftCols(3).cast<float>();
 	}
 
 //	// Copy all atomsX into its corresponding section of allSimulationsSubAtomsX after fitting
@@ -333,7 +332,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput& forcePr
 		if(simulationIndex == 0){
 			std::cout << "allSimulationsSubAtomsX shape is (" << allSimulationsSubAtomsX.rows() << ", " << allSimulationsSubAtomsX.cols() << ")" << std::endl;
 //			std::cout << "allSimulationsSubAtomsX" << std::endl << allSimulationsSubAtomsX << std::endl;
-			for (int r = 0; r < 500; ++r) {
+			for (int r = 0; r < allSimulationsSubAtomsX.size()/10; ++r) {
 				for(int i = 0; i< numSimulations; i++){
 					for(int j = 0; j < 3; j++){
 						std::cout << std::setw(6) << allSimulationsSubAtomsX(subAtomsX.rows() * i + r , j) << " ";
@@ -346,21 +345,22 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput& forcePr
 	}
 
 	float derivatives_buffer[subAtomsX.size()], allDerivatives_buffer[subAtomsX.size()*numSimulations];// TODO try to avoid repeated memory allocation
-	Eigen::Matrix<float, Eigen::Dynamic, 3> derivatives_rectified;
+	CoordsMatrixType derivatives_rectified;
 	//in rank 0
 	if(simulationIndex == 0){
 		//collect all matrices of all replica into a vector of atom coordinates.
 		std::vector<Eigen::MatrixX3<float>> allSimulationsSubAtomsX_vector = std::vector<Eigen::MatrixX3<float>>(numSimulations);
 		for(int i = 0; i < numSimulations; i++){
-			Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor> temp1Matrix = Eigen::Map<Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>>(&allSimulationsSubAtomsX.data()[i*subAtomsX.size()], subAtomsX.rows(), 3);
-			Eigen::Matrix<float, Eigen::Dynamic, 3> temp2Matrix = temp1Matrix;
+			//TODO Review and Simplify this
+			CoordsMatrixType temp1Matrix = CoordsMapType(&allSimulationsSubAtomsX.data()[i*subAtomsX.size()], subAtomsX.rows(), 3);
+			CoordsMatrixType temp2Matrix = temp1Matrix;
 			allSimulationsSubAtomsX_vector.at(i) = temp2Matrix;
 		}
 
 //		float energy;
 //		std::vector<Eigen::MatrixX3<float>> allDerivatives;
 		//do force calculations
-		auto [energy, allDerivatives] = KEnRef::coord_array_to_energy(allSimulationsSubAtomsX_vector, atomName_pairs, simulated_grouping_list, g0, 1e-12, atomName_to_atomLocalId_map, true);
+		auto [energy, allDerivatives] = KEnRef::coord_array_to_energy(allSimulationsSubAtomsX_vector, atomName_pairs, simulated_grouping_list, g0, 1e-20, atomName_to_atomLocalId_map, true);
 		if(VERBOSE){
 			std::cout << "energy = " << energy << ", allDerivatives:" << std::endl;
 			for(int i = 0; i < allDerivatives.size(); i++){
@@ -368,7 +368,6 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput& forcePr
 			}
 		}
 		//I will use the slow method of copying data now, as it is less error prone
-		float allDerivatives_buffer[allDerivatives.size() * subAtomsX.size()];
 		for (int i = 0; i < allDerivatives.size(); ++i) {
 			auto matrix = allDerivatives[i];
 			std::copy(matrix.data(), matrix.data() + subAtomsX.size(), &allDerivatives_buffer[i*subAtomsX.size()]);
@@ -378,17 +377,23 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput& forcePr
 
 	}
 
-	Eigen::Matrix<float, Eigen::Dynamic, 3> derivatives_matrix;
+	CoordsMapType derivatives_matrix(nullptr, 0, 3);
+	std::cout << "Before MPI_Scatter in Thread " << simulationIndex << std::endl;
 	if (isMultiSimulation) {
 		// Distribute all derivatives
 		MPI_Scatter(allDerivatives_buffer, subAtomsX.size(), MPI_FLOAT, derivatives_buffer, subAtomsX.size(), MPI_FLOAT, 0, mainRanksComm);
+		std::cout << "After MPI_Scatter in Thread " << simulationIndex << std::endl;
 		//once you have the derivatives, retrieve them from the buffer
-		Eigen::Map<Eigen::Matrix<float, Eigen::Dynamic, 3>> derivatives_matrix(derivatives_buffer, subAtomsX.rows(), 3);
+		new (&derivatives_matrix) CoordsMapType(derivatives_buffer, subAtomsX.rows(), 3);
+		std::cout << "After \"CoordsMapType derivatives_matrix\" in Thread [[" << simulationIndex << "]]. derivatives_matrix shape (" << derivatives_matrix.rows() << " x " << derivatives_matrix.cols() << ")"<< std::endl;
 	}
 
 	// Transform them back
 	if(simulationIndex != 0){
-		derivatives_rectified = (derivatives_matrix.cast<real>().rowwise().homogeneous() * affine.matrix().inverse().transpose()).leftCols(3).cast<float>();
+		std::cout << "Before derivatives_rectified in Thread " << simulationIndex << std::endl;
+		derivatives_rectified = (derivatives_matrix.cast<KEnRef_Real>().rowwise().homogeneous() * affine.matrix().inverse().transpose()).leftCols(3).cast<float>();
+		std::cout << "derivatives_rectified # " << simulationIndex << " shape (" << derivatives_rectified.rows() << " x " << derivatives_rectified.cols() << ")" /*<< std::endl << derivatives_rectified*/ << std::endl;
+		std::cout << "After derivatives_rectified in Thread " << simulationIndex << std::endl;
 	}
 
 	//////////////////////////////////////////////////////////////////////////////////////////////////
@@ -429,6 +434,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput& forcePr
 //    }
 
     //Finally, add them to corresponding atoms
+    std::cout << "Before adding forces in thread " << simulationIndex << std::endl;
     for(int i = 0; i< subAtomsX.rows(); i++){
     	const int *pGlobalId = &subId_to_globalId[i];
 //    	//TODO Check whether it use global or local ID?
@@ -436,8 +442,8 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput& forcePr
     	force[*pLocalId] += {derivatives_rectified(i, 0), derivatives_rectified(i, 1), derivatives_rectified(i, 2)};// TODO optimize this line/process
     }
 
-    std::cout << "final force values: " << std::endl;
-    for(int i = 0; i < globalAtomIdFlags->size(); i++){
+    std::cout << "final force values of simulation # " << simulationIndex << std::endl;
+    for(int i = 0; i < globalAtomIdFlags->size()/10; i++){
     	std::cout << ((*globalAtomIdFlags).at(i) ? "*" : " ") << "\t" <<force[i][0] << "\t" << force[i][1] << "\t" << force[i][2] << ((*globalAtomIdFlags).at(i) ? "\t*" : "") << std::endl;
     }
 
@@ -447,7 +453,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput& forcePr
 	gmx_barrier(mainRanksComm);
 }
 
-#undef real
+#undef KEnRef_Real
 #undef VERBOSE
 
 
