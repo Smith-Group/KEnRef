@@ -15,7 +15,7 @@
 #include <map>
 #include "../config/KEnRefConfig.h"
 #include <Eigen/Dense>
-#include <Eigen/CXX11/Tensor>
+//#include <Eigen/CXX11/Tensor>
 
 #include <typeinfo>
 #include "KEnRef.h"
@@ -40,13 +40,15 @@ void EnsembleUtils::get_ensemble_data(Eigen::Matrix3Xf coords_array, std::option
 	std::cout << typeid(Eigen::Matrix4f).name() << std::endl;
 	std::cout << typeid(Eigen::Matrix3f).name() << std::endl;
 
-	Eigen::Tensor<double, 3> t(3, 100, 20);
-	t.setZero();
-	std::cout << typeid(t).name() << std::endl;
-	auto chip = t.chip(0, 2);
-	std::cout << typeid(chip).name() << "\t" << chip.dim() << "\t" << chip.NumDimensions << std::endl;
-	std::cout << chip;
-	std::cout << std::endl;
+//  //TODO May restore the Tensor later
+//	Eigen::Tensor<double, 3> t(3, 100, 20);
+//	t.setZero();
+//	std::cout << typeid(t).name() << std::endl;
+//	auto chip = t.chip(0, 2);
+//	std::cout << typeid(chip).name() << "\t" << chip.dim() << "\t" << chip.NumDimensions << std::endl;
+//	std::cout << chip;
+//	std::cout << std::endl;
+
 //	Matrix<double, 3, 100> test_mat;
 //	test_mat << chip;
 //	cout << test_mat << endl;

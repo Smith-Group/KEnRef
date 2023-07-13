@@ -10,10 +10,10 @@
 #include "KEnRef.h"
 #include <iostream>//FIXME for testing only
 
-KEnRef::KEnRef() {}
-KEnRef::~KEnRef() {}
-KEnRef::KEnRef(const KEnRef &other) {}
-KEnRef::KEnRef(KEnRef &&other) {}
+KEnRef::KEnRef() = default;
+KEnRef::~KEnRef() = default;
+KEnRef::KEnRef(const KEnRef &other) = default;
+KEnRef::KEnRef(KEnRef &&other)  noexcept {}
 //KEnRef& KEnRef::operator=(const KEnRef &other) {}
 //KEnRef& KEnRef::operator=(KEnRef &&other) {}
 
@@ -114,7 +114,7 @@ std::vector<Eigen::Matrix<float, Eigen::Dynamic, 5>> ret1;
 	std::vector<Eigen::Matrix<float, Eigen::Dynamic, 15>> ret2;
 	ret1.reserve(models_Nxyz.size());
 	ret2.reserve(models_Nxyz.size());
-	for (auto Nxyz: models_Nxyz) {
+	for (const auto& Nxyz: models_Nxyz) {
 		auto [arr1, arr2] = r_array_to_d_array(Nxyz, gradient);
 		ret1.emplace_back(arr1);
 		ret2.emplace_back(arr2);
@@ -290,7 +290,7 @@ KEnRef::coord_array_to_energy(
 		std::map<std::string, int> atomNames_2_atomIds,
 		bool gradient)
 {
-//	std::cout << "coord_array_to_energy(atomName_pairs) called" << std::endl;
+//	std::cout << "coord_array_to_energy(atomName_pairs_) called" << std::endl;
 	std::vector<std::tuple<int, int>> atomId_pairs{};
 	// Fill the vector using atomNames_2_atomIds
     for (const auto& [key, value] : atomName_pairs){

@@ -6,7 +6,6 @@
 
 #include <iostream>
 #include <memory>
-#include <Eigen/Dense>
 #include <Eigen/Core>
 #include "gromacs/pbcutil/pbc.h"
 #include "gromacs/mdtypes/commrec.h"
@@ -15,41 +14,41 @@
 #include "../core/IoUtils.h"
 #include "../core/kabsch.h"
 #include "../core/KEnRef.h"
-//#include <gromacs/selection.h>
 #include "gromacs/domdec/domdec_struct.h"
 #include "gromacs/domdec/ga2la.h"
-#include <fstream>// needed only during simulated data
-
+//#include <fstream>// needed only during simulated data
+#include <utility>
+#include<unistd.h>
 
 #define VERBOSE false
-#define KEnRef_Real float //notice that it is defined in KEnRefForceProvider.h as well. TODO Remove this duplication later
 
-KEnRefForceProvider::KEnRefForceProvider() {}
+KEnRefForceProvider::KEnRefForceProvider() = default;
 
-KEnRefForceProvider::~KEnRefForceProvider() {}
+KEnRefForceProvider::~KEnRefForceProvider() = default;
 
-KEnRefForceProvider::KEnRefForceProvider(const KEnRefForceProvider &other) {}
-
-KEnRefForceProvider::KEnRefForceProvider(KEnRefForceProvider &&other) {}
-
+//KEnRefForceProvider::KEnRefForceProvider(KEnRefForceProvider &&other) noexcept {}
+//KEnRefForceProvider::KEnRefForceProvider(const KEnRefForceProvider &other) {}
 //KEnRefForceProvider& KEnRefForceProvider::operator=(const KEnRefForceProvider &other) {}
 //KEnRefForceProvider& KEnRefForceProvider::operator=(KEnRefForceProvider &&other) {}
 
-void KEnRefForceProvider::setSimulationContext(gmx::SimulationContext* simulationContext){
-	this->simulationContext = simulationContext;
-}
-void KEnRefForceProvider::setGuideAtomIndices(std::shared_ptr<std::vector<int> const> targetAtomIndices){
-	this->guideAtomIndices = targetAtomIndices;
+void KEnRefForceProvider::setSimulationContext(gmx::SimulationContext *simulationContext) {
+    this->simulationContext_ = simulationContext;
 }
 
-void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput& forceProviderInput, gmx::ForceProviderOutput* forceProviderOutput){
-	std::cout << "calculateForces() called" << std::endl;
-//	std::cerr << "calculateForces() called" << std::endl;
+void KEnRefForceProvider::setGuideAtomIndices(std::shared_ptr<std::vector<int> const> targetAtomIndices) {
+    this->guideAtomIndices_ = std::move(targetAtomIndices);
+}
+
+void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forceProviderInput,
+                                          gmx::ForceProviderOutput *forceProviderOutput) {
+    std::cout << "calculateForces() called" << std::endl;
     const size_t homenr = forceProviderInput.homenr_; // total number of atoms in the system (or domain dec ?)
     GMX_ASSERT(homenr >= 0, "number of home atoms must be non-negative.");
 
 //    const auto& box = forceProviderInput.box_;
-    matrix box = {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}};
+    matrix box = {{0, 0, 0},
+                  {0, 0, 0},
+                  {0, 0, 0}};
     copy_mat(forceProviderInput.box_, box);
 
     GMX_ASSERT(check_box(PbcType::Unset, box) == nullptr, "Invalid box.");
@@ -57,40 +56,28 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput& forcePr
     t_pbc *pbc = &temp;
     set_pbc(pbc, PbcType::Unset, box);
 
-    const auto& x  = forceProviderInput.x_;
-    const auto& cr = forceProviderInput.cr_;
-    const auto& step = forceProviderInput.step_;
+    const auto &x = forceProviderInput.x_;
+    const auto &cr = forceProviderInput.cr_;
+    const auto &step = forceProviderInput.step_;
 //    const auto& t  = forceProviderInput.t_; // Not needed (at least yet)
-    const auto& force = forceProviderOutput->forceWithVirial_.force_;
+    const auto &force = forceProviderOutput->forceWithVirial_.force_;
 
-	bool isMultiSimulation = this->simulationContext->multiSimulation_ != nullptr;
-	int numSimulations = isMultiSimulation ? this->simulationContext->multiSimulation_->numSimulations_ : 1;
-	int simulationIndex = isMultiSimulation ? this->simulationContext->multiSimulation_->simulationIndex_: 0;
-	MPI_Comm mainRanksComm = isMultiSimulation ? this->simulationContext->multiSimulation_->mainRanksComm_ : MPI_COMM_NULL;
+	bool isMultiSimulation = this->simulationContext_->multiSimulation_ != nullptr;
+	int numSimulations = isMultiSimulation ? this->simulationContext_->multiSimulation_->numSimulations_ : 1;
+	int simulationIndex = isMultiSimulation ? this->simulationContext_->multiSimulation_->simulationIndex_ : 0;
+	MPI_Comm mainRanksComm = isMultiSimulation ? this->simulationContext_->multiSimulation_->mainRanksComm_ : MPI_COMM_NULL;
 	std::cout 	<< "--> isMultiSimulation: " << std::boolalpha << isMultiSimulation << "\n"
 				<< "--> numSimulations " << numSimulations << "\n"
     			<< "--> rankInDefaultCommunicator " << cr.rankInDefaultCommunicator << " " << (isMultiSimulation? simulationIndex : -1) << "\n"
     			<< "--> simulationIndex " << simulationIndex << "\tstep " << step << std::endl;
 
-//    ///////////// selection ////////////////////////////////////
-//    gmx::Selection selection = *(this->selection);
-////    std::unique_ptr<gmx::SelectionCollection> selectionCollection = std::make_unique<gmx::SelectionCollection>();
-////    gmx::SelectionList selectionList = selectionCollection->parseFromString(selectionString);
-////    selectionCollection->compile();
-////    //TO DO move the above declarations to constructor and use options
-////    for (gmx::Selection selection: selectionList) {
-//        std::cout << selection.name() << ":" << selection.posCount() << std::endl;
-//        if(selection.atomIndices().empty())
-//        	std::cout << "selection empty" << std::endl;
-//        else{
-//			for (int atomIdx: selection.atomIndices()){
-//				std::cout << atomIdx << " ";
-//			}
-//        }
-//		std::cout << std::endl;
-////	}
-//    ////////////// End Selection ////////////////////////////////////////////////
-    //Using gmx::Selection failed. using guideAtoms: a vector<int*>
+    if(step == 0){
+        bool holdToDebug = false;
+        while (simulationIndex < 2 && holdToDebug){
+            sleep(1);
+        }
+    }
+
 
     if(step == 0){
     	std::cout << "Number of atoms = " << homenr << std::endl;
@@ -98,138 +85,41 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput& forcePr
     	std::cout << "haveDDAtomOrdering(cr): " <<  haveDDAtomOrdering(cr) << std::endl;
     	std::cout << "cr.dd->nnodes: " << cr.dd->nnodes << std::endl;
 
-		if (VERBOSE) {
-			std::cout<< "Global to Local Atom number mapping:" << std::endl;
-			for(int i = 0; i < homenr; i++){
-				const int* aLocal = &i;
-				if ((cr.dd == nullptr) || (aLocal = cr.dd->ga2la->findHome(i))){
-					std::cout<< i<< " : " << static_cast<size_t>(*aLocal) << std::endl;
-				}
-			}
-		}
-
-		this->atomName_to_atomGlobalId_map = std::make_shared<std::map<std::string, int>>(IoUtils::getAtomNameMappingFromPdb("../6v5d_for_atomname_mapping.pdb"));
-		GMX_ASSERT(atomName_to_atomGlobalId_map->size() > 0, "No atom mapping found");
-		auto& atomName_to_atomGlobalId_map = *this->atomName_to_atomGlobalId_map;
-		if (VERBOSE) {
-			for (const auto& [name, globalId] : atomName_to_atomGlobalId_map){
-				std::cout << "[" << name << "]\t:" << globalId << std::endl;
-			}
-//			for(auto& entry: atomName_to_atomGlobalId_map){
-//				auto[name, globalId] = entry;
-//				std::cout << "[" << name << "]\t:" << globalId << std::endl;
-//			}
-		}
-		this->simulatedData_table = std::make_shared<std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>>(IoUtils::readTable("../singleton_data.csv"));
-		GMX_ASSERT(simulatedData_table && std::get<1>(*simulatedData_table).size() > 0, "No simulated data found");
-		if (VERBOSE) {
-			auto [header, data] = *simulatedData_table;
-			IoUtils::printVector(header);
-			for(auto record: data){
-				IoUtils::printVector(record);
-			}
-		}
-		std::vector<std::vector<std::string>> data = std::get<1>(*simulatedData_table);
-		this->atomName_pairs = new std::vector<std::tuple<std::string, std::string>>();
-		for (auto record : data) {
-			std::string atom1 = IoUtils::normalizeName(record[1], true);
-			std::string atom2 = IoUtils::normalizeName(record[2], true);
-			atomName_pairs->emplace_back(std::make_tuple(atom1, atom2));
-		}
-		if(VERBOSE){
-			for(auto [atom1, atom2]: *atomName_pairs){
-				std::cout << "[" << atom1 << "], [" << atom2 << "]" << std::endl;
-			}
-		}
-		this->g0 = new Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>(data.size(), 2);
-		for (int i = 0; i < data.size(); ++i) {
-			auto record = data[i];
-        	std::istringstream temp1(record[3]), temp2(record[4]);
-        	temp1 >> (*g0)(i,0);
-        	temp2 >> (*g0)(i,1);
-		}
-		if(VERBOSE)
-			std::cout << *g0 << std::endl;
-
-		int maxAtomIdOfInterest = -1;// If you want to use size_t, then you can NOT use -1 as an initial value
-		this->globalAtomIdFlags = std::make_shared<std::vector<bool>>(homenr, false);
-		auto& globalAtomIdFlags = *this->globalAtomIdFlags;
-		//scan the atom pairs to do:
-		//1) find the highest globalAtomId number of interest
-		//2) fill in the subAtomsFilter
-		//3) do a quick sanity scan on the availability of all atomname atomID maping
-		int tempI;
-		for(auto [a1, a2]: *this->atomName_pairs){
-			if(VERBOSE){
-				std::cout << "[" << a1 << "]\t" << atomName_to_atomGlobalId_map.at(a1) << "\t";
-				std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::endl;
-			}
-			//In the next lines I use .at() instead of [] deliberately; to throw an exception if unexpected name found
-			if((tempI = atomName_to_atomGlobalId_map.at(a1)) > maxAtomIdOfInterest) maxAtomIdOfInterest = tempI;
-			globalAtomIdFlags[tempI] = true;
-			if((tempI = atomName_to_atomGlobalId_map.at(a2)) > maxAtomIdOfInterest) maxAtomIdOfInterest = tempI;
-			globalAtomIdFlags[tempI] = true;
-		}
-		if (VERBOSE) {
-			IoUtils::printVector(globalAtomIdFlags);
-		}
-		globalAtomIdFlags.resize(maxAtomIdOfInterest +1);
-
-		this->globalId_to_subId = std::make_shared<std::vector<int>>(globalAtomIdFlags.size(), -1);
-		this->subId_to_globalId = std::make_shared<std::vector<int>>(globalAtomIdFlags.size(), -1);
-		auto& globalId_to_subId = *this->globalId_to_subId;
-		auto& subId_to_globalId = *this->subId_to_globalId;
-		int localId = 0;
-		for(int i = 0; i < globalAtomIdFlags.size(); i++){
-			if(globalAtomIdFlags[i]){
-				globalId_to_subId[i] = localId;
-				subId_to_globalId[localId] = i;
-				localId++;
-			}
-		}
-		subId_to_globalId.resize(localId);
-
-		this->atomName_to_atomSubId_map = std::make_shared<std::map<std::string, int>>();
-		auto& atomName_to_atomSubId_map = *this->atomName_to_atomSubId_map;
-		for(auto [name, globalId]: atomName_to_atomGlobalId_map){
-			atomName_to_atomSubId_map[name] = globalId_to_subId[globalId];
-		}
-		if (VERBOSE) {
-			for(auto entry: atomName_to_atomSubId_map){
-				auto[name, localId] = entry;
-				std::cout << "[" << name << "]\t:" << localId << std::endl;
-			}
-		}
-
-		this->subAtomsX = std::make_shared<CoordsMatrixType>(subId_to_globalId.size(), 3);//contains needed atoms only
-		if(VERBOSE){auto subAtomsX = *this->subAtomsX; std::cout << "subAtomsX shape is (" << subAtomsX.rows() << ", " << subAtomsX.cols() << ")" << std::endl;}
-		this->allSimulationsSubAtomsX = std::make_shared<CoordsMatrixType>(numSimulations * subAtomsX->rows(), 3);
-		if(VERBOSE){auto allSimulationsSubAtomsX = *this->allSimulationsSubAtomsX; std::cout << "allSimulationsSubAtomsX shape is (" << allSimulationsSubAtomsX.rows() << ", " << allSimulationsSubAtomsX.cols() << ")" << std::endl;}
+#if VERBOSE
+        std::cout<< "Global to Local Atom number mapping:" << std::endl;
+        for(int i = 0; i < homenr; i++){
+            const int* aLocal = &i;
+            if ((cr.dd == nullptr) || (aLocal = cr.dd->ga2la->findHome(i))){
+                std::cout<< i<< " : " << static_cast<size_t>(*aLocal) << std::endl;
+            }
+        }
+#endif
+        fillParamsStep0(homenr, numSimulations);
     }
 
-    std::vector<int> const& guideAtomIndices = *this->guideAtomIndices;
-	auto& atomName_to_atomLocalId_map = *this->atomName_to_atomSubId_map;
-//	auto& globalAtomIdFlags = *this->globalAtomIdFlags;
-//	auto& atomName_to_atomGlobalId_map = *this->atomName_to_atomGlobalId_map;
-//	auto& globalId_to_subId = *this->globalId_to_subId;
-	auto& subId_to_globalId = *this->subId_to_globalId;
-	auto simulatedData_table = *this->simulatedData_table;
-	auto atomName_pairs = *this->atomName_pairs;
-	auto g0 = *this->g0;
-	CoordsMatrixType& subAtomsX = *this->subAtomsX;
-	CoordsMatrixType& allSimulationsSubAtomsX = *this->allSimulationsSubAtomsX;
+    std::vector<int> const& guideAtomIndices = *this->guideAtomIndices_;
+	auto& atomName_to_atomLocalId_map = *this->atomName_to_atomSubId_map_;
+//	auto& globalAtomIdFlags_ = *this->globalAtomIdFlags_;
+//	auto& atomName_to_atomGlobalId_map_ = *this->atomName_to_atomGlobalId_map_;
+//	auto& globalId_to_subId_ = *this->globalId_to_subId_;
+	auto& subId_to_globalId = *this->subId_to_globalId_;
+	auto simulatedData_table = *this->simulatedData_table_;
+	auto atomName_pairs = *this->atomName_pairs_;
+	auto g0 = *this->g0_;
+	CoordsMatrixType& subAtomsX = *this->subAtomsX_;
+	CoordsMatrixType& allSimulationsSubAtomsX = *this->allSimulationsSubAtomsX_;
 	//setting the coordinate values to ZERO (or ONE) is dangerous because it causes Invalid floating point operation
 	std::vector<std::vector<std::vector<int>>> simulated_grouping_list {{{0}, {1}, {2}}, {{0, 1, 2}}};
 	if(!isMultiSimulation){
 		simulated_grouping_list = {{{0}}, {{0}}};
 	}
 
-	if (VERBOSE) {
+#if VERBOSE
 		int iZero = 0;
 		const int *piZero = cr.dd->ga2la->findHome(iZero);
 		std::cout << x[*piZero][0] << " " << x[*piZero][1] << " " << x[*piZero][2] << "\t\t" << std::endl << std::endl;
-		//Note that the first atom of guideAtomsX (i.e. guideAtomsX[0]) is not the same subAtomsX[0], and even subAtomsX[0] ((may)) later not be the first atom in the system.
-	}
+		//Note that the first atom of guideAtomsX (i.e. guideAtomsX[0]) is not the same subAtomsX_[0], and even subAtomsX_[0] ((may)) later not be the first atom in the system.
+#endif
 
     int guideAtomIndicesSize = guideAtomIndices.size();
     float guideAtomsX_buffer[guideAtomIndicesSize * 3];
@@ -248,10 +138,10 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput& forcePr
 
     }
 	CoordsMapType guideAtomsX = CoordsMapType(guideAtomsX_buffer, guideAtomIndicesSize, 3);//TODO CoordsMapType or CoordsMatrixType?
-	if(VERBOSE){
-		std::cout << "guideAtomsX shape is (" << guideAtomsX.rows() << ", " << guideAtomsX.cols() << ")" << std::endl;
-		std::cout << "guideAtomsX" << std::endl << guideAtomsX << std::endl;
-	}
+#if VERBOSE
+    std::cout << "guideAtomsX shape is (" << guideAtomsX.rows() << ", " << guideAtomsX.cols() << ")" << std::endl;
+    std::cout << "guideAtomsX" << std::endl << guideAtomsX << std::endl;
+#endif
 
     if (haveDDAtomOrdering(cr)){
     	//TODO handle Domain Decomposition
@@ -278,7 +168,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput& forcePr
 
 	if (isMultiSimulation) {
 		//Broadcast guideAtomsX from rank 0 to all other ranks
-		gmx_bcast(guideAtomIndicesSize * 3 * sizeof(float), guideAtomsX_buffer, mainRanksComm);
+		gmx_bcast(guideAtomIndicesSize * 3 * sizeof(float), guideAtomsX_buffer, mainRanksComm); //FIXME INSPECT HERE
 		//I don't think this line is important. Only for easy printing
 		gmx_barrier(mainRanksComm);
 	}
@@ -293,9 +183,9 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput& forcePr
 			simulationIndex == 0 ?
 					Eigen::Transform<KEnRef_Real, 3, Eigen::Affine>::Identity() :
 					Kabsch<KEnRef_Real>::Find3DAffineTransform(guideAtomsX, model0guideAtomsX));
-	if (VERBOSE) {
-		std::cout << "Affine Matrix" << std::endl << affine.matrix() << std::endl;
-	}
+#if VERBOSE
+    std::cout << "Affine Matrix" << std::endl << affine.matrix() << std::endl;
+#endif
 
 	auto subAtomsX_buffer = subAtomsX.data();
 	// Fill needed atoms of subAtomsX with atoms (in the original order). The rest were set to zero earlier
@@ -328,21 +218,21 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput& forcePr
 		allSimulationsSubAtomsX=subAtomsXAfterFitting;
 	}
 
-	if (VERBOSE) {
-		if(simulationIndex == 0){
-			std::cout << "allSimulationsSubAtomsX shape is (" << allSimulationsSubAtomsX.rows() << ", " << allSimulationsSubAtomsX.cols() << ")" << std::endl;
+#if VERBOSE
+    if(simulationIndex == 0){
+        std::cout << "allSimulationsSubAtomsX shape is (" << allSimulationsSubAtomsX.rows() << ", " << allSimulationsSubAtomsX.cols() << ")" << std::endl;
 //			std::cout << "allSimulationsSubAtomsX" << std::endl << allSimulationsSubAtomsX << std::endl;
-			for (int r = 0; r < allSimulationsSubAtomsX.size()/10; ++r) {
-				for(int i = 0; i< numSimulations; i++){
-					for(int j = 0; j < 3; j++){
-						std::cout << std::setw(6) << allSimulationsSubAtomsX(subAtomsX.rows() * i + r , j) << " ";
-					}
-					std::cout << "\t| ";
-				}
-				std::cout << std::endl;
-			}
-		}
-	}
+        for (int r = 0; r < allSimulationsSubAtomsX.size()/10; ++r) {
+            for(int i = 0; i< numSimulations; i++){
+                for(int j = 0; j < 3; j++){
+                    std::cout << std::setw(6) << allSimulationsSubAtomsX(subAtomsX.rows() * i + r , j) << " ";
+                }
+                std::cout << "\t| ";
+            }
+            std::cout << std::endl;
+        }
+    }
+#endif
 
 	float derivatives_buffer[subAtomsX.size()], allDerivatives_buffer[subAtomsX.size()*numSimulations];// TODO try to avoid repeated memory allocation
 	CoordsMatrixType derivatives_rectified;
@@ -353,7 +243,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput& forcePr
 		for(int i = 0; i < numSimulations; i++){
 			//TODO Review and Simplify this
 			CoordsMatrixType temp1Matrix = CoordsMapType(&allSimulationsSubAtomsX.data()[i*subAtomsX.size()], subAtomsX.rows(), 3);
-			CoordsMatrixType temp2Matrix = temp1Matrix;
+			const CoordsMatrixType& temp2Matrix = temp1Matrix;
 			allSimulationsSubAtomsX_vector.at(i) = temp2Matrix;
 		}
 
@@ -361,12 +251,12 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput& forcePr
 //		std::vector<Eigen::MatrixX3<float>> allDerivatives;
 		//do force calculations
 		auto [energy, allDerivatives] = KEnRef::coord_array_to_energy(allSimulationsSubAtomsX_vector, atomName_pairs, simulated_grouping_list, g0, 1e-20, atomName_to_atomLocalId_map, true);
-		if(VERBOSE){
-			std::cout << "energy = " << energy << ", allDerivatives:" << std::endl;
-			for(int i = 0; i < allDerivatives.size(); i++){
-				std::cout << "model "<< i << " shape (" << allDerivatives[i].rows() << " x " << allDerivatives[i].cols() << ")" << std::endl << allDerivatives[i] << std::endl;
-			}
-		}
+#if VERBOSE
+        std::cout << "energy = " << energy << ", allDerivatives:" << std::endl;
+        for(int i = 0; i < allDerivatives.size(); i++){
+            std::cout << "model "<< i << " shape (" << allDerivatives[i].rows() << " x " << allDerivatives[i].cols() << ")" << std::endl << allDerivatives[i] << std::endl;
+        }
+#endif
 		//I will use the slow method of copying data now, as it is less error prone
 		for (int i = 0; i < allDerivatives.size(); ++i) {
 			auto matrix = allDerivatives[i];
@@ -443,8 +333,8 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput& forcePr
     }
 
     std::cout << "final force values of simulation # " << simulationIndex << std::endl;
-    for(int i = 0; i < globalAtomIdFlags->size()/10; i++){
-    	std::cout << ((*globalAtomIdFlags).at(i) ? "*" : " ") << "\t" <<force[i][0] << "\t" << force[i][1] << "\t" << force[i][2] << ((*globalAtomIdFlags).at(i) ? "\t*" : "") << std::endl;
+    for(int i = 0; i < globalAtomIdFlags_->size() / 10; i++){
+    	std::cout << ((*globalAtomIdFlags_).at(i) ? "*" : " ") << "\t" << force[i][0] << "\t" << force[i][1] << "\t" << force[i][2] << ((*globalAtomIdFlags_).at(i) ? "\t*" : "") << std::endl;
     }
 
 	//I don't think this line is important. Only for easy printing
@@ -453,7 +343,110 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput& forcePr
 	gmx_barrier(mainRanksComm);
 }
 
-#undef KEnRef_Real
+void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulations) {
+    this->atomName_to_atomGlobalId_map_ = std::make_shared<std::map<std::string, int>>(IoUtils::getAtomNameMappingFromPdb("../6v5d_for_atomname_mapping.pdb"));
+    GMX_ASSERT(!atomName_to_atomGlobalId_map_->empty(), "No atom mapping found");
+    auto& atomName_to_atomGlobalId_map = *this->atomName_to_atomGlobalId_map_;
+#if VERBOSE
+    for (const auto& [name, globalId] : atomName_to_atomGlobalId_map_){
+            std::cout << "[" << name << "]\t:" << globalId << std::endl;
+        }
+//        for(auto& entry: atomName_to_atomGlobalId_map_){
+//            auto[name, globalId] = entry;
+//            std::cout << "[" << name << "]\t:" << globalId << std::endl;
+//        }
+#endif
+    this->simulatedData_table_ = std::make_shared<std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>>(IoUtils::readTable("../singleton_data.csv"));
+    GMX_ASSERT(simulatedData_table_ && !std::get<1>(*simulatedData_table_).empty(), "No simulated data found");
+#if VERBOSE
+    auto [header, data] = *simulatedData_table_;
+        IoUtils::printVector(header);
+        for(const auto& record: data){
+            IoUtils::printVector(record);
+        }
+#endif
+    std::vector<std::vector<std::string>> data = std::get<1>(*this->simulatedData_table_);
+    this->atomName_pairs_ = new std::vector<std::tuple<std::string, std::string>>();
+    for (auto record : data) {
+        std::string atom1 = IoUtils::normalizeName(record[1], true);
+        std::string atom2 = IoUtils::normalizeName(record[2], true);
+        this->atomName_pairs_->emplace_back(std::make_tuple(atom1, atom2));
+    }
+#if VERBOSE
+    for(auto [atom1, atom2]: *atomName_pairs_){
+            std::cout << "[" << atom1 << "], [" << atom2 << "]" << std::endl;
+        }
+#endif
+    this->g0_ = new Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>(data.size(), 2);
+    for (int i = 0; i < data.size(); ++i) {
+        auto record = data[i];
+std::istringstream temp1(record[3]), temp2(record[4]);
+temp1 >> (*this->g0_)(i, 0);
+temp2 >> (*this->g0_)(i, 1);
+    }
+#if VERBOSE
+    std::cout << *g0_ << std::endl;
+#endif
+    int maxAtomIdOfInterest = -1;// If you want to use size_t, then you can NOT use -1 as an initial value
+    this->globalAtomIdFlags_ = std::make_shared<std::vector<bool>>(homenr, false);
+    auto& globalAtomIdFlags = *this->globalAtomIdFlags_;
+    //scan the atom pairs to do:
+//1) find the highest globalAtomId number of interest
+//2) fill in the subAtomsFilter
+//3) do a quick sanity scan on the availability of all atomname atomID maping
+    int tempI;
+    for(auto [a1, a2]: *this->atomName_pairs_){
+#if VERBOSE
+std::cout << "[" << a1 << "]\t" << atomName_to_atomGlobalId_map.at(a1) << "\t";
+std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::endl;
+#endif
+        //In the next lines I use .at() instead of [] deliberately; to throw an exception if unexpected name found
+        if((tempI = atomName_to_atomGlobalId_map.at(a1)) > maxAtomIdOfInterest) maxAtomIdOfInterest = tempI;
+        globalAtomIdFlags[tempI] = true;
+        if((tempI = atomName_to_atomGlobalId_map.at(a2)) > maxAtomIdOfInterest) maxAtomIdOfInterest = tempI;
+        globalAtomIdFlags[tempI] = true;
+    }
+#if VERBOSE
+    IoUtils::printVector(globalAtomIdFlags);
+#endif
+    globalAtomIdFlags.resize(maxAtomIdOfInterest +1);
+
+    this->globalId_to_subId_ = std::make_shared<std::vector<int>>(globalAtomIdFlags.size(), -1);
+    this->subId_to_globalId_ = std::make_shared<std::vector<int>>(globalAtomIdFlags.size(), -1);
+    auto& globalId_to_subId = *this->globalId_to_subId_;
+    auto& subId_to_globalId = *this->subId_to_globalId_;
+    int localId = 0;
+    for(int i = 0; i < globalAtomIdFlags.size(); i++){
+        if(globalAtomIdFlags[i]){
+            globalId_to_subId[i] = localId;
+            subId_to_globalId[localId] = i;
+            localId++;
+        }
+    }
+    subId_to_globalId.resize(localId);
+
+    this->atomName_to_atomSubId_map_ = std::make_shared<std::map<std::string, int>>();
+    auto& atomName_to_atomSubId_map = *this->atomName_to_atomSubId_map_;
+    for(auto [name, globalId]: atomName_to_atomGlobalId_map){
+        atomName_to_atomSubId_map[name] = globalId_to_subId[globalId];
+    }
+#if VERBOSE
+    for(auto entry: atomName_to_atomSubId_map){
+            auto[name, localId] = entry;
+            std::cout << "[" << name << "]\t:" << localId << std::endl;
+        }
+#endif
+
+    this->subAtomsX_ = std::make_shared<CoordsMatrixType>(subId_to_globalId.size(), 3);//contains needed atoms only
+#if VERBOSE
+    auto subAtomsX = *this->subAtomsX_; std::cout << "subAtomsX_ shape is (" << subAtomsX.rows() << ", " << subAtomsX.cols() << ")" << std::endl;
+#endif
+    this->allSimulationsSubAtomsX_ = std::make_shared<CoordsMatrixType>(numSimulations * this->subAtomsX_->rows(), 3);
+#if VERBOSE
+    auto allSimulationsSubAtomsX = *this->allSimulationsSubAtomsX_; std::cout << "allSimulationsSubAtomsX_ shape is (" << allSimulationsSubAtomsX.rows() << ", " << allSimulationsSubAtomsX.cols() << ")" << std::endl;
+#endif
+}
+
 #undef VERBOSE
 
 

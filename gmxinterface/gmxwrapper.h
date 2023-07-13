@@ -15,7 +15,7 @@ public:
 	GMXWrapper();
 	virtual ~GMXWrapper();
 	GMXWrapper(const GMXWrapper &other);
-	GMXWrapper(GMXWrapper &&other);
+	GMXWrapper(GMXWrapper &&other) noexcept ;
 //	GMXWrapper& operator=(const GMXWrapper &other);
 //	GMXWrapper& operator=(GMXWrapper &&other);
 };

@@ -8,7 +8,9 @@
 #include <filesystem>
 #include <string>
 #include <map>
-#include <optional>
+//#include <optional>
+//#include "gromacs/mdtypes/iforceprovider.h"
+//#include "../gmxinterface/gmxkenrefinitializer.h"
 
 #include "gmxpre.h"
 
@@ -16,10 +18,8 @@
 
 #include "gromacs/commandline/cmdlinemodule.h"
 #include "gromacs/commandline/cmdlinemodulemanager.h"
-#include "gromacs/mdtypes/iforceprovider.h"
 
 #include "../gmxinterface/gmxwrapper.h"
-#include "../gmxinterface/gmxkenrefinitializer.h"
 #include "../gmxinterface/gmxkenrefrunner.h"
 #include "../gmxinterface/KEnRefMDModule.h"
 #include "../core/IoUtils.h"
@@ -29,13 +29,13 @@
 #include "../core/KEnRef.h"
 
 
-GMXWrapper::GMXWrapper() {}
+GMXWrapper::GMXWrapper() = default;
 
-GMXWrapper::~GMXWrapper() {}
+GMXWrapper::~GMXWrapper() = default;
 
-GMXWrapper::GMXWrapper(const GMXWrapper &other) {}
+GMXWrapper::GMXWrapper(const GMXWrapper &other) = default;
 
-GMXWrapper::GMXWrapper(GMXWrapper &&other) {}
+GMXWrapper::GMXWrapper(GMXWrapper &&other)  noexcept {}
 
 //GMXWrapper& GMXWrapper::operator=(const GMXWrapper &other) {}
 //GMXWrapper& GMXWrapper::operator=(GMXWrapper &&other) {}
@@ -87,7 +87,7 @@ void POST(){
 		auto [toy_g_array, toy_g_array_grad] = KEnRef::d_array_to_g(toy_d_array_vec, toy_grouping_list[gg], true);
 		std::cout << "toy_g_array" << std::endl << toy_g_array << std::endl;
 		std::cout << "toy_g_array_grad" << std::endl;
-		for(auto matrix: toy_g_array_grad){
+		for(const auto& matrix: toy_g_array_grad){
 			std::cout << matrix << /*std::endl <<*/ std::endl;
 		}
 		std::cout << "----------" << std::endl;
@@ -137,7 +137,7 @@ void POST(){
 		auto [eros3_sub_g_list, eros3_sub_g_list_grad] = KEnRef::d_array_to_g(eros3_sub_d_array, eros3_grouping_list[gg], true); //TODO d_arrays_to_g ???
 		std::cout << "eros3_sub_g_list" << std::endl << eros3_sub_g_list << std::endl;
 		std::cout << "eros3_sub_g_list_grad" << std::endl;
-		for(auto matrix: eros3_sub_g_list_grad){
+		for(const auto& matrix: eros3_sub_g_list_grad){
 			std::cout << matrix << /*std::endl <<*/ std::endl;
 			std::cout << "----------" << std::endl;
 		}

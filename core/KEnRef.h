@@ -21,7 +21,7 @@ public:
 	KEnRef();
 	virtual ~KEnRef();
 	KEnRef(const KEnRef &other);
-	KEnRef(KEnRef &&other);
+	KEnRef(KEnRef &&other) noexcept ;
 //	KEnRef& operator=(const KEnRef &other);
 //	KEnRef& operator=(KEnRef &&other);
 

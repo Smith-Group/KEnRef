@@ -60,7 +60,7 @@ void KEnRefMDModule::initForceProviders(gmx::ForceProviders* forceProviders) {
 	forceProvider_->setSimulationContext(simulationContext);
 	forceProvider_->setGuideAtomIndices(this->guideAtoms);
 //	forceProvider_->setAtomNameAtomIdMap(this->atomName_atomId_map);
-//	forceProvider_->setSimulatedDataTable(this->simulatedData_table);
+//	forceProvider_->setSimulatedDataTable(this->simulatedData_table_);
 
 	forceProviders->addForceProvider(forceProvider_.get());
 }
