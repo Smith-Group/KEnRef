@@ -9,21 +9,15 @@
 
 #include <map>
 #include <memory>
-#include <Eigen/Dense>
 #include <gromacs/mdtypes/iforceprovider.h>
 #include <gromacs/mdtypes/forceoutput.h>
 #include <gromacs/mdrun/simulationcontext.h>
 #include <gromacs/selection/selection.h>
+#include "../core/KEnRef.h"
 
 
 
 class KEnRefForceProvider: public gmx::IForceProvider {
-
-#define KEnRef_Real float //notice that it is defined in KEnRefForceProvider.h as well. TODO Remove this duplication later
-typedef Eigen::Matrix<KEnRef_Real,Eigen::Dynamic, 3, Eigen::RowMajor> CoordsMatrixType;
-typedef Eigen::Map<CoordsMatrixType> CoordsMapType;
-typedef Eigen::Map<const CoordsMatrixType> CoordsMapTypeConst;   // a read-only map
-
 
 	gmx::SimulationContext* simulationContext_ = nullptr;
 //	gmx::Selection* selection = nullptr;
@@ -35,11 +29,11 @@ typedef Eigen::Map<const CoordsMatrixType> CoordsMapTypeConst;   // a read-only 
 	std::shared_ptr<std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>> simulatedData_table_ = nullptr; //TODO remove this pointer when it is no longer needed
 	std::vector<std::tuple<std::string, std::string>> *atomName_pairs_ = nullptr;
 	Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> *g0_ = nullptr;
-	std::shared_ptr<CoordsMatrixType> subAtomsX_;
+	std::shared_ptr<CoordsMatrixType> subAtomsX_{};
 	std::shared_ptr<std::vector<bool>> globalAtomIdFlags_;
 	std::shared_ptr<std::vector<int>> subId_to_globalId_;
 	std::shared_ptr<std::vector<int>> globalId_to_subId_;
-	std::shared_ptr<CoordsMatrixType> allSimulationsSubAtomsX_;
+	std::shared_ptr<CoordsMatrixType> allSimulationsSubAtomsX_{};
 
 public:
 	KEnRefForceProvider();

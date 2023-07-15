@@ -26,7 +26,6 @@
 // Remember to put all local imports (especially those which reference Eigen) after
 // all Gromacs imports; to avoid compiler error "reference to 'real' is ambiguous"
 #include "../core/ensembleutils.h"
-#include "../core/KEnRef.h"
 
 
 GMXWrapper::GMXWrapper() = default;

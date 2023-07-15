@@ -16,12 +16,17 @@
 #include <Eigen/Dense>
 #include "../config/KEnRefConfig.h"
 
+typedef float KEnRef_Real;
+typedef Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 3, Eigen::RowMajor> CoordsMatrixType;
+typedef Eigen::Map<CoordsMatrixType> CoordsMapType;
+typedef Eigen::Map<const CoordsMatrixType> CoordsMapTypeConst;   // a read-only map
+
 class KEnRef {
 public:
 	KEnRef();
 	virtual ~KEnRef();
-	KEnRef(const KEnRef &other);
-	KEnRef(KEnRef &&other) noexcept ;
+//	KEnRef(const KEnRef &other);
+//  KEnRef(KEnRef &&other) noexcept ;
 //	KEnRef& operator=(const KEnRef &other);
 //	KEnRef& operator=(KEnRef &&other);
 
@@ -59,16 +64,16 @@ public:
 	//Atom pair names in R code follow the format `resSeq:Atom-resSeq:Atom` (not implemented here).
 	static std::vector<Eigen::MatrixX3<float>>
 	coord_array_to_r_array(
-			std::vector<Eigen::MatrixX3<float>> coord_array,
-			std::vector<std::tuple<int, int>> atomId_pairs
+            const std::vector<Eigen::MatrixX3<float>> &coord_array,
+            const std::vector<std::tuple<int, int>> &atomId_pairs
 			);
 
 	static std::tuple<float, std::vector<Eigen::MatrixX3<float>>>
 	coord_array_to_energy(
-			std::vector<Eigen::MatrixX3<float>> coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
-			std::vector<std::tuple<std::string, std::string>> atomName_pairs, 	// Matrix with each row having the names of an atom pair (related to first dimension in `coord_array` matrices)
-			std::vector<std::vector<std::vector<int>>> grouping_list,	// list of lists of integer vectors giving groupings of models to average interaction tensors
-			Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> g0, //target group norm squared values
+			const std::vector<Eigen::MatrixX3<float>>& coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
+			const std::vector<std::tuple<std::string, std::string>>& atomName_pairs, 	// Matrix with each row having the names of an atom pair (related to first dimension in `coord_array` matrices)
+			const std::vector<std::vector<std::vector<int>>>& grouping_list,	// list of lists of integer vectors giving groupings of models to average interaction tensors
+			const Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>& g0, //target group norm squared values
 			float k, //force constant
 			std::map<std::string, int> atomNames_2_atomIds,
 			bool gradient=false
@@ -76,19 +81,19 @@ public:
 
 	static std::tuple<float, std::vector<Eigen::MatrixX3<float>>>
 	coord_array_to_energy(
-			std::vector<Eigen::MatrixX3<float>> coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
+            std::vector<Eigen::MatrixX3<float>> coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
 			std::vector<std::tuple<int, int>> atomId_pairs, 	// Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
-			std::vector<std::vector<std::vector<int>>> grouping_list,	// list of lists of integer vectors giving groupings of models to average interaction tensors
-			Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> g0, //target group norm squared values
+			const std::vector<std::vector<std::vector<int>>>& grouping_list,	// list of lists of integer vectors giving groupings of models to average interaction tensors
+			const Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> &g0, //target group norm squared values
 			float k, //force constant
 			bool gradient=false
 			);
 
 	static Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>
 	coord_array_to_g(
-			std::vector<Eigen::MatrixX3<float>> coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
-			std::vector<std::tuple<int, int>> atomId_pairs, 	// Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
-			std::vector<std::vector<std::vector<int>>> grouping_list	// list of lists of integer vectors giving groupings of models to average interaction tensors
+			const std::vector<Eigen::MatrixX3<float>>& coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
+			const std::vector<std::tuple<int, int>>& atomId_pairs, 	// Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
+			const std::vector<std::vector<std::vector<int>>>& grouping_list	// list of lists of integer vectors giving groupings of models to average interaction tensors
 			);
 
 	// Calculate restraint energy from group norm squared values

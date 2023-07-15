@@ -106,7 +106,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 	auto simulatedData_table = *this->simulatedData_table_;
 	auto atomName_pairs = *this->atomName_pairs_;
 	auto g0 = *this->g0_;
-	CoordsMatrixType& subAtomsX = *this->subAtomsX_;
+    CoordsMatrixType& subAtomsX = *this->subAtomsX_;
 	CoordsMatrixType& allSimulationsSubAtomsX = *this->allSimulationsSubAtomsX_;
 	//setting the coordinate values to ZERO (or ONE) is dangerous because it causes Invalid floating point operation
 	std::vector<std::vector<std::vector<int>>> simulated_grouping_list {{{0}, {1}, {2}}, {{0, 1, 2}}};
@@ -121,7 +121,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 		//Note that the first atom of guideAtomsX (i.e. guideAtomsX[0]) is not the same subAtomsX_[0], and even subAtomsX_[0] ((may)) later not be the first atom in the system.
 #endif
 
-    int guideAtomIndicesSize = guideAtomIndices.size();
+    int guideAtomIndicesSize = static_cast<int>(guideAtomIndices.size());
     float guideAtomsX_buffer[guideAtomIndicesSize * 3];
     for(auto i =0; i < guideAtomIndicesSize; i++){
     	const int *pi = &guideAtomIndices[i];
@@ -211,7 +211,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
 	// Reduce allSimulationsSubAtomsX to rank 0
 	if (isMultiSimulation) {
-		MPI_Gather(subAtomsXAfterFitting.data(), subAtomsXAfterFitting.size(), MPI_FLOAT, allSimulationsSubAtomsX.data(), subAtomsXAfterFitting.size(), MPI_FLOAT, 0, mainRanksComm);
+		MPI_Gather(subAtomsXAfterFitting.data(), static_cast<int>(subAtomsXAfterFitting.size()), MPI_FLOAT, allSimulationsSubAtomsX.data(), static_cast<int>(subAtomsXAfterFitting.size()), MPI_FLOAT, 0, mainRanksComm);
 		//I don't think this line is important. Only for easy printing
 		gmx_barrier(mainRanksComm);
 	}else{
@@ -257,7 +257,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
             std::cout << "model "<< i << " shape (" << allDerivatives[i].rows() << " x " << allDerivatives[i].cols() << ")" << std::endl << allDerivatives[i] << std::endl;
         }
 #endif
-		//I will use the slow method of copying data now, as it is less error prone
+		//I will use the slow method of copying data now, as it is less error-prone. TODO change it.
 		for (int i = 0; i < allDerivatives.size(); ++i) {
 			auto matrix = allDerivatives[i];
 			std::copy(matrix.data(), matrix.data() + subAtomsX.size(), &allDerivatives_buffer[i*subAtomsX.size()]);
@@ -268,22 +268,18 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 	}
 
 	CoordsMapType derivatives_matrix(nullptr, 0, 3);
-	std::cout << "Before MPI_Scatter in Thread " << simulationIndex << std::endl;
 	if (isMultiSimulation) {
 		// Distribute all derivatives
-		MPI_Scatter(allDerivatives_buffer, subAtomsX.size(), MPI_FLOAT, derivatives_buffer, subAtomsX.size(), MPI_FLOAT, 0, mainRanksComm);
-		std::cout << "After MPI_Scatter in Thread " << simulationIndex << std::endl;
+		MPI_Scatter(allDerivatives_buffer, static_cast<int>(subAtomsX.size()), MPI_FLOAT, derivatives_buffer, static_cast<int>(subAtomsX.size()), MPI_FLOAT, 0, mainRanksComm);
 		//once you have the derivatives, retrieve them from the buffer
 		new (&derivatives_matrix) CoordsMapType(derivatives_buffer, subAtomsX.rows(), 3);
-		std::cout << "After \"CoordsMapType derivatives_matrix\" in Thread [[" << simulationIndex << "]]. derivatives_matrix shape (" << derivatives_matrix.rows() << " x " << derivatives_matrix.cols() << ")"<< std::endl;
 	}
+    std::cout << "derivatives_matrix thread # " << simulationIndex << " shape (" << derivatives_matrix.rows() << " x " << derivatives_matrix.cols() << ")" << std::endl << derivatives_matrix << std::endl;
 
 	// Transform them back
 	if(simulationIndex != 0){
-		std::cout << "Before derivatives_rectified in Thread " << simulationIndex << std::endl;
 		derivatives_rectified = (derivatives_matrix.cast<KEnRef_Real>().rowwise().homogeneous() * affine.matrix().inverse().transpose()).leftCols(3).cast<float>();
-		std::cout << "derivatives_rectified # " << simulationIndex << " shape (" << derivatives_rectified.rows() << " x " << derivatives_rectified.cols() << ")" /*<< std::endl << derivatives_rectified*/ << std::endl;
-		std::cout << "After derivatives_rectified in Thread " << simulationIndex << std::endl;
+		std::cout << "derivatives_rectified # " << simulationIndex << " shape (" << derivatives_rectified.rows() << " x " << derivatives_rectified.cols() << ")" << std::endl << derivatives_rectified << std::endl;
 	}
 
 	//////////////////////////////////////////////////////////////////////////////////////////////////
@@ -348,7 +344,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
     GMX_ASSERT(!atomName_to_atomGlobalId_map_->empty(), "No atom mapping found");
     auto& atomName_to_atomGlobalId_map = *this->atomName_to_atomGlobalId_map_;
 #if VERBOSE
-    for (const auto& [name, globalId] : atomName_to_atomGlobalId_map_){
+    for (const auto& [name, globalId] : atomName_to_atomGlobalId_map){
             std::cout << "[" << name << "]\t:" << globalId << std::endl;
         }
 //        for(auto& entry: atomName_to_atomGlobalId_map_){
@@ -359,9 +355,9 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
     this->simulatedData_table_ = std::make_shared<std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>>(IoUtils::readTable("../singleton_data.csv"));
     GMX_ASSERT(simulatedData_table_ && !std::get<1>(*simulatedData_table_).empty(), "No simulated data found");
 #if VERBOSE
-    auto [header, data] = *simulatedData_table_;
-        IoUtils::printVector(header);
-        for(const auto& record: data){
+    const auto& [table_header, table_data] = *simulatedData_table_;
+        IoUtils::printVector(table_header);
+        for(const auto& record: table_data){
             IoUtils::printVector(record);
         }
 #endif
@@ -431,9 +427,8 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
         atomName_to_atomSubId_map[name] = globalId_to_subId[globalId];
     }
 #if VERBOSE
-    for(auto entry: atomName_to_atomSubId_map){
-            auto[name, localId] = entry;
-            std::cout << "[" << name << "]\t:" << localId << std::endl;
+    for(const auto& [name, subId]: atomName_to_atomSubId_map){
+            std::cout << "[" << name << "]\t:" << subId << std::endl;
         }
 #endif
 
