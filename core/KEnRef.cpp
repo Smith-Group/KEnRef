@@ -277,7 +277,7 @@ KEnRef::coord_array_to_r_array( //TODO shall we change the return type to Coords
 }
 
 
-std::tuple<float, std::vector<Eigen::MatrixX3<float>>>
+std::tuple<float, std::vector<CoordsMatrixType>>
 KEnRef::coord_array_to_energy(
         const std::vector<Eigen::MatrixX3<float>>& coord_array,    //Every vector item is an Nx3 Matrix representing atom coordinates of a model.
         const std::vector<std::tuple<std::string, std::string>>& atomName_pairs,    // Matrix with each row having the names of an atom pair (related to first dimension in `coord_array` matrices)
@@ -289,22 +289,30 @@ KEnRef::coord_array_to_energy(
 //	std::cout << "coord_array_to_energy(atomName_pairs_) called" << std::endl;
     std::vector<std::tuple<int, int>> atomId_pairs{};
     // Fill the vector using atomNames_2_atomIds
-    for (const auto &[key, value]: atomName_pairs) {
+    for (const auto &[left, right]: atomName_pairs) {
         // I use at() instead of operator[] to force an exception to be thrown
-        atomId_pairs.emplace_back(atomNames_2_atomIds.at(key), atomNames_2_atomIds.at(value));
+        atomId_pairs.emplace_back(atomNames_2_atomIds.at(left), atomNames_2_atomIds.at(right));
     }
-	return KEnRef::coord_array_to_energy(coord_array, atomId_pairs, grouping_list, g0, k, gradient);
+//    std::tuple<float, std::vector<CoordsMatrixType>> temp = KEnRef::coord_array_to_energy(coord_array, atomId_pairs, grouping_list, g0, k, gradient);
+//    std::vector<CoordsMatrixType> &derivatives = std::get<1>(temp);
+//    for (int i = 0; i < derivatives.size(); ++i) {
+//        CoordsMatrixType &matrix = derivatives[i];
+//        for (int j = 0; j < matrix.rows(); ++j)
+//            for (int l = 0; l < 3; ++l)
+//                matrix(j, l) = static_cast<float>(i * 10000 + j * 10 + l);
+//    }
+//    return temp;
+    return KEnRef::coord_array_to_energy(coord_array, atomId_pairs, grouping_list, g0, k, gradient);
 }
 
 
-std::tuple<float, std::vector<Eigen::MatrixX3<float>>>
+std::tuple<float, std::vector<CoordsMatrixType>>
 KEnRef::coord_array_to_energy(
         std::vector<Eigen::MatrixX3<float>> coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
 		std::vector<std::tuple<int, int>> atomId_pairs, 	// Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
 		const std::vector<std::vector<std::vector<int>>>& grouping_list,	// list of lists of integer vectors giving groupings of models to average interaction tensors
 		const Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> &g0, float k, bool gradient)
 {
-//	std::cout << "coord_array_to_energy(atomId_pairs) called" << std::endl;
 	// calculate inter nuclear vectors
 	auto r_arrays = coord_array_to_r_array(coord_array, atomId_pairs);
 
@@ -379,7 +387,7 @@ KEnRef::coord_array_to_energy(
 //			std::cout << d_energy_d_r_array[i] << std::endl;
 		}
 
-		std::vector<Eigen::MatrixX3<float>> gradients;
+		std::vector<CoordsMatrixType> gradients;
 		gradients.reserve(num_models);
 		for(int i = 0; i < num_models; i++){
 			gradients.emplace_back(num_atoms, 3);
@@ -402,7 +410,7 @@ KEnRef::coord_array_to_energy(
 //		}
 		return {sum, gradients};
 	}else{
-		return {sum, std::vector<Eigen::MatrixX3<float>>{}};
+		return {sum, std::vector<CoordsMatrixType>{}};
 	}
 }
 

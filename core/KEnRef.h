@@ -68,7 +68,7 @@ public:
             const std::vector<std::tuple<int, int>> &atomId_pairs
 			);
 
-	static std::tuple<float, std::vector<Eigen::MatrixX3<float>>>
+	static std::tuple<float, std::vector<CoordsMatrixType>>
 	coord_array_to_energy(
 			const std::vector<Eigen::MatrixX3<float>>& coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
 			const std::vector<std::tuple<std::string, std::string>>& atomName_pairs, 	// Matrix with each row having the names of an atom pair (related to first dimension in `coord_array` matrices)
@@ -79,7 +79,7 @@ public:
 			bool gradient=false
 			);
 
-	static std::tuple<float, std::vector<Eigen::MatrixX3<float>>>
+	static std::tuple<float, std::vector<CoordsMatrixType>>
 	coord_array_to_energy(
             std::vector<Eigen::MatrixX3<float>> coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
 			std::vector<std::tuple<int, int>> atomId_pairs, 	// Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)

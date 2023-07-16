@@ -98,7 +98,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     }
 
     std::vector<int> const& guideAtomIndices = *this->guideAtomIndices_;
-	auto& atomName_to_atomLocalId_map = *this->atomName_to_atomSubId_map_;
+	auto& atomName_to_atomSubId_map = *this->atomName_to_atomSubId_map_;
 //	auto& globalAtomIdFlags_ = *this->globalAtomIdFlags_;
 //	auto& atomName_to_atomGlobalId_map_ = *this->atomName_to_atomGlobalId_map_;
 //	auto& globalId_to_subId_ = *this->globalId_to_subId_;
@@ -209,7 +209,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 //	allSimulationsSubAtomsX.setZero();
 //	allSimulationsSubAtomsX.block(simulationIndex*subAtomsXAfterFitting.rows(), 0, subAtomsXAfterFitting.rows(), 3);
 
-	// Reduce allSimulationsSubAtomsX to rank 0
+	// Gather allSimulationsSubAtomsX to rank 0
 	if (isMultiSimulation) {
 		MPI_Gather(subAtomsXAfterFitting.data(), static_cast<int>(subAtomsXAfterFitting.size()), MPI_FLOAT, allSimulationsSubAtomsX.data(), static_cast<int>(subAtomsXAfterFitting.size()), MPI_FLOAT, 0, mainRanksComm);
 		//I don't think this line is important. Only for easy printing
@@ -250,7 +250,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 //		float energy;
 //		std::vector<Eigen::MatrixX3<float>> allDerivatives;
 		//do force calculations
-		auto [energy, allDerivatives] = KEnRef::coord_array_to_energy(allSimulationsSubAtomsX_vector, atomName_pairs, simulated_grouping_list, g0, 1e-20, atomName_to_atomLocalId_map, true);
+		auto [energy, allDerivatives] = KEnRef::coord_array_to_energy(allSimulationsSubAtomsX_vector, atomName_pairs, simulated_grouping_list, g0, 1e-21, atomName_to_atomSubId_map, true);
 #if VERBOSE
         std::cout << "energy = " << energy << ", allDerivatives:" << std::endl;
         for(int i = 0; i < allDerivatives.size(); i++){
@@ -260,11 +260,9 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 		//I will use the slow method of copying data now, as it is less error-prone. TODO change it.
 		for (int i = 0; i < allDerivatives.size(); ++i) {
 			auto matrix = allDerivatives[i];
-			std::copy(matrix.data(), matrix.data() + subAtomsX.size(), &allDerivatives_buffer[i*subAtomsX.size()]);
+			std::copy(matrix.data(), matrix.data() + subAtomsX.size(), &allDerivatives_buffer[i * subAtomsX.size()]);
 		}
-
 		derivatives_rectified = allDerivatives[0];
-
 	}
 
 	CoordsMapType derivatives_matrix(nullptr, 0, 3);
@@ -274,12 +272,16 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 		//once you have the derivatives, retrieve them from the buffer
 		new (&derivatives_matrix) CoordsMapType(derivatives_buffer, subAtomsX.rows(), 3);
 	}
-    std::cout << "derivatives_matrix thread # " << simulationIndex << " shape (" << derivatives_matrix.rows() << " x " << derivatives_matrix.cols() << ")" << std::endl << derivatives_matrix << std::endl;
 
-	// Transform them back
+    if (simulationIndex == 2) {
+        std::cout << "derivatives_matrix thread # " << simulationIndex << " shape (" << derivatives_matrix.rows()
+                  << " x " << derivatives_matrix.cols() << ")" << std::endl << derivatives_matrix << std::endl;
+    }
+
+    // Transform them back
 	if(simulationIndex != 0){
 		derivatives_rectified = (derivatives_matrix.cast<KEnRef_Real>().rowwise().homogeneous() * affine.matrix().inverse().transpose()).leftCols(3).cast<float>();
-		std::cout << "derivatives_rectified # " << simulationIndex << " shape (" << derivatives_rectified.rows() << " x " << derivatives_rectified.cols() << ")" << std::endl << derivatives_rectified << std::endl;
+//		std::cout << "derivatives_rectified # " << simulationIndex << " shape (" << derivatives_rectified.rows() << " x " << derivatives_rectified.cols() << ")" << std::endl << derivatives_rectified << std::endl;
 	}
 
 	//////////////////////////////////////////////////////////////////////////////////////////////////
@@ -320,18 +322,18 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 //    }
 
     //Finally, add them to corresponding atoms
-    std::cout << "Before adding forces in thread " << simulationIndex << std::endl;
     for(int i = 0; i< subAtomsX.rows(); i++){
     	const int *pGlobalId = &subId_to_globalId[i];
 //    	//TODO Check whether it use global or local ID?
     	const int *pLocalId = cr.dd->ga2la->findHome(*pGlobalId);
     	force[*pLocalId] += {derivatives_rectified(i, 0), derivatives_rectified(i, 1), derivatives_rectified(i, 2)};// TODO optimize this line/process
+//        force[*pLocalId] += {100, 100, 1000}; //FIXME test only
     }
 
-    std::cout << "final force values of simulation # " << simulationIndex << std::endl;
-    for(int i = 0; i < globalAtomIdFlags_->size() / 10; i++){
-    	std::cout << ((*globalAtomIdFlags_).at(i) ? "*" : " ") << "\t" << force[i][0] << "\t" << force[i][1] << "\t" << force[i][2] << ((*globalAtomIdFlags_).at(i) ? "\t*" : "") << std::endl;
-    }
+//    std::cout << "final force values of simulation # " << simulationIndex << std::endl;
+//    for(int i = 0; i < globalAtomIdFlags_->size() / 10; i++){
+//    	std::cout << ((*globalAtomIdFlags_).at(i) ? "*" : " ") << "\t" << force[i][0] << "\t" << force[i][1] << "\t" << force[i][2] << ((*globalAtomIdFlags_).at(i) ? "\t*" : "") << std::endl;
+//    }
 
 	//I don't think this line is important. Only for easy printing
 	if(isMultiSimulation) gmx_barrier(mainRanksComm);
@@ -374,11 +376,12 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
         }
 #endif
     this->g0_ = new Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>(data.size(), 2);
+    auto &g0 = *g0_;
     for (int i = 0; i < data.size(); ++i) {
         auto record = data[i];
-std::istringstream temp1(record[3]), temp2(record[4]);
-temp1 >> (*this->g0_)(i, 0);
-temp2 >> (*this->g0_)(i, 1);
+        std::istringstream temp1(record[3]), temp2(record[4]);
+        temp1 >> g0(i, 0);
+        temp2 >> g0(i, 1);
     }
 #if VERBOSE
     std::cout << *g0_ << std::endl;
