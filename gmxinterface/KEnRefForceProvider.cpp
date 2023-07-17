@@ -5,6 +5,7 @@
  */
 
 #include <iostream>
+#include <cmath>
 #include <memory>
 #include <Eigen/Core>
 #include "gromacs/pbcutil/pbc.h"
@@ -62,28 +63,28 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 //    const auto& t  = forceProviderInput.t_; // Not needed (at least yet)
     const auto &force = forceProviderOutput->forceWithVirial_.force_;
 
-	bool isMultiSimulation = this->simulationContext_->multiSimulation_ != nullptr;
-	int numSimulations = isMultiSimulation ? this->simulationContext_->multiSimulation_->numSimulations_ : 1;
-	int simulationIndex = isMultiSimulation ? this->simulationContext_->multiSimulation_->simulationIndex_ : 0;
+    bool isMultiSimulation = this->simulationContext_->multiSimulation_ != nullptr;
+    int numSimulations = isMultiSimulation ? this->simulationContext_->multiSimulation_->numSimulations_ : 1;
+    int simulationIndex = isMultiSimulation ? this->simulationContext_->multiSimulation_->simulationIndex_ : 0;
 	MPI_Comm mainRanksComm = isMultiSimulation ? this->simulationContext_->multiSimulation_->mainRanksComm_ : MPI_COMM_NULL;
-	std::cout 	<< "--> isMultiSimulation: " << std::boolalpha << isMultiSimulation << "\n"
-				<< "--> numSimulations " << numSimulations << "\n"
+    std::cout << "--> isMultiSimulation: " << std::boolalpha << isMultiSimulation << "\n"
+              << "--> numSimulations " << numSimulations << "\n"
     			<< "--> rankInDefaultCommunicator " << cr.rankInDefaultCommunicator << " " << (isMultiSimulation? simulationIndex : -1) << "\n"
-    			<< "--> simulationIndex " << simulationIndex << "\tstep " << step << std::endl;
+              << "--> simulationIndex " << simulationIndex << "\tstep " << step << std::endl;
 
-    if(step == 0){
+    if (step == 0) {
         bool holdToDebug = false;
-        while (simulationIndex < 2 && holdToDebug){
+        while (simulationIndex < 2 && holdToDebug) {
             sleep(1);
         }
     }
 
 
-    if(step == 0){
-    	std::cout << "Number of atoms = " << homenr << std::endl;
-    	std::cout << "havePPDomainDecomposition(cr): " << havePPDomainDecomposition(&cr) << std::endl;
-    	std::cout << "haveDDAtomOrdering(cr): " <<  haveDDAtomOrdering(cr) << std::endl;
-    	std::cout << "cr.dd->nnodes: " << cr.dd->nnodes << std::endl;
+    if (step == 0) {
+        std::cout << "Number of atoms = " << homenr << std::endl;
+        std::cout << "havePPDomainDecomposition(cr): " << havePPDomainDecomposition(&cr) << std::endl;
+        std::cout << "haveDDAtomOrdering(cr): " << haveDDAtomOrdering(cr) << std::endl;
+        std::cout << "cr.dd->nnodes: " << cr.dd->nnodes << std::endl;
 
 #if VERBOSE
         std::cout<< "Global to Local Atom number mapping:" << std::endl;
@@ -97,40 +98,40 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         fillParamsStep0(homenr, numSimulations);
     }
 
-    std::vector<int> const& guideAtomIndices = *this->guideAtomIndices_;
-	auto& atomName_to_atomSubId_map = *this->atomName_to_atomSubId_map_;
+    std::vector<int> const &guideAtomIndices = *this->guideAtomIndices_;
+    auto &atomName_to_atomSubId_map = *this->atomName_to_atomSubId_map_;
 //	auto& globalAtomIdFlags_ = *this->globalAtomIdFlags_;
 //	auto& atomName_to_atomGlobalId_map_ = *this->atomName_to_atomGlobalId_map_;
 //	auto& globalId_to_subId_ = *this->globalId_to_subId_;
-	auto& subId_to_globalId = *this->subId_to_globalId_;
-	auto simulatedData_table = *this->simulatedData_table_;
-	auto atomName_pairs = *this->atomName_pairs_;
-	auto g0 = *this->g0_;
-    CoordsMatrixType& subAtomsX = *this->subAtomsX_;
-	CoordsMatrixType& allSimulationsSubAtomsX = *this->allSimulationsSubAtomsX_;
-	//setting the coordinate values to ZERO (or ONE) is dangerous because it causes Invalid floating point operation
+    auto &subId_to_globalId = *this->subId_to_globalId_;
+    auto simulatedData_table = *this->simulatedData_table_;
+    auto atomName_pairs = *this->atomName_pairs_;
+    auto g0 = *this->g0_;
+    CoordsMatrixType &subAtomsX = *this->subAtomsX_;
+    CoordsMatrixType &allSimulationsSubAtomsX = *this->allSimulationsSubAtomsX_;
+    //setting the coordinate values to ZERO (or ONE) is dangerous because it causes Invalid floating point operation
 	std::vector<std::vector<std::vector<int>>> simulated_grouping_list {{{0}, {1}, {2}}, {{0, 1, 2}}};
-	if(!isMultiSimulation){
+    if (!isMultiSimulation) {
 		simulated_grouping_list = {{{0}}, {{0}}};
-	}
+    }
 
 #if VERBOSE
-		int iZero = 0;
-		const int *piZero = cr.dd->ga2la->findHome(iZero);
-		std::cout << x[*piZero][0] << " " << x[*piZero][1] << " " << x[*piZero][2] << "\t\t" << std::endl << std::endl;
-		//Note that the first atom of guideAtomsX (i.e. guideAtomsX[0]) is not the same subAtomsX_[0], and even subAtomsX_[0] ((may)) later not be the first atom in the system.
+    int iZero = 0;
+    const int *piZero = cr.dd->ga2la->findHome(iZero);
+    std::cout << x[*piZero][0] << " " << x[*piZero][1] << " " << x[*piZero][2] << "\t\t" << std::endl << std::endl;
+    //Note that the first atom of guideAtomsX (i.e. guideAtomsX[0]) is not the same subAtomsX_[0], and even subAtomsX_[0] ((may)) later not be the first atom in the system.
 #endif
 
     int guideAtomIndicesSize = static_cast<int>(guideAtomIndices.size());
     float guideAtomsX_buffer[guideAtomIndicesSize * 3];
-    for(auto i =0; i < guideAtomIndicesSize; i++){
-    	const int *pi = &guideAtomIndices[i];
-    	const int *piLocal = cr.dd->ga2la->findHome(*pi);
-    	GMX_ASSERT(piLocal, "ERROR: Can't find local index of atom");
-		const gmx::RVec atom_x = x[*piLocal];
+    for (auto i = 0; i < guideAtomIndicesSize; i++) {
+        const int *pi = &guideAtomIndices[i];
+        const int *piLocal = cr.dd->ga2la->findHome(*pi);
+        GMX_ASSERT(piLocal, "ERROR: Can't find local index of atom");
+        const gmx::RVec atom_x = x[*piLocal];
 
-		auto rvec = atom_x.as_vec();
-		std::copy(rvec, rvec + 3, &guideAtomsX_buffer[i*3]);
+        auto rvec = atom_x.as_vec();
+        std::copy(rvec, rvec + 3, &guideAtomsX_buffer[i * 3]);
 //		// for test only
 //		for(auto j = 0; j < 3; j++){
 //			guideAtomsX_buffer[i * 3 + j] = (isMultiSimulation? 100000 * simulationIndex : 0) + 100 * i + j;
@@ -143,80 +144,83 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     std::cout << "guideAtomsX" << std::endl << guideAtomsX << std::endl;
 #endif
 
-    if (haveDDAtomOrdering(cr)){
-    	//TODO handle Domain Decomposition
+    if (haveDDAtomOrdering(cr)) {
+        //TODO handle Domain Decomposition
     }
 
     //TODO restore atom coordinates without the PBC
     // pbc_dx(pbc, *box_const, atom_x, atoms_nopbc[*pii]);
 
-	// Broadcast targetAtomsPositions of model 0
+    // Broadcast targetAtomsPositions of model 0
     float guideAtoms_model0_X_buffer[guideAtomIndicesSize * 3]; //TODO Do it the other way around: create the matrix and get its data in buffer
-	Eigen::MatrixX3<float> subAtomsXAfterFitting;
+    Eigen::MatrixX3<float> subAtomsXAfterFitting;
 
-	if(simulationIndex == 0){
-		std::copy(guideAtomsX_buffer, guideAtomsX_buffer + guideAtomIndicesSize * 3, guideAtoms_model0_X_buffer);
-	}else{
+    if (simulationIndex == 0) {
+        std::copy(guideAtomsX_buffer, guideAtomsX_buffer + guideAtomIndicesSize * 3, guideAtoms_model0_X_buffer);
+    } else {
 //		//Leave unintialized.
-		//This initialization is for testing only
+        //This initialization is for testing only
 //		std::copy(guideAtomsX_buffer, guideAtomsX_buffer + targetAtomIndicesSize * 3, targetAtoms_model0_X_buffer);
-	}
+    }
 
 //	//For testing only
 //	CoordsMapType tempMap = CoordsMapType(guideAtomsX_buffer, 5, 3); //guideAtomIndicesSize, 3);
 //	std::cout << "from simulation ((" << simulationIndex << ")) before bCast" << std::endl << tempMap << std::endl;
 
-	if (isMultiSimulation) {
-		//Broadcast guideAtomsX from rank 0 to all other ranks
-		gmx_bcast(guideAtomIndicesSize * 3 * sizeof(float), guideAtomsX_buffer, mainRanksComm); //FIXME INSPECT HERE
-		//I don't think this line is important. Only for easy printing
-		gmx_barrier(mainRanksComm);
-	}
+    if (isMultiSimulation) {
+        //Broadcast guideAtomsX from rank 0 to all other ranks
+        gmx_bcast(guideAtomIndicesSize * 3 * sizeof(float), guideAtomsX_buffer, mainRanksComm); //FIXME INSPECT HERE
+        //I don't think this line is important. Only for easy printing
+        gmx_barrier(mainRanksComm);
+    }
 
-	CoordsMapType model0guideAtomsX = CoordsMapType(guideAtomsX_buffer, guideAtomIndicesSize, 3);
+    CoordsMapType model0guideAtomsX = CoordsMapType(guideAtomsX_buffer, guideAtomIndicesSize, 3);
 
 //	//For testing only
 //	CoordsMapType tempMatrix1 = CoordsMapType(guideAtomsX_buffer, 5, 3); //guideAtomIndicesSize, 3);
 //	std::cout << "from simulation ((" << simulationIndex << ")) after bCast" << std::endl << tempMatrix1 << std::endl;
 
-	Eigen::Transform<KEnRef_Real, 3, Eigen::Affine> affine = (
-			simulationIndex == 0 ?
-					Eigen::Transform<KEnRef_Real, 3, Eigen::Affine>::Identity() :
-					Kabsch<KEnRef_Real>::Find3DAffineTransform(guideAtomsX, model0guideAtomsX));
+    Eigen::Transform<KEnRef_Real, 3, Eigen::Affine> affine = (
+            simulationIndex == 0 ?
+            Eigen::Transform<KEnRef_Real, 3, Eigen::Affine>::Identity() :
+            Kabsch<KEnRef_Real>::Find3DAffineTransform(guideAtomsX, model0guideAtomsX));
 #if VERBOSE
     std::cout << "Affine Matrix" << std::endl << affine.matrix() << std::endl;
 #endif
 
-	auto subAtomsX_buffer = subAtomsX.data();
-	// Fill needed atoms of subAtomsX with atoms (in the original order). The rest were set to zero earlier
-	for(int i = 0; i < subAtomsX.rows(); i++){
-		const int *pi = &i;
-		const int *piLocal = cr.dd->ga2la->findHome(*pi);
+    auto subAtomsX_buffer = subAtomsX.data();
+    // Fill needed atoms of subAtomsX with atoms (in the original order). The rest were set to zero earlier
+    for (int i = 0; i < subAtomsX.rows(); i++) {
+        const int *pi = &i;
+        const int *piLocal = cr.dd->ga2la->findHome(*pi);
 //		GMX_ASSERT(piLocal, "ERROR: Can't find local index of atom");
-		const gmx::RVec atom_x = x[*piLocal];
-		const auto rvec = atom_x.as_vec();
-		std::copy(rvec, rvec + 3, &subAtomsX_buffer[i*3]);
-	}
+        const gmx::RVec atom_x = x[*piLocal];
+        const auto rvec = atom_x.as_vec();
+        std::copy(rvec, rvec + 3, &subAtomsX_buffer[i * 3]);
+    }
 
-	// Fit every replica (except 0) to model 0
-	if(simulationIndex == 0){
-		subAtomsXAfterFitting = subAtomsX;
-	}else{
-		subAtomsXAfterFitting = (subAtomsX.cast<KEnRef_Real>().rowwise().homogeneous() * affine.matrix().transpose()).leftCols(3).cast<float>();
-	}
+    // Fit every replica (except 0) to model 0
+    if (simulationIndex == 0) {
+        subAtomsXAfterFitting = subAtomsX;
+    } else {
+        subAtomsXAfterFitting = (subAtomsX.cast<KEnRef_Real>().rowwise().homogeneous() *
+                                 affine.matrix().transpose()).leftCols(3).cast<float>();
+    }
 
 //	// Copy all atomsX into its corresponding section of allSimulationsSubAtomsX after fitting
 //	allSimulationsSubAtomsX.setZero();
 //	allSimulationsSubAtomsX.block(simulationIndex*subAtomsXAfterFitting.rows(), 0, subAtomsXAfterFitting.rows(), 3);
 
-	// Gather allSimulationsSubAtomsX to rank 0
-	if (isMultiSimulation) {
-		MPI_Gather(subAtomsXAfterFitting.data(), static_cast<int>(subAtomsXAfterFitting.size()), MPI_FLOAT, allSimulationsSubAtomsX.data(), static_cast<int>(subAtomsXAfterFitting.size()), MPI_FLOAT, 0, mainRanksComm);
-		//I don't think this line is important. Only for easy printing
-		gmx_barrier(mainRanksComm);
-	}else{
-		allSimulationsSubAtomsX=subAtomsXAfterFitting;
-	}
+    // Gather allSimulationsSubAtomsX to rank 0
+    if (isMultiSimulation) {
+        MPI_Gather(subAtomsXAfterFitting.data(), static_cast<int>(subAtomsXAfterFitting.size()), MPI_FLOAT,
+                   allSimulationsSubAtomsX.data(), static_cast<int>(subAtomsXAfterFitting.size()), MPI_FLOAT, 0,
+                   mainRanksComm);
+        //I don't think this line is important. Only for easy printing
+        gmx_barrier(mainRanksComm);
+    } else {
+        allSimulationsSubAtomsX = subAtomsXAfterFitting;
+    }
 
 #if VERBOSE
     if(simulationIndex == 0){
@@ -235,22 +239,23 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 #endif
 
 	float derivatives_buffer[subAtomsX.size()], allDerivatives_buffer[subAtomsX.size()*numSimulations];// TODO try to avoid repeated memory allocation
-	CoordsMatrixType derivatives_rectified;
-	//in rank 0
-	if(simulationIndex == 0){
-		//collect all matrices of all replica into a vector of atom coordinates.
+    CoordsMatrixType derivatives_rectified;
+    //in rank 0
+    if (simulationIndex == 0) {
+        //collect all matrices of all replica into a vector of atom coordinates.
 		std::vector<Eigen::MatrixX3<float>> allSimulationsSubAtomsX_vector = std::vector<Eigen::MatrixX3<float>>(numSimulations);
-		for(int i = 0; i < numSimulations; i++){
-			//TODO Review and Simplify this
+        for (int i = 0; i < numSimulations; i++) {
+            //TODO Review and Simplify this
 			CoordsMatrixType temp1Matrix = CoordsMapType(&allSimulationsSubAtomsX.data()[i*subAtomsX.size()], subAtomsX.rows(), 3);
-			const CoordsMatrixType& temp2Matrix = temp1Matrix;
-			allSimulationsSubAtomsX_vector.at(i) = temp2Matrix;
-		}
+            const CoordsMatrixType &temp2Matrix = temp1Matrix;
+            allSimulationsSubAtomsX_vector.at(i) = temp2Matrix;
+        }
 
 //		float energy;
 //		std::vector<Eigen::MatrixX3<float>> allDerivatives;
-		//do force calculations
-		auto [energy, allDerivatives] = KEnRef::coord_array_to_energy(allSimulationsSubAtomsX_vector, atomName_pairs, simulated_grouping_list, g0, 1e-21, atomName_to_atomSubId_map, true);
+        //do force calculations
+        auto [energy, allDerivatives] = KEnRef::coord_array_to_energy(allSimulationsSubAtomsX_vector, atomName_pairs,
+                                                                      simulated_grouping_list, g0, static_cast<KEnRef_Real>(pow(2,-40)), atomName_to_atomSubId_map, true);
 #if VERBOSE
         std::cout << "energy = " << energy << ", allDerivatives:" << std::endl;
         for(int i = 0; i < allDerivatives.size(); i++){
@@ -265,26 +270,37 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 		derivatives_rectified = allDerivatives[0];
 	}
 
-	CoordsMapType derivatives_matrix(nullptr, 0, 3);
+	CoordsMapType derivatives_map(nullptr, 0, 3);
 	if (isMultiSimulation) {
 		// Distribute all derivatives
 		MPI_Scatter(allDerivatives_buffer, static_cast<int>(subAtomsX.size()), MPI_FLOAT, derivatives_buffer, static_cast<int>(subAtomsX.size()), MPI_FLOAT, 0, mainRanksComm);
 		//once you have the derivatives, retrieve them from the buffer
-		new (&derivatives_matrix) CoordsMapType(derivatives_buffer, subAtomsX.rows(), 3);
+		new (&derivatives_map) CoordsMapType(derivatives_buffer, subAtomsX.rows(), 3);
 	}
 
-    if (simulationIndex == 2) {
-        std::cout << "derivatives_matrix thread # " << simulationIndex << " shape (" << derivatives_matrix.rows()
-                  << " x " << derivatives_matrix.cols() << ")" << std::endl << derivatives_matrix << std::endl;
-    }
+//    if (simulationIndex == 2) {
+//        std::cout << "derivatives_map thread # " << simulationIndex << " shape (" << derivatives_map.rows()
+//                  << " x " << derivatives_map.cols() << ")" << std::endl << derivatives_map.topRows(derivatives_map.rows() / 10) << std::endl;
+//    }
 
     // Transform them back
 	if(simulationIndex != 0){
-		derivatives_rectified = (derivatives_matrix.cast<KEnRef_Real>().rowwise().homogeneous() * affine.matrix().inverse().transpose()).leftCols(3).cast<float>();
+		derivatives_rectified = (derivatives_map.cast<KEnRef_Real>().rowwise().homogeneous() * affine.matrix().inverse().transpose()).leftCols(3).cast<float>();
 //		std::cout << "derivatives_rectified # " << simulationIndex << " shape (" << derivatives_rectified.rows() << " x " << derivatives_rectified.cols() << ")" << std::endl << derivatives_rectified << std::endl;
 	}
 
-	//////////////////////////////////////////////////////////////////////////////////////////////////
+
+    auto max = derivatives_rectified.cwiseAbs().maxCoeff();
+    auto scaleDown = static_cast<KEnRef_Real>(100.0 / max);
+    if(scaleDown < 1.0){
+        derivatives_rectified *= scaleDown;
+    }
+    std::cout << "Simulation # " << simulationIndex << " max: " << max << ", scaleDown " << scaleDown << (scaleDown < 1.0 ? " Scaled down" : " NOT USED") << std::endl;
+    gmx_barrier(mainRanksComm);
+
+
+
+    //////////////////////////////////////////////////////////////////////////////////////////////////
     //	std::cout << forceProviderInput.x_ << std::endl << std::endl;
     std::cout << forceProviderOutput << std::endl;
     //	std::cout << forceProviderOutput->forceWithVirial_ << std::endl;
