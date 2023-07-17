@@ -35,11 +35,11 @@ KEnRefMDModule::KEnRefMDModule() {
 
 }
 
-KEnRefMDModule::~KEnRefMDModule() {}
+KEnRefMDModule::~KEnRefMDModule() = default;
 
 KEnRefMDModule::KEnRefMDModule(const KEnRefMDModule &other) {}
 
-KEnRefMDModule::KEnRefMDModule(KEnRefMDModule &&other) {}
+KEnRefMDModule::KEnRefMDModule(KEnRefMDModule &&other)  noexcept {}
 //KEnRefMDModule& NENRefMDModule::operator=(const NENRefMDModule &other) {}
 //KEnRefMDModule& NENRefMDModule::operator=(NENRefMDModule &&other) {}
 

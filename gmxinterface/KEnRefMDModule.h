@@ -91,7 +91,7 @@ public:
 	KEnRefMDModule();
 	virtual ~KEnRefMDModule();
 	KEnRefMDModule(const KEnRefMDModule &other);
-	KEnRefMDModule(KEnRefMDModule &&other);
+	KEnRefMDModule(KEnRefMDModule &&other) noexcept;
 //	KEnRefMDModule& operator=(const NENRefMDModule &other);
 //	KEnRefMDModule& operator=(NENRefMDModule &&other);
 

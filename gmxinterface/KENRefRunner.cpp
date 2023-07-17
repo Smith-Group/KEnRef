@@ -22,7 +22,7 @@ KEnRefRunner::KEnRefRunner(const KEnRefRunner &other) {
 
 }
 
-KEnRefRunner::KEnRefRunner(KEnRefRunner &&other) {
+KEnRefRunner::KEnRefRunner(KEnRefRunner &&other) noexcept {
 	// TODO Auto-generated constructor stub
 
 }

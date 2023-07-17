@@ -18,16 +18,15 @@
 
 class IoUtils final {
 private:
-	IoUtils()=delete;
-
 
 public:
-	template<typename T>
+    IoUtils()=delete;
+    template<typename T>
 	static std::vector<std::vector<T>>
 	read_uniform_table_of(std::istream &ins);
 
 	static std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>
-	readTable(const std::string fileName, bool has_header=true);
+	readTable(const std::string& fileName, bool has_header=true);
 
 	static std::string
 	strip_enclosing_quotoes(const std::string& str, char delim = '\"');
@@ -43,8 +42,8 @@ public:
 
 	static std::map<std::string, std::vector<std::string>>
 	read_noe_groups(std::istream &ins);
-	static std::vector<int> getGmxNdxGroup(const std::string filename, const std::string groupName);
-	static std::map<std::string, std::vector<int>> getAllGmxNdxGroups(const std::string filename);
+	static std::vector<int> getGmxNdxGroup(const std::string& filename, const std::string& groupName);
+	static std::map<std::string, std::vector<int>> getAllGmxNdxGroups(const std::string& filename);
 
 	static void printVector(const std::vector<int>& vec);
 	static void printVector(const std::vector<bool>& vec);
@@ -53,7 +52,7 @@ public:
 	static void printVector(const std::vector<TYPE>& vec);
 
 	static std::map<std::string, int>
-	getAtomNameMappingFromPdb(const std::string filename); //This method removes AltLoc and ChainID and keeps only the last one of each
+	getAtomNameMappingFromPdb(const std::string& filename); //This method removes AltLoc and ChainID and keeps only the last one of each
 	static std::string& normalizeName(std::string &atomId, bool lowerMet=true);
 };
 

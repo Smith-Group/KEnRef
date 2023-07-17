@@ -15,13 +15,13 @@
 class GmxKEnRefInitializer: public DefaultKEnRefInitializer {
 public:
 	GmxKEnRefInitializer();
-	virtual ~GmxKEnRefInitializer();
+	~GmxKEnRefInitializer() override;
 	GmxKEnRefInitializer(const GmxKEnRefInitializer &other);
-	GmxKEnRefInitializer(GmxKEnRefInitializer &&other);
-	GmxKEnRefInitializer& operator=(const GmxKEnRefInitializer &other);
-	GmxKEnRefInitializer& operator=(GmxKEnRefInitializer &&other);
-	static std::map<std::string, std::vector<int>> loadGmxIndexFile(std::string indexFileName);
-	static std::vector<int> loadGmxIndexGroup(std::string groupName, std::string indexFileName="KEnRefAtomIndex.ndx");
+	GmxKEnRefInitializer(GmxKEnRefInitializer &&other) noexcept ;
+//	GmxKEnRefInitializer& operator=(const GmxKEnRefInitializer &other);
+//	GmxKEnRefInitializer& operator=(GmxKEnRefInitializer &&other);
+	static std::map<std::string, std::vector<int>> loadGmxIndexFile(const std::string& indexFileName);
+	static std::vector<int> loadGmxIndexGroup(const std::string& groupName, const std::string& indexFileName="KEnRefAtomIndex.ndx");
 };
 
 #endif /* GMXKENREFINITIALIZER_H_ */

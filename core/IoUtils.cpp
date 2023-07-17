@@ -18,7 +18,7 @@ std::vector<std::vector<T>> IoUtils::read_uniform_table_of(std::istream &ins) {
 }
 
 //caution: this method does not handle the case when there is a comma inside a string
-std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>> IoUtils::readTable(const std::string fileName, bool has_header){
+std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>> IoUtils::readTable(const std::string& fileName, bool has_header){
 	std::vector<std::string> header{};
 	std::vector<std::vector<std::string>> data{};
 	bool header_consumed = false;
@@ -32,7 +32,7 @@ std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>> IoUt
 	while(instream.peek() != EOF){
 		std::getline(instream, line);
 		auto tokens = split(line, ",\\s*");
-		for(size_t i = 0; i < tokens.size(); ++i){
+		for(size_t i = 0; i < tokens.size(); ++i){ // NOLINT(modernize-loop-convert)
 			tokens[i] = strip_enclosing_quotoes(tokens[i], '\"');
 		}
 		if(has_header && ! header_consumed){
@@ -87,13 +87,12 @@ std::tuple<std::vector<std::string>, std::vector<std::string>,
 			g2 = strip_enclosing_quotoes(g2);
 			val_int = std::stoi(val_str);
 //			std::cout << g1 << '\t' << g2 << '\t' << val_int << std::endl;
-			temp.emplace_back(std::tuple<std::string, std::string, int> {g1, g2, val_int});
+			temp.emplace_back(g1, g2, val_int);
 		}
 	}
 	std::vector<std::string> group1{}, group2{};
 	std::vector<int> values{};
-	for(auto entry : temp){
-		auto[g1, g2, v] = entry;
+	for(const auto& [g1, g2, v] : temp){
 		group1.emplace_back(g1);
 		group2.emplace_back(g2);
 		values.emplace_back(v);
@@ -134,7 +133,7 @@ IoUtils::read_noe_groups(std::istream &instream){
 
 	std::map<std::string, std::vector<std::string>> ret{};
 	std::string line;
-	std::regex tempelate { "^\\s*(.*?)\\s*=\\s*(.*?)(\\s*,?\\s*)$" };
+	std::regex tempelate { R"(^\s*(.*?)\s*=\s*(.*?)(\s*,?\s*)$)" };
 	std::smatch sm;
 
 	while(std::getline(instream, line)){
@@ -145,7 +144,7 @@ IoUtils::read_noe_groups(std::istream &instream){
 		std::vector<std::string> val;
 		if(temp_val.rfind("c(", 0) == 0){ // str.startwith() is available in C++20 at least
 			auto tokens = split(temp_val.substr(2, temp_val.length()-3), ",\\s*");
-			for(size_t i = 0; i < tokens.size(); ++i){
+			for(auto i = 0; i < tokens.size(); ++i){ // NOLINT(modernize-loop-convert)
 				tokens[i] = strip_enclosing_quotoes(tokens[i], '\"');
 			}
 			val = tokens;
@@ -159,7 +158,7 @@ IoUtils::read_noe_groups(std::istream &instream){
 
 
 std::vector<int>
-IoUtils::getGmxNdxGroup(const std::string filename, const std::string groupName){
+IoUtils::getGmxNdxGroup(const std::string& filename, const std::string& groupName){
     std::vector<int> ret;
     std::ifstream indexFile(filename);
     if (!indexFile.is_open()) {
@@ -186,7 +185,7 @@ IoUtils::getGmxNdxGroup(const std::string filename, const std::string groupName)
 }
 
 std::map<std::string, std::vector<int>>
-IoUtils::getAllGmxNdxGroups(const std::string filename){
+IoUtils::getAllGmxNdxGroups(const std::string& filename){
     std::map<std::string, std::vector<int>> ret;
     std::ifstream indexFile(filename);
     if (!indexFile.is_open()) {
@@ -198,7 +197,7 @@ IoUtils::getAllGmxNdxGroups(const std::string filename){
     while (std::getline(indexFile, line)) {
         if (line.empty()) continue;
         if (line[0] == '[') {
-        	int closing = line.find(']');
+        	auto closing = line.find(']');
         	if (closing != std::string::npos && closing > 0) {
 					std::string groupName;
         	        groupName =line.substr(2, closing-2); // TODO trim the whitespace better than hard coding (2 , closing -2)
@@ -347,7 +346,7 @@ std::string& IoUtils::normalizeName(std::string &atomId, bool lowerMet) {
 }
 
 std::map<std::string, int>
-IoUtils::getAtomNameMappingFromPdb(const std::string pdbFilename){
+IoUtils::getAtomNameMappingFromPdb(const std::string& pdbFilename){
 	std::map<std::string, int> ret = {};
 
     std::ifstream pdbFile(pdbFilename);
@@ -386,13 +385,13 @@ void IoUtils::printVector(const std::vector<bool>& vec){
 	std::cout << std::endl;
 }
 void IoUtils::printVector(const std::vector<std::string>& vec){
-	for(std::string val : vec)
+	for(const std::string& val : vec)
 		std::cout << val << " ";
 	std::cout << std::endl;
 }
 template<typename TYPE>
 void IoUtils::printVector(const std::vector<TYPE>& vec){
-	for (auto val : vec) {
+	for (const auto& val : vec) {
 		std::cout << val << " ";
 	}
 	std::cout << std::endl;
@@ -405,7 +404,7 @@ void test() {
 			"4 5 6\n"
 			"7 8 9\n");
 	auto table = IoUtils::read_uniform_table_of<int>(input);
-	for (auto record : table) {
+	for (const auto& record : table) {
 		for (auto field : record)
 			std::cout << field << " ";
 		std::cout << "\n";
@@ -422,7 +421,7 @@ void test() {
 	strin = "doublequote in the (\") middle";
 	strout = IoUtils::strip_enclosing_quotoes(strin);
 	std::cout << strout << std::endl;
-	strin = "\"escaped doublequote at the end\\\"";
+	strin = R"("escaped doublequote at the end\")";
 	strout = IoUtils::strip_enclosing_quotoes(strin);
 	std::cout << strout << std::endl;
 	strin = "\"doublequote at both ends\"";
@@ -437,8 +436,7 @@ void test() {
 	///////////////////////////////////
 	std::ifstream in("res/noe_1.tsv");
 	if (in) {
-		auto table = IoUtils::read_noe_table(in);
-		auto[group1names, group2names, values] = table;
+		const auto& [group1names, group2names, values] = IoUtils::read_noe_table(in);
 		for(int i = 0; i < group1names.size(); ++i){
 			std::cout<< group1names[i] << "\t| " << group2names[i] << "\t| " << values[i] << std::endl;
 		}
@@ -448,7 +446,7 @@ void test() {
 	auto noe_groups = IoUtils::read_noe_groups(noe_groups_file);
 	for(auto [key, val] : noe_groups){
 		std::cout << "<" << key<< ">"  << " " << val.size() << ":";
-		for(auto str: val){
+		for(const auto& str: val){
 			std::cout << " [" << str << ']';
 		}
 		std::cout << std::endl;

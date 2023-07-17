@@ -19,8 +19,8 @@ public:
 
 class DefaultKEnRefInitializer: public KEnRefIinitializer {
 public:
-	virtual ~DefaultKEnRefInitializer() = 0;
-	void loadNOEData(std::filesystem::path);
+	~DefaultKEnRefInitializer() override = 0;
+	void loadNOEData(std::filesystem::path) override;
 };
 
 #endif /* KENREFINITIALIZER_H_ */

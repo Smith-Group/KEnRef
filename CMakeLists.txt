@@ -1,9 +1,14 @@
 cmake_minimum_required(VERSION 3.25)
 project(KEnRef)
 
+#change these if needed
+set(GROMACS_SRC_DIR /home/amr/git/gromacs)
+set(GROMACS_BUILD_DIR /home/amr/git/gromacs-build/eclipse)
+set(GROMACS_INSTALL_DIR /usr/local/gromacs-dev)
+
+
 set(CMAKE_CXX_STANDARD 17)
-#set(GROMACS_DIR /usr/local/gromacs-dev/share/cmake/gromacs_mpi)
-set(GROMACS_DIR /usr/local/gromacs-dev)
+set(GROMACS_DIR /usr/local/gromacs-dev) #set by me then changed/masked (?) by CMake
 #set(CMAKE_MODULE_PATH /usr/local/gromacs-dev/share/gromacs/template/cmake:$CMAKE_MODULE_PATH)
 set(EIGEN3_INCLUDE_DIR /smithlab/opt/eigen/3.4.0/include/eigen3) #:/smithlab/opt/eigen/3.4.0/include/eigen3/unsupported
 
@@ -14,20 +19,17 @@ find_package(Eigen3 REQUIRED)
 find_package(GROMACS NAMES gromacs_mpi)
 #find_package(GROMACS)
 
-
-include_directories(config)
-include_directories(core)
-include_directories(gmxinterface)
-include_directories(/usr/local/gromacs-dev/include)
-include_directories(/home/amr/git/gromacs-build/eclipse/src/include/)
-include_directories(/home/amr/git/gromacs/src/gromacs/gmxlib)
-include_directories(/home/amr/git/gromacs/src/gromacs/mdtypes)
-include_directories(/home/amr/git/gromacs/src/gromacs/utility/include)
-include_directories(/home/amr/git/gromacs/src/programs)
-include_directories(/home/amr/git/gromacs/src)
-include_directories(/home/amr/git/gromacs/src/include)
-include_directories(/home/amr/git/gromacs/src/gromacs/math/include)
-
+include_directories(config core gmxinterface)
+include_directories("${GROMACS_INSTALL_DIR}/include"
+        "${GROMACS_BUILD_DIR}/src/include/"
+        "${GROMACS_SRC_DIR}/src/gromacs/gmxlib"
+        "${GROMACS_SRC_DIR}/src/gromacs/mdtypes"
+        "${GROMACS_SRC_DIR}/src/gromacs/utility/include"
+        "${GROMACS_SRC_DIR}/src/programs"
+        "${GROMACS_SRC_DIR}/src"
+        "${GROMACS_SRC_DIR}/src/include"
+        "${GROMACS_SRC_DIR}/src/gromacs/math/include"
+        )
 
 
 add_executable(KEnRef
