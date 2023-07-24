@@ -2,9 +2,10 @@ cmake_minimum_required(VERSION 3.24)
 project(KEnRef)
 
 #change these if needed
-set(GROMACS_SRC_DIR /home/amr/git/gromacs)
-set(GROMACS_BUILD_DIR /home/amr/git/gromacs-build/eclipse)
-set(GROMACS_INSTALL_DIR /usr/local/gromacs-dev)
+set(build_type debug)  #release)
+set(GROMACS_SRC_DIR /home/amr/CLionProjects/gromacs)
+set(GROMACS_BUILD_DIR /home/amr/CLionProjects/gromacs/cmake-build-${build_type})
+set(GROMACS_INSTALL_DIR /smithlab/opt/gromacs-dev/${build_type})
 
 
 set(CMAKE_CXX_STANDARD 17)
