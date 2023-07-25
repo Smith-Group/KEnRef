@@ -9,7 +9,7 @@ set(GROMACS_INSTALL_DIR /smithlab/opt/gromacs-dev/${build_type})
 
 
 set(CMAKE_CXX_STANDARD 17)
-set(GROMACS_DIR /usr/local/gromacs-dev) #set by me then changed/masked (?) by CMake
+set(GROMACS_DIR /smithlab/opt/gromacs-dev/${build_type}) #set by me then changed/masked (?) by CMake
 #set(CMAKE_MODULE_PATH /usr/local/gromacs-dev/share/gromacs/template/cmake:$CMAKE_MODULE_PATH)
 set(EIGEN3_INCLUDE_DIR /smithlab/opt/eigen/3.4.0/include/eigen3) #:/smithlab/opt/eigen/3.4.0/include/eigen3/unsupported
 
@@ -61,4 +61,4 @@ add_executable(KEnRef
 target_link_libraries(KEnRef PRIVATE MPI::MPI_CXX
         Eigen3::Eigen
 #        Eigen3::unsupported #TODO restore it later
-        /usr/local/gromacs-dev/lib64/libgromacs_mpi.so)
+	${GROMACS_INSTALL_DIR}/lib64/libgromacs_mpi.so)
