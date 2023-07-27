@@ -72,8 +72,8 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
               << "--> simulationIndex " << simulationIndex << "\tstep " << step << std::endl;
 
     if (step == 0) {
-        bool holdToDebug = false;
-        while (simulationIndex < 2 && holdToDebug) {
+        volatile bool holdToDebug = false;
+        while (simulationIndex > 0 && holdToDebug) {
             sleep(1);
         }
     }
@@ -284,7 +284,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
     // Transform them back
 	if(simulationIndex != 0){
-		derivatives_rectified = (derivatives_map.cast<KEnRef_Real>().rowwise().homogeneous() * affine.matrix().inverse().transpose()).leftCols(3).cast<float>();
+		derivatives_rectified = (derivatives_map.cast<KEnRef_Real>().rowwise().homogeneous() * affine.inverse().matrix().transpose()).leftCols(3).cast<float>();
 //		std::cout << "derivatives_rectified # " << simulationIndex << " shape (" << derivatives_rectified.rows() << " x " << derivatives_rectified.cols() << ")" << std::endl << derivatives_rectified << std::endl;
 	}
 

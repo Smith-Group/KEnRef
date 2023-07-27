@@ -1,8 +1,10 @@
 cmake_minimum_required(VERSION 3.24)
 project(KEnRef)
 
+string(TOLOWER ${CMAKE_BUILD_TYPE} build_type)
+message(STATUS "the build type is: ${build_type}")
+
 #change these if needed
-set(build_type debug)  #release)
 set(GROMACS_SRC_DIR /home/amr/CLionProjects/gromacs)
 set(GROMACS_BUILD_DIR /home/amr/CLionProjects/gromacs/cmake-build-${build_type})
 set(GROMACS_INSTALL_DIR /smithlab/opt/gromacs-dev/${build_type})
