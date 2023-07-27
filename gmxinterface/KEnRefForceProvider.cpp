@@ -254,7 +254,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 //		std::vector<Eigen::MatrixX3<float>> allDerivatives;
         //do force calculations
         auto [energy, allDerivatives] = KEnRef::coord_array_to_energy(allSimulationsSubAtomsX_vector, atomName_pairs,
-                                                                      simulated_grouping_list, g0, static_cast<KEnRef_Real>(pow(2,-40)), atomName_to_atomSubId_map, true);
+                                                                      simulated_grouping_list, g0, static_cast<KEnRef_Real>(pow(2,-50)), atomName_to_atomSubId_map, true);
 #if VERBOSE
         std::cout << "energy = " << energy << ", allDerivatives:" << std::endl;
         for(int i = 0; i < allDerivatives.size(); i++){
