@@ -170,7 +170,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         //Broadcast guideAtomsX from rank 0 to all other ranks
         gmx_bcast(guideAtomIndicesSize * 3 * sizeof(float), guideAtomsX_buffer, mainRanksComm); //FIXME INSPECT HERE
         //I don't think this line is important. Only for easy printing
-        gmx_barrier(mainRanksComm);
+//        gmx_barrier(mainRanksComm);
     }
 
     CoordsMapType model0guideAtomsX = CoordsMapType(guideAtomsX_buffer, guideAtomIndicesSize, 3);
@@ -216,7 +216,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
                    allSimulationsSubAtomsX.data(), static_cast<int>(subAtomsXAfterFitting.size()), MPI_FLOAT, 0,
                    mainRanksComm);
         //I don't think this line is important. Only for easy printing
-        gmx_barrier(mainRanksComm);
+//        gmx_barrier(mainRanksComm);
     } else {
         allSimulationsSubAtomsX = subAtomsXAfterFitting;
     }
@@ -295,7 +295,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         derivatives_rectified *= scaleDown;
     }
     std::cout << "Simulation # " << simulationIndex << " max: " << max << ", scaleDown " << scaleDown << (scaleDown < 1.0 ? " Scaled down" : " NOT USED") << std::endl;
-    gmx_barrier(mainRanksComm);
+//    gmx_barrier(mainRanksComm);
 
 
 
@@ -351,9 +351,8 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 //    }
 
 	//I don't think this line is important. Only for easy printing
-	if(isMultiSimulation) gmx_barrier(mainRanksComm);
+//	if(isMultiSimulation) gmx_barrier(mainRanksComm);
     std::cout << "=================" << std::endl;
-	gmx_barrier(mainRanksComm);
 }
 
 void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulations) {
