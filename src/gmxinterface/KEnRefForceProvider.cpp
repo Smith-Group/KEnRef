@@ -64,6 +64,7 @@ static constexpr const char *const singleStr = "single";
 
 void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forceProviderInput,
                                           gmx::ForceProviderOutput *forceProviderOutput) {
+    return;
     auto begin = std::chrono::high_resolution_clock::now();
 #if VERBOSE
     std::cout << "calculateForces() called" << std::endl;
