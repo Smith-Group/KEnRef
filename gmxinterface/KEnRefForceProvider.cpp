@@ -254,7 +254,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 //		std::vector<Eigen::MatrixX3<float>> allDerivatives;
         //do force calculations
         auto [energy, allDerivatives] = KEnRef::coord_array_to_energy(allSimulationsSubAtomsX_vector, atomName_pairs,
-                                                                      simulated_grouping_list, g0, static_cast<KEnRef_Real>(pow(2,-50)), atomName_to_atomSubId_map, true);
+                                                                      simulated_grouping_list, g0, static_cast<KEnRef_Real>(pow(2,-30)), atomName_to_atomSubId_map, true);
 #if VERBOSE
         std::cout << "energy = " << energy << ", allDerivatives:" << std::endl;
         for(int i = 0; i < allDerivatives.size(); i++){
@@ -368,7 +368,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
 //            std::cout << "[" << name << "]\t:" << globalId << std::endl;
 //        }
 #endif
-    this->simulatedData_table_ = std::make_shared<std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>>(IoUtils::readTable("../singleton_data.csv"));
+    this->simulatedData_table_ = std::make_shared<std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>>(IoUtils::readTable("../singleton_data_model01.csv"));  // "../singleton_data.csv"));
     GMX_ASSERT(simulatedData_table_ && !std::get<1>(*simulatedData_table_).empty(), "No simulated data found");
 #if VERBOSE
     const auto& [table_header, table_data] = *simulatedData_table_;
