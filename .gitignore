@@ -1,7 +1,6 @@
 /Debug/
 /Release/
 cmake-build-*/
-cmake-build-*/
 /res/run-output/*
 /res/rep01/*
 /res/rep02/*

@@ -35,6 +35,11 @@ include_directories("${GROMACS_INSTALL_DIR}/include"
         )
 
 
+###########################################
+## Add gtest
+add_subdirectory(google_tests)
+###########################################
+
 add_executable(KEnRef
         config/KEnRefConfig.h
         core/ensembleutils.h
