@@ -14,6 +14,7 @@
 #include "KEnRefForceProvider.h"
 #include "../core/IoUtils.h"
 #include "../core/kabsch.h"
+#include "KEnRef.h"
 #include "gromacs/domdec/domdec_struct.h"
 #include "gromacs/domdec/ga2la.h"
 //#include <fstream>// needed only during simulated data
@@ -135,8 +136,9 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 //		for(auto j = 0; j < 3; j++){
 //			guideAtomsX_buffer[i * 3 + j] = (isMultiSimulation? 100000 * simulationIndex : 0) + 100 * i + j;
 //		}
-
     }
+    const KEnRef_Real maxForce = maxForce_;
+//    std::cout << "KENREF_K_MAXFORCE = " << maxForce << std::endl;
 	CoordsMapType guideAtomsX = CoordsMapType(guideAtomsX_buffer, guideAtomIndicesSize, 3);//TODO CoordsMapType or CoordsMatrixType?
 #if VERBOSE
     std::cout << "guideAtomsX shape is (" << guideAtomsX.rows() << ", " << guideAtomsX.cols() << ")" << std::endl;
@@ -290,7 +292,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
 
     auto max = derivatives_rectified.cwiseAbs().maxCoeff();
-    auto scaleDown = static_cast<KEnRef_Real>(100.0 / max);
+    auto scaleDown = static_cast<KEnRef_Real>(maxForce / max);
     if(scaleDown < 1.0){
         derivatives_rectified *= scaleDown;
     }
@@ -359,6 +361,17 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
     this->atomName_to_atomGlobalId_map_ = std::make_shared<std::map<std::string, int>>(IoUtils::getAtomNameMappingFromPdb("../6v5d_for_atomname_mapping.pdb"));
     GMX_ASSERT(!atomName_to_atomGlobalId_map_->empty(), "No atom mapping found");
     auto& atomName_to_atomGlobalId_map = *this->atomName_to_atomGlobalId_map_;
+
+    KEnRef_Real maxForce;
+    if(const char* kenref_k = std::getenv("KENREF_K_MAXFORCE")){
+        std::stringstream sstream(kenref_k);
+        sstream >> maxForce;
+        std::cout << "KENREF_K_MAXFORCE is: " << maxForce << '\n';
+        maxForce_ = maxForce;
+    }else{
+        std::cout << "No KENREF_K_MAXFORCE identified. Will use default value of " << maxForce_ << std::endl;
+    }
+
 #if VERBOSE
     for (const auto& [name, globalId] : atomName_to_atomGlobalId_map){
             std::cout << "[" << name << "]\t:" << globalId << std::endl;

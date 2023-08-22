@@ -20,6 +20,7 @@
 class KEnRefForceProvider: public gmx::IForceProvider {
 
 	gmx::SimulationContext* simulationContext_ = nullptr;
+    KEnRef_Real maxForce_ = 100.0;
 //	gmx::Selection* selection = nullptr;
 //	std::string selectionString = "resid 16 to 20 and pdbname CB"; // "distance from [3., 3., 3.] < 5.0";//"atomnr 6";
 	std::shared_ptr<std::vector<int> const> guideAtomIndices_;
@@ -45,7 +46,7 @@ public:
     void calculateForces(const gmx::ForceProviderInput& forceProviderInput, gmx::ForceProviderOutput* forceProviderOutput) override;
     virtual void setSimulationContext(gmx::SimulationContext* simulationContext);
     virtual void setGuideAtomIndices(std::shared_ptr<std::vector<int> const> targetAtomIndices);
-    void fillParamsStep0(const size_t homenr, int numSimulations);
+    void fillParamsStep0(size_t homenr, int numSimulations);
 };
 
 #endif /* KENREFFORCEPROVIDER_H_ */
