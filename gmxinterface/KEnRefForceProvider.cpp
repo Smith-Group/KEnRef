@@ -14,7 +14,6 @@
 #include "KEnRefForceProvider.h"
 #include "../core/IoUtils.h"
 #include "../core/kabsch.h"
-#include "KEnRef.h"
 #include "gromacs/domdec/domdec_struct.h"
 #include "gromacs/domdec/ga2la.h"
 //#include <fstream>// needed only during simulated data
@@ -67,12 +66,13 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     int numSimulations = isMultiSimulation ? this->simulationContext_->multiSimulation_->numSimulations_ : 1;
     int simulationIndex = isMultiSimulation ? this->simulationContext_->multiSimulation_->simulationIndex_ : 0;
 	MPI_Comm mainRanksComm = isMultiSimulation ? this->simulationContext_->multiSimulation_->mainRanksComm_ : MPI_COMM_NULL;
-    std::cout << "--> isMultiSimulation: " << std::boolalpha << isMultiSimulation << "\n"
+    if(step % 10 == 0)
+        std::cout << "--> isMultiSimulation: " << std::boolalpha << isMultiSimulation << "\n"
               << "--> numSimulations " << numSimulations << "\n"
     			<< "--> rankInDefaultCommunicator " << cr.rankInDefaultCommunicator << " " << (isMultiSimulation? simulationIndex : -1) << "\n"
               << "--> simulationIndex " << simulationIndex << "\tstep " << step << std::endl;
 
-    if (step == 0) {
+    if (!paramsInitialized /* || step == 0 */) {
         volatile bool holdToDebug = false;
         while (simulationIndex > 0 && holdToDebug) {
             sleep(1);
@@ -80,7 +80,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     }
 
 
-    if (step == 0) {
+    if (!paramsInitialized /*|| step == 0*/ ) {
         std::cout << "Number of atoms = " << homenr << std::endl;
         std::cout << "havePPDomainDecomposition(cr): " << havePPDomainDecomposition(&cr) << std::endl;
         std::cout << "haveDDAtomOrdering(cr): " << haveDDAtomOrdering(cr) << std::endl;
@@ -96,6 +96,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         }
 #endif
         fillParamsStep0(homenr, numSimulations);
+        paramsInitialized = true;
     }
 
     std::vector<int> const &guideAtomIndices = *this->guideAtomIndices_;
@@ -303,9 +304,9 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
     //////////////////////////////////////////////////////////////////////////////////////////////////
     //	std::cout << forceProviderInput.x_ << std::endl << std::endl;
-    std::cout << forceProviderOutput << std::endl;
+    //  std::cout << forceProviderOutput << std::endl;
     //	std::cout << forceProviderOutput->forceWithVirial_ << std::endl;
-    std::cout << forceProviderOutput->forceWithVirial_.getVirial() << std::endl;
+    //  std::cout << forceProviderOutput->forceWithVirial_.getVirial() << std::endl;
     std::cout << "computeVirial_ = " << std::boolalpha  << forceProviderOutput->forceWithVirial_.computeVirial_ << std::endl;
     ////	const gmx::ArrayRef<gmx::BasicVector<float> > 	force = forceProviderOutput->forceWithVirial_.force_;
     //	for (int i = 0; i < 5 /*force.size()/100*/; ++i) {
