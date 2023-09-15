@@ -20,7 +20,7 @@
 class KEnRefForceProvider: public gmx::IForceProvider {
 
 	gmx::SimulationContext* simulationContext_ = nullptr;
-    KEnRef_Real maxForce_ = 100.0;
+    KEnRef_Real_t maxForce_ = 100.0;
     bool paramsInitialized = false;
 //	gmx::Selection* selection = nullptr;
 //	std::string selectionString = "resid 16 to 20 and pdbname CB"; // "distance from [3., 3., 3.] < 5.0";//"atomnr 6";
@@ -30,12 +30,12 @@ class KEnRefForceProvider: public gmx::IForceProvider {
 	std::shared_ptr<std::map<std::string, int>> atomName_to_atomSubId_map_;
 	std::shared_ptr<std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>> simulatedData_table_ = nullptr; //TODO remove this pointer when it is no longer needed
 	std::vector<std::tuple<std::string, std::string>> *atomName_pairs_ = nullptr;
-	Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> *g0_ = nullptr;
-	std::shared_ptr<CoordsMatrixType> subAtomsX_{};
+	Eigen::Matrix<KEnRef_Real_t , Eigen::Dynamic, Eigen::Dynamic> *g0_ = nullptr;
+	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t>> subAtomsX_{};
 	std::shared_ptr<std::vector<bool>> globalAtomIdFlags_;
 	std::shared_ptr<std::vector<int>> subId_to_globalId_;
 	std::shared_ptr<std::vector<int>> globalId_to_subId_;
-	std::shared_ptr<CoordsMatrixType> allSimulationsSubAtomsX_{};
+	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t>> allSimulationsSubAtomsX_{};
 
 public:
 	KEnRefForceProvider();

@@ -25,11 +25,11 @@
 class EnsembleUtils{
 
 public:
-	static void get_ensemble_data(Eigen::Matrix3Xf coords_array, std::optional<std::map<std::string, float>> ensemble_params);
+	static void get_ensemble_data(std::optional<std::map<std::string, float>> ensemble_params);
 
 };
 
-void EnsembleUtils::get_ensemble_data(Eigen::Matrix3Xf coords_array, std::optional<std::map<std::string, float>> ensemble_params){
+void EnsembleUtils::get_ensemble_data(std::optional<std::map<std::string, float>> ensemble_params){
 
 //	array<float, 0> coords_array_vale;//[Dim, atoms, models]
 	auto ensemble_params_value = (ensemble_params ? ensemble_params.value() : (std::map<std::string, float>) {{"proton_mhz", 800}, {"temperature", 298.15}, /*{"tau_c", 4e-9}*/});
@@ -65,10 +65,10 @@ void EnsembleUtils::get_ensemble_data(Eigen::Matrix3Xf coords_array, std::option
 	std::cout << "Cross product:\n" << v.cross(w) << std::endl;
 
 
-	Eigen::MatrixX3<float> d {{0, 0, 0}, {1, 1, 1}, {1, 2, 3}, {1, 4, 9}};
+	Eigen::MatrixX3<KEnRef_Real_t> d {{0, 0, 0}, {1, 1, 1}, {1, 2, 3}, {1, 4, 9}};
 //	d << 1 << 2 << 3;
 	std::cout << "input matrix:" << std::endl << d << std::endl;
-	auto [d_array, d_array_derivatives] = KEnRef::r_array_to_d_array(d);
+	auto [d_array, d_array_derivatives] = KEnRef<KEnRef_Real_t>::r_array_to_d_array(d);
 	std::cout << "returned value:" << std::endl << d_array << std::endl;
 }
 

@@ -8,7 +8,8 @@ message(STATUS "the build type is: ${build_type}")
 set(GROMACS_SRC_DIR /home/amr/CLionProjects/gromacs)
 set(GROMACS_BUILD_DIR /home/amr/CLionProjects/gromacs/cmake-build-${build_type})
 set(GROMACS_INSTALL_DIR /smithlab/opt/gromacs-dev/${build_type})
-
+## comment the next line to make it float. Uncomment to make it double.
+add_compile_options(-DDOUBLE)
 
 set(CMAKE_CXX_STANDARD 17)
 set(GROMACS_DIR /smithlab/opt/gromacs-dev/${build_type}) #set by me then changed/masked (?) by CMake
@@ -35,10 +36,6 @@ include_directories("${GROMACS_INSTALL_DIR}/include"
         )
 
 
-###########################################
-## Add gtest
-add_subdirectory(google_tests)
-###########################################
 
 add_executable(KEnRef
         config/KEnRefConfig.h
@@ -69,3 +66,9 @@ target_link_libraries(KEnRef PRIVATE MPI::MPI_CXX
         Eigen3::Eigen
 #        Eigen3::unsupported #TODO restore it later
 	${GROMACS_INSTALL_DIR}/lib64/libgromacs_mpi.so)
+
+###########################################
+## Add gtest
+add_subdirectory(google_tests)
+###########################################
+

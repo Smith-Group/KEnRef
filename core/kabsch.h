@@ -18,7 +18,7 @@
 template <typename precision>
 class Kabsch{
 public:
-	static Eigen::Transform<precision,3,Eigen::Affine> Find3DAffineTransform(const Eigen::MatrixX3f p, const Eigen::MatrixX3f q) {
+    static Eigen::Transform<precision,3,Eigen::Affine> Find3DAffineTransform(const Eigen::MatrixX3<precision>& p, const Eigen::MatrixX3<precision>& q) {
 
 		// Default output
 		Eigen::Transform<precision,3,Eigen::Affine> A;
@@ -30,7 +30,7 @@ public:
 
 		// First find the scale, by finding the ratio of sums of some distances,
 		// then bring the datasets to the same scale.
-		double dist_p = 0, dist_q = 0;
+		precision dist_p = 0, dist_q = 0;
 		for (int row = 0; row < p.rows()-1; row++) {
 			dist_p  += (p.row(row+1) - p.row(row)).norm();
 			dist_q += (q.row(row+1) - q.row(row)).norm();
@@ -38,8 +38,8 @@ public:
 		if (dist_p <= 0 || dist_q <= 0)
 			return A;
 
-		Eigen::MatrixX3<precision> p_temp = p.cast <precision> ();
-		Eigen::MatrixX3<precision> q_temp = q.cast <precision> ();
+		Eigen::MatrixX3<precision> p_temp = p.template cast <precision> ();
+		Eigen::MatrixX3<precision> q_temp = q.template cast <precision> ();
 
 		precision scale = dist_q/dist_p;
 		q_temp /= scale;
@@ -89,17 +89,17 @@ public:
 void TestFind3DAffineTransform(){
 
   // Create datasets with known transform
-  Eigen::MatrixX3f in(100, 3), out(100, 3);
-  Eigen::Quaternion<float> Q(1, 3, 5, 2);
+  Eigen::MatrixX3<double> in(100, 3), out(100, 3);
+  Eigen::Quaternion<double> Q(1, 3, 5, 2);
   Q.normalize();
-  Eigen::Matrix3f R = Q.toRotationMatrix();
+  Eigen::Matrix3<double> R = Q.toRotationMatrix();
   double scale = 2.0;
   for (int col = 0; col < in.cols(); col++) {
 	  for (int row = 0; row < in.rows(); row++) {
 		  in(row, col) = log(2*col + 10.0)/sqrt(1.0*row+ 4.0) + sqrt(row*1.0)/(col + 1.0);
 	  }
   }
-  Eigen::Vector3f S;
+  Eigen::Vector3<double> S;
   S << -5, 6, -27;
   for (int row = 0; row < in.rows(); row++)
     out.row(row) = scale*R*in.row(row).transpose() + S;
@@ -113,5 +113,9 @@ void TestFind3DAffineTransform(){
 }
 
 #undef VERBOSE
+
+
+template class Kabsch<float>;
+template class Kabsch<double>;
 
 #endif
