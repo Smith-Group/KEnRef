@@ -69,11 +69,11 @@ std::tuple<std::vector<std::string>, std::vector<std::string>,
 	std::vector<std::tuple<std::string, std::string, int>> temp { };
 
 	std::string line;
-	std::regex tempelate { "\(.+)\t\(.+)\t\(.+)" };
+	std::regex lineTemplate {"(.+)\t(.+)\t(.+)" };
 	std::smatch sm;
 	bool header_consumed = false;
 	while (std::getline(instream, line)) {
-		std::regex_match(line, sm, tempelate);
+		std::regex_match(line, sm, lineTemplate);
 		std::string g1 = sm[1];
 		std::string g2 = sm[2];
 		std:: string val_str = sm[3];
@@ -133,11 +133,11 @@ IoUtils::read_noe_groups(std::istream &instream){
 
 	std::map<std::string, std::vector<std::string>> ret{};
 	std::string line;
-	std::regex tempelate { R"(^\s*(.*?)\s*=\s*(.*?)(\s*,?\s*)$)" };
+	std::regex lineTemplate { R"(^\s*(.*?)\s*=\s*(.*?)(\s*,?\s*)$)" };
 	std::smatch sm;
 
 	while(std::getline(instream, line)){
-		if(! std::regex_match(line, sm, tempelate))
+		if(! std::regex_match(line, sm, lineTemplate))
 			continue;
 		std::string key = strip_enclosing_quotoes(sm[1], '`');
 		std::string temp_val = sm[2];
@@ -220,63 +220,18 @@ IoUtils::getAllGmxNdxGroups(const std::string& filename){
     return ret;
 }
 
+bool IoUtils::isNotPrepared(const std::string& atomName) {
+    return std::regex_search(atomName, IoUtils::UNPREPARED_NAMES_MASK);
+}
 
-auto HB2_MET = std::regex("HB2 MET");
-auto HB3_MET = std::regex("HB3 MET");
-auto HG2_MET = std::regex("HG2 MET");
-auto HG3_MET = std::regex("HG3 MET");
-auto HB2_GLN = std::regex("HB2 GLN");
-auto HB3_GLN = std::regex("HB3 GLN");
-auto HG2_GLN = std::regex("HG2 GLN");
-auto HG3_GLN = std::regex("HG3 GLN");
-auto HB2_GLU = std::regex("HB2 GLU");
-auto HB3_GLU = std::regex("HB3 GLU");
-auto HG2_GLU = std::regex("HG2 GLU");
-auto HG3_GLU = std::regex("HG3 GLU");
-auto HB2_PHE = std::regex("HB2 PHE");
-auto HB3_PHE = std::regex("HB3 PHE");
-auto HB2_LYS = std::regex("HB2 LYS");
-auto HB3_LYS = std::regex("HB3 LYS");
-auto HG2_LYS = std::regex("HG2 LYS");
-auto HG3_LYS = std::regex("HG3 LYS");
-auto HD2_LYS = std::regex("HD2 LYS");
-auto HD3_LYS = std::regex("HD3 LYS");
-auto HE2_LYS = std::regex("HE2 LYS");
-auto HE3_LYS = std::regex("HE3 LYS");
-auto HB2_LEU = std::regex("HB2 LEU");
-auto HB3_LEU = std::regex("HB3 LEU");
-auto HA2_GLY = std::regex("HA2 GLY");
-auto HA3_GLY = std::regex("HA3 GLY");
-auto HB2_PRO = std::regex("HB2 PRO");
-auto HB3_PRO = std::regex("HB3 PRO");
-auto HG2_PRO = std::regex("HG2 PRO");
-auto HG3_PRO = std::regex("HG3 PRO");
-auto HD2_PRO = std::regex("HD2 PRO");
-auto HD3_PRO = std::regex("HD3 PRO");
-auto HB2_SER = std::regex("HB2 SER");
-auto HB3_SER = std::regex("HB3 SER");
-auto HB2_ASP = std::regex("HB2 ASP");
-auto HB3_ASP = std::regex("HB3 ASP");
-auto HB2_ASN = std::regex("HB2 ASN");
-auto HB3_ASN = std::regex("HB3 ASN");
-auto HB2_ARG = std::regex("HB2 ARG");
-auto HB3_ARG = std::regex("HB3 ARG");
-auto HG2_ARG = std::regex("HG2 ARG");
-auto HG3_ARG = std::regex("HG3 ARG");
-auto HD2_ARG = std::regex("HD2 ARG");
-auto HD3_ARG = std::regex("HD3 ARG");
-auto HB2_TYR = std::regex("HB2 TYR");
-auto HB3_TYR = std::regex("HB3 TYR");
-auto HB2_HIS = std::regex("HB2 HIS");
-auto HB3_HIS = std::regex("HB3 HIS");
-auto HG12_ILE = std::regex("HG12 ILE");
-auto HG13_ILE = std::regex("HG13 ILE");
-
-
-std::string& IoUtils::normalizeName(std::string &atomId, bool lowerMet) {
+/**
+ * IMPORTANT: Notice that we assume for this function to lower name ranks correctly that the function is called
+ * sequentially with atom names in lexical order (e.g. "HB2 MET" is called before "HB3 MET" and not vise versa).
+ */
+std::string& IoUtils::normalizeName(std::string &atomId, bool lowerNameRanks) {
 	atomId[4] = ' '; //remove alternate location
 	atomId[9] = ' '; //remove chain ID
-	if (lowerMet) {
+	if (lowerNameRanks) {
 		atomId = std::regex_replace(atomId, HB2_MET, "HB1 MET");
 		atomId = std::regex_replace(atomId, HB3_MET, "HB2 MET");
 		atomId = std::regex_replace(atomId, HG2_MET, "HG1 MET");
@@ -355,12 +310,12 @@ IoUtils::getAtomNameMappingFromPdb(const std::string& pdbFilename){
         return ret; // std::move(&ret);
     }
     std::string line;
-    std::regex tempelate { "^\((ATOM  )|(HETATM))([0-9 ]{5}) (.{15}).+$" };
+    std::regex atomRecordTemplate {"^((ATOM  )|(HETATM))([0-9 ]{5}) (.{15}).+$" };
     std::smatch sm;
     int index;
     while (std::getline(pdbFile, line)) {
         if (line.empty()) continue;
-        if(std::regex_match(line, sm, tempelate)){
+        if(std::regex_match(line, sm, atomRecordTemplate)){
         	std::string atomId = sm[5];
 			normalizeName(atomId, false);
         	std::istringstream iss(sm[4]);
@@ -391,7 +346,7 @@ void IoUtils::printVector(const std::vector<std::string>& vec){
 }
 template<typename TYPE>
 void IoUtils::printVector(const std::vector<TYPE>& vec){
-	for (const auto& val : vec) {
+	for (const TYPE& val : vec) {
 		std::cout << val << " ";
 	}
 	std::cout << std::endl;

@@ -105,7 +105,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 //	auto& atomName_to_atomGlobalId_map_ = *this->atomName_to_atomGlobalId_map_;
 //	auto& globalId_to_subId_ = *this->globalId_to_subId_;
     auto &subId_to_globalId = *this->subId_to_globalId_;
-    auto simulatedData_table = *this->simulatedData_table_;
+    auto experimentalData_table = *this->experimentalData_table_;
     auto atomName_pairs = *this->atomName_pairs_;
     auto g0 = *this->g0_;
     CoordsMatrixType<KEnRef_Real_t> &subAtomsX = *this->subAtomsX_;
@@ -362,7 +362,8 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 }
 
 void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulations) {
-    this->atomName_to_atomGlobalId_map_ = std::make_shared<std::map<std::string, int>>(IoUtils::getAtomNameMappingFromPdb("../6v5d_for_atomname_mapping.pdb"));
+    this->atomName_to_atomGlobalId_map_ = std::make_shared<std::map<std::string, int>>(
+            IoUtils::getAtomNameMappingFromPdb(ATOMNAME_MAPPING_FILENAME));
     GMX_ASSERT(!atomName_to_atomGlobalId_map_->empty(), "No atom mapping found");
     auto& atomName_to_atomGlobalId_map = *this->atomName_to_atomGlobalId_map_;
 
@@ -385,8 +386,9 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
 //            std::cout << "[" << name << "]\t:" << globalId << std::endl;
 //        }
 #endif
-    this->simulatedData_table_ = std::make_shared<std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>>(IoUtils::readTable("../singleton_data_model01.csv"));  // "../singleton_data.csv"));
-    GMX_ASSERT(simulatedData_table_ && !std::get<1>(*simulatedData_table_).empty(), "No simulated data found");
+    this->experimentalData_table_ = std::make_shared<std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>>
+    (IoUtils::readTable(EXPERIMENTAL_DATA_FILENAME));
+    GMX_ASSERT(experimentalData_table_ && !std::get<1>(*experimentalData_table_).empty(), "No simulated data found");
 #if VERBOSE
     const auto& [table_header, table_data] = *simulatedData_table_;
         IoUtils::printVector(table_header);
@@ -394,11 +396,24 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
             IoUtils::printVector(record);
         }
 #endif
-    std::vector<std::vector<std::string>> data = std::get<1>(*this->simulatedData_table_);
+    std::vector<std::vector<std::string>> data = std::get<1>(*this->experimentalData_table_);
+    //First confirm whether we should handle the atom names
+    bool handleUnpreparedAtomNames = false;
+    for (auto record: data) {
+//        std::cout << "checking [" << record[1] <<"] and [" << record[2] << "]: ";
+        if (IoUtils::isNotPrepared(record[1]) || IoUtils::isNotPrepared(record[2])){
+//            std::cout << "TRUE, Exiting" << std::endl;
+            std::cerr << "WARNING: It seems that your data is from an unprepared file. We will try to handle it, but we can not guarantee the results." << std::endl;
+            handleUnpreparedAtomNames = true;
+            break;
+        }
+//        std::cout << "FALSE" << std::endl;
+    }
+    //TODO if handleUnpreparedAtomNames is false, we need to simplify the code
     this->atomName_pairs_ = new std::vector<std::tuple<std::string, std::string>>();
     for (auto record : data) {
-        std::string atom1 = IoUtils::normalizeName(record[1], true);
-        std::string atom2 = IoUtils::normalizeName(record[2], true);
+        std::string atom1 = IoUtils::normalizeName(record[1], handleUnpreparedAtomNames);
+        std::string atom2 = IoUtils::normalizeName(record[2], handleUnpreparedAtomNames);
         this->atomName_pairs_->emplace_back(std::make_tuple(atom1, atom2));
     }
 #if VERBOSE

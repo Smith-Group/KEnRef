@@ -15,7 +15,8 @@
 #include <gromacs/selection/selection.h>
 #include "../core/KEnRef.h"
 
-
+static const char *const ATOMNAME_MAPPING_FILENAME = "../6v5d_for_atomname_mapping.pdb"; //AKA 6v5d_step0_for_atomname_mapping.pdb
+static const char *const EXPERIMENTAL_DATA_FILENAME = "../singleton_data_step0_model01.csv"; // "../singleton_data_model01.csv"; // "../singleton_data.csv"));
 
 class KEnRefForceProvider: public gmx::IForceProvider {
 
@@ -28,7 +29,7 @@ class KEnRefForceProvider: public gmx::IForceProvider {
 //	bool *selectionMask = nullptr;
 	std::shared_ptr<std::map<std::string, int> const> atomName_to_atomGlobalId_map_; //TODO later you may remove this and keep atomName_to_atomSubId_map_, or update it and delete atomName_to_atomSubId_map_
 	std::shared_ptr<std::map<std::string, int>> atomName_to_atomSubId_map_;
-	std::shared_ptr<std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>> simulatedData_table_ = nullptr; //TODO remove this pointer when it is no longer needed
+	std::shared_ptr<std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>> experimentalData_table_ = nullptr; //TODO remove this pointer when it is no longer needed
 	std::vector<std::tuple<std::string, std::string>> *atomName_pairs_ = nullptr;
 	Eigen::Matrix<KEnRef_Real_t , Eigen::Dynamic, Eigen::Dynamic> *g0_ = nullptr;
 	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t>> subAtomsX_{};

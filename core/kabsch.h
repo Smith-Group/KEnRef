@@ -20,13 +20,13 @@ class Kabsch{
 public:
     static Eigen::Transform<precision,3,Eigen::Affine> Find3DAffineTransform(const Eigen::MatrixX3<precision>& p, const Eigen::MatrixX3<precision>& q) {
 
-		// Default output
+        // Default output
 		Eigen::Transform<precision,3,Eigen::Affine> A;
 		A.linear() = Eigen::Matrix3<precision>::Identity(3, 3);
 		A.translation() = Eigen::Vector3<precision>::Zero();
 
 		if (p.rows() != q.rows())
-			throw "Find3DAffineTransform(): input data mis-match";
+            throw std::runtime_error("Find3DAffineTransform(): input data mis-match");
 
 		// First find the scale, by finding the ratio of sums of some distances,
 		// then bring the datasets to the same scale.
@@ -63,10 +63,10 @@ public:
 		Eigen::MatrixX<precision> Cov = p_temp.transpose() * q_temp; //FIXME I am not sure about this line
 		Eigen::JacobiSVD<Eigen::MatrixX<precision>> svd(Cov, Eigen::ComputeThinU | Eigen::ComputeThinV);
 
-		if (VERBOSE) {
+#if VERBOSE
 			std::cout << "Matrix U " << std::endl <<svd.matrixU() << std::endl << std::endl;
 			std::cout << "Matrix V " << std::endl << svd.matrixV() << std::endl << std::endl;
-		}
+#endif
 
 		// Find the rotation
 		float d = (svd.matrixV() * svd.matrixU().transpose()).determinant();
@@ -107,9 +107,10 @@ void TestFind3DAffineTransform(){
   Eigen::Transform<double,3,Eigen::Affine> A = Kabsch<double>::Find3DAffineTransform(in, out);
 
   // See if we got the transform we expected
-  if ( (scale*R.cast<double>() - A.linear()).cwiseAbs().maxCoeff() > 1e-5 ||	//1e-13)  // (for double)
-       (S.cast<double>() - A.translation()).cwiseAbs().maxCoeff() > 1e-5)	//1e-13)  // (for double)
-    throw "Could not determine the affine transform accurately enough";
+    if ((scale * R.cast<double>() - A.linear()).cwiseAbs().maxCoeff() > 1e-5 ||    //1e-13)  // (for double)
+        (S.cast<double>() - A.translation()).cwiseAbs().maxCoeff() > 1e-5) {    //1e-13)  // (for double)
+        throw std::runtime_error("Could not determine the affine transform accurately enough");
+    }
 }
 
 #undef VERBOSE
