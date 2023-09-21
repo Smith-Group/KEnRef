@@ -363,7 +363,7 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
 		}
 
 		for(int i = 0; i < g_list.size(); i++){//for each grouping
-			auto e_matrix_grad_replicated = energy_matrix_grad.col(i).rowwise().replicate(5).array();
+			auto e_matrix_grad_replicated = energy_matrix_grad.col(i).rowwise().template replicate<5>().array();
 			auto g_list_grad_group_i = g_list_grad[i]; //<num_models>(num_pairs x 5)
 //			std::cout << "d_energy_d_d_array" << " after iteration " << i << std::endl;
 			for (int j = 0; j < g_list_grad_group_i.size(); j++) { //(num_pairs x 5)

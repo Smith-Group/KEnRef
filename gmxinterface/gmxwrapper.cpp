@@ -49,14 +49,11 @@ void initSettingsNoNice(gmx::CommandLineModuleSettings* settings)
 
 //! Post-On Selef-Test
 void POST(){
-	std::filesystem::path p1;
-	p1 = "./";
-	std::cout << p1 << std::endl;
-	GmxKEnRefRunner gmxRunner;
+//	GmxKEnRefRunner gmxRunner;
 
 	Eigen::Matrix3f matrix3f{{1, 2, 3}, {4, 5.5, 6}, {7, 8, 9}};
 	std::map<std::string, float> test_map;
-	EnsembleUtils::get_ensemble_data(matrix3f, test_map);
+	EnsembleUtils::get_ensemble_data(test_map);
 
 
 

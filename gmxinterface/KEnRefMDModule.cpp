@@ -24,7 +24,7 @@ KEnRefMDModule::KEnRefMDModule() {
 //	const auto& indices3 = IoUtils::getGmxNdxGroup(indexFileLocation, H_HA_HA1_HA2);
 //	IoUtils::printVector(indices3);
 
-	this->guideAtoms = std::make_shared<std::vector<int> const>(indices2.begin(), indices2.end());
+	this->guideAtoms = std::make_shared<std::vector<int> const>(indices);
 //	for(auto v : *vv1){std::cout << v << " ";}std::cout << std::endl;
 //	std::cout << this->guideAtoms << std::endl;
 

@@ -1,5 +1,6 @@
 #include <regex>
 #include <fstream>
+#include <string>
 #include "IoUtils.h"
 
 template<typename T>
@@ -306,8 +307,7 @@ IoUtils::getAtomNameMappingFromPdb(const std::string& pdbFilename){
 
     std::ifstream pdbFile(pdbFilename);
     if (!pdbFile.is_open()) {
-        std::cerr << "Error opening file: " << pdbFilename << std::endl;
-        return ret; // std::move(&ret);
+        throw std::runtime_error(std::string("Error opening file: ").append(pdbFilename));
     }
     std::string line;
     std::regex atomRecordTemplate {"^((ATOM  )|(HETATM))([0-9 ]{5}) (.{15}).+$" };

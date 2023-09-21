@@ -254,8 +254,8 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
             allSimulationsSubAtomsX_vector.at(i) = temp2Matrix;
         }
 
-//		float energy;
-//		std::vector<Eigen::MatrixX3<float>> allDerivatives;
+//		KEnRef_Real_t energy;
+//		std::vector<Eigen::MatrixX3<KEnRef_Real_t>> allDerivatives;
         //do force calculations
         auto [energy, allDerivatives] = KEnRef<KEnRef_Real_t>::coord_array_to_energy(allSimulationsSubAtomsX_vector, atomName_pairs,
                                                                                      simulated_grouping_list, g0, static_cast<KEnRef_Real_t>(pow(2, -30)), atomName_to_atomSubId_map, true);
@@ -309,7 +309,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     //	std::cout << forceProviderOutput->forceWithVirial_ << std::endl;
     //  std::cout << forceProviderOutput->forceWithVirial_.getVirial() << std::endl;
     std::cout << "computeVirial_ = " << std::boolalpha  << forceProviderOutput->forceWithVirial_.computeVirial_ << std::endl;
-    ////	const gmx::ArrayRef<gmx::BasicVector<float> > 	force = forceProviderOutput->forceWithVirial_.force_;
+    ////	const gmx::ArrayRef<gmx::BasicVector<KEnRef_Real> > 	force = forceProviderOutput->forceWithVirial_.force_;
     //	for (int i = 0; i < 5 /*force.size()/100*/; ++i) {
     //		std::cout  << "Sum forces on Atom # " << i << ":" << std::endl;
     ////		auto forceitem = force[i];
@@ -325,7 +325,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
 
 
-    if (haveDDAtomOrdering(cr)){
+    if (isMultiSimulation && haveDDAtomOrdering(cr)){
         // Note: this assumes that all ranks are hitting this line, which is not generally true.
         // I need to find the right subcommunicator. What I really want is a _scoped_ communicator...
         gmx_barrier(cr.mpi_comm_mygroup);
@@ -435,7 +435,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
 #endif
     int maxAtomIdOfInterest = -1;// If you want to use size_t, then you can NOT use -1 as an initial value
     this->globalAtomIdFlags_ = std::make_shared<std::vector<bool>>(homenr, false);
-    auto& globalAtomIdFlags = *this->globalAtomIdFlags_;
+    auto& globalAtomIdFlags = *this->globalAtomIdFlags_; //ONE based
     //scan the atom pairs to do:
 //1) find the highest globalAtomId number of interest
 //2) fill in the subAtomsFilter

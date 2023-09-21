@@ -38,6 +38,12 @@ public:
 //	KEnRef& operator=(const KEnRef &other);
 //	KEnRef& operator=(KEnRef &&other);
 
+    //First element of the returned tuple is (numPairs, <d_1,d_2,d_3,d_4,d_5,>)
+    //Second element of the returned tuple is (numPairs, <  x1d1,x2d1,x3d1,
+    //                                                      x1d2,x2d2,x3d2,
+    //                                                      x1d3,x2d3,x3d3,
+    //                                                      x1d4,x2d4,x3d4,
+    //                                                      x1d5,x2d5,x3d5>)
 	static std::tuple<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15>>
 	r_array_to_d_array(const Eigen::MatrixX3<KEnRef_Real> &Nxyz, bool gradient=false);
 

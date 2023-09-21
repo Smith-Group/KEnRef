@@ -21,6 +21,7 @@ public:
 //	GmxKEnRefInitializer& operator=(const GmxKEnRefInitializer &other);
 //	GmxKEnRefInitializer& operator=(GmxKEnRefInitializer &&other);
 	static std::map<std::string, std::vector<int>> loadGmxIndexFile(const std::string& indexFileName);
+    //Index groups are ZERO based
 	static std::vector<int> loadGmxIndexGroup(const std::string& groupName, const std::string& indexFileName="KEnRefAtomIndex.ndx");
 };
 
