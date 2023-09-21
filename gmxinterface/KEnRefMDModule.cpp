@@ -14,18 +14,13 @@
 
 KEnRefMDModule::KEnRefMDModule() {
 //	const char* H_HA_HA1_HA2 = "H_HA_HA1_HA2";
-	const char* guideCAlpha = "guideC-alpha";
-	const char* indexFileLocation = "../../res/KEnRefAtomIndex.ndx";
 //	auto indexGroups = GmxKEnRefInitializer::loadGmxIndexFile(indexFileLocation);
 //	for(auto group: indexGroups){
 //		std::cout << "'" << group.first << "':" << std::endl;
 //		IoUtils::printVector(group.second);
 //	}
-//	const std::vector<int>& indices = indexGroups[H_HA_HA1_HA2];
-//	std::cout << "[" << H_HA_HA1_HA2 << "]:" << std::endl;
-//	IoUtils::printVector(indices);
-	std::vector<int>const& indices2 = GmxKEnRefInitializer::loadGmxIndexGroup(guideCAlpha, indexFileLocation);
-	IoUtils::printVector(indices2);
+	std::vector<int>const& indices = GmxKEnRefInitializer::loadGmxIndexGroup(KEnRefMDModule::GUIDE_C_ALPHA, KEnRefMDModule::INDEX_FILE_LOCATION);
+	IoUtils::printVector(indices);
 //	const auto& indices3 = IoUtils::getGmxNdxGroup(indexFileLocation, H_HA_HA1_HA2);
 //	IoUtils::printVector(indices3);
 

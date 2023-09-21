@@ -42,7 +42,7 @@ public:
  * empty implementation as KEnRef does not use that yet. TODO It might move to a separate file later.
  */
 class KEnRefOptions final : public gmx::IMdpOptionProvider{
-    virtual void initMdpTransform(gmx::IKeyValueTreeTransformRules* transform) override {}
+    void initMdpTransform(gmx::IKeyValueTreeTransformRules* transform) override {}
     /*! \brief
      * Initializes options that declare input (mdp) parameters for this
      * module.
@@ -88,23 +88,28 @@ class KEnRefMDModule final: public gmx::IMDModule {
     std::shared_ptr<std::vector<int> const> guideAtoms ; //= nullptr; // std::make_shared<std::vector<int>>();
 
 public:
-	KEnRefMDModule();
-	virtual ~KEnRefMDModule();
+    inline const static char *const GUIDE_C_ALPHA = "guideC-alpha";
+    inline const static char *const INDEX_FILE_LOCATION = "../../res/cleanstart/KEnRefAtomIndex.ndx";
+    inline const static char *const ATOMNAME_MAPPING_FILENAME = "../../res/cleanstart/6v5d_step0_for_atomname_mapping.pdb";
+    inline const static char *const EXPERIMENTAL_DATA_FILENAME = "../../res/cleanstart/singleton_data_step0_fewAtomPairs.csv";
+
+    KEnRefMDModule();
+	~KEnRefMDModule() override;
 	KEnRefMDModule(const KEnRefMDModule &other);
 	KEnRefMDModule(KEnRefMDModule &&other) noexcept;
 //	KEnRefMDModule& operator=(const NENRefMDModule &other);
 //	KEnRefMDModule& operator=(NENRefMDModule &&other);
 
     //! Returns an interface for handling mdp input (and tpr I/O).
-    virtual gmx::IMdpOptionProvider* mdpOptionProvider() override;
+    gmx::IMdpOptionProvider* mdpOptionProvider() override;
     //! Returns an interface for handling output files during simulation.
-    virtual gmx::IMDOutputProvider* outputProvider() override;
+    gmx::IMDOutputProvider* outputProvider() override;
     //! Initializes force providers from this module.
-    virtual void initForceProviders(gmx::ForceProviders* forceProviders) override;
+    void initForceProviders(gmx::ForceProviders* forceProviders) override;
     //! Subscribe to simulation setup notifications
-    virtual void subscribeToSimulationSetupNotifications(gmx::MDModulesNotifiers* notifiers) override;
+    void subscribeToSimulationSetupNotifications(gmx::MDModulesNotifiers* notifiers) override;
     //! Subscribe to pre processing notifications
-    virtual void subscribeToPreProcessingNotifications(gmx::MDModulesNotifiers* notifiers) override;
+    void subscribeToPreProcessingNotifications(gmx::MDModulesNotifiers* notifiers) override;
     virtual void setSimulationContext(gmx::SimulationContext* simulationContext);
 
 };

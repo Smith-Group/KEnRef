@@ -15,8 +15,6 @@
 #include <gromacs/selection/selection.h>
 #include "../core/KEnRef.h"
 
-static const char *const ATOMNAME_MAPPING_FILENAME = "../6v5d_for_atomname_mapping.pdb"; //AKA 6v5d_step0_for_atomname_mapping.pdb
-static const char *const EXPERIMENTAL_DATA_FILENAME = "../singleton_data_step0_model01.csv"; // "../singleton_data_model01.csv"; // "../singleton_data.csv"));
 
 class KEnRefForceProvider: public gmx::IForceProvider {
 

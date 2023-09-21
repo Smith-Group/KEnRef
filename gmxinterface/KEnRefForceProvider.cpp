@@ -12,6 +12,7 @@
 #include "gromacs/mdtypes/commrec.h"
 #include "gromacs/gmxlib/network.h"
 #include "KEnRefForceProvider.h"
+#include "KEnRefMDModule.h"
 #include "../core/IoUtils.h"
 #include "../core/kabsch.h"
 #include "gromacs/domdec/domdec_struct.h"
@@ -363,7 +364,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
 void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulations) {
     this->atomName_to_atomGlobalId_map_ = std::make_shared<std::map<std::string, int>>(
-            IoUtils::getAtomNameMappingFromPdb(ATOMNAME_MAPPING_FILENAME));
+            IoUtils::getAtomNameMappingFromPdb(KEnRefMDModule::ATOMNAME_MAPPING_FILENAME));
     GMX_ASSERT(!atomName_to_atomGlobalId_map_->empty(), "No atom mapping found");
     auto& atomName_to_atomGlobalId_map = *this->atomName_to_atomGlobalId_map_;
 
@@ -387,7 +388,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
 //        }
 #endif
     this->experimentalData_table_ = std::make_shared<std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>>
-    (IoUtils::readTable(EXPERIMENTAL_DATA_FILENAME));
+    (IoUtils::readTable(KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME));
     GMX_ASSERT(experimentalData_table_ && !std::get<1>(*experimentalData_table_).empty(), "No simulated data found");
 #if VERBOSE
     const auto& [table_header, table_data] = *simulatedData_table_;
