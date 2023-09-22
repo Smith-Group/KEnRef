@@ -23,17 +23,17 @@ class KEnRefForceProvider: public gmx::IForceProvider {
     bool paramsInitialized = false;
 //	gmx::Selection* selection = nullptr;
 //	std::string selectionString = "resid 16 to 20 and pdbname CB"; // "distance from [3., 3., 3.] < 5.0";//"atomnr 6";
-	std::shared_ptr<std::vector<int> const> guideAtomIndices_;
+	std::shared_ptr<std::vector<int> const> guideAtom0Indices_; //ZERO indexed
 //	bool *selectionMask = nullptr;
 	std::shared_ptr<std::map<std::string, int> const> atomName_to_atomGlobalId_map_; //TODO later you may remove this and keep atomName_to_atomSubId_map_, or update it and delete atomName_to_atomSubId_map_
-	std::shared_ptr<std::map<std::string, int>> atomName_to_atomSubId_map_;
+	std::shared_ptr<std::map<std::string, int>> atomName_to_atomSub0Id_map_; //atomName is normalized string. SubId is a small subset and is ZERO based
 	std::shared_ptr<std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>> experimentalData_table_ = nullptr; //TODO remove this pointer when it is no longer needed
 	std::vector<std::tuple<std::string, std::string>> *atomName_pairs_ = nullptr;
 	Eigen::Matrix<KEnRef_Real_t , Eigen::Dynamic, Eigen::Dynamic> *g0_ = nullptr;
 	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t>> subAtomsX_{};
-	std::shared_ptr<std::vector<bool>> globalAtomIdFlags_;
-	std::shared_ptr<std::vector<int>> subId_to_globalId_;
-	std::shared_ptr<std::vector<int>> globalId_to_subId_;
+	std::shared_ptr<std::vector<bool>> globalAtomIdFlags_; //ONE based
+	std::shared_ptr<std::vector<int>> sub0Id_to_global1Id_; //Global ID is ONE based, subId is a small subset and is ZERO based
+	std::shared_ptr<std::vector<int>> global1Id_to_sub0Id_; //Global ID is ONE based, subId is a small subset and is ZERO based
 	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t>> allSimulationsSubAtomsX_{};
 
 public:
@@ -45,7 +45,7 @@ public:
 //	KEnRefForceProvider& operator=(KEnRefForceProvider &&other);
     void calculateForces(const gmx::ForceProviderInput& forceProviderInput, gmx::ForceProviderOutput* forceProviderOutput) override;
     virtual void setSimulationContext(gmx::SimulationContext* simulationContext);
-    virtual void setGuideAtomIndices(std::shared_ptr<std::vector<int> const> targetAtomIndices);
+    virtual void setGuideAtom0Indices(std::shared_ptr<std::vector<int> const> targetAtoms0Indices);
     void fillParamsStep0(size_t homenr, int numSimulations);
 };
 

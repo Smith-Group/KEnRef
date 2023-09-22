@@ -24,7 +24,7 @@ KEnRefMDModule::KEnRefMDModule() {
 //	const auto& indices3 = IoUtils::getGmxNdxGroup(indexFileLocation, H_HA_HA1_HA2);
 //	IoUtils::printVector(indices3);
 
-	this->guideAtoms = std::make_shared<std::vector<int> const>(indices);
+	this->guideAtoms0Indexed = std::make_shared<std::vector<int> const>(indices);
 //	for(auto v : *vv1){std::cout << v << " ";}std::cout << std::endl;
 //	std::cout << this->guideAtoms << std::endl;
 
@@ -52,8 +52,8 @@ gmx::IMDOutputProvider* KEnRefMDModule::outputProvider() {
 void KEnRefMDModule::initForceProviders(gmx::ForceProviders* forceProviders) {
 	std::cout << "KEnRefMDModule::initForceProviders()" << std::endl;
 	forceProvider_ = std::make_unique<KEnRefForceProvider>();
-	forceProvider_->setSimulationContext(simulationContext);
-	forceProvider_->setGuideAtomIndices(this->guideAtoms);
+	forceProvider_->setSimulationContext(simulationContext_);
+    forceProvider_->setGuideAtom0Indices(this->guideAtoms0Indexed);
 //	forceProvider_->setAtomNameAtomIdMap(this->atomName_atomId_map);
 //	forceProvider_->setSimulatedDataTable(this->simulatedData_table_);
 
@@ -88,7 +88,7 @@ void KEnRefMDModule::subscribeToPreProcessingNotifications(gmx::MDModulesNotifie
 }
 
 void KEnRefMDModule::setSimulationContext(gmx::SimulationContext* simulationContext){
-	this->simulationContext = simulationContext;
+	this->simulationContext_ = simulationContext;
 }
 
 const std::string KEnRefModuleInfo::name_ = "Kinetic-Ensemble-Refinement";

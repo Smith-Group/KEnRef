@@ -84,8 +84,8 @@ class KEnRefMDModule final: public gmx::IMDModule {
 	KEnRefOutputProvider kEnRefOutputProvider;
     //! Object that evaluates the forces
     std::unique_ptr<KEnRefForceProvider> forceProvider_;
-    gmx::SimulationContext* simulationContext = nullptr;
-    std::shared_ptr<std::vector<int> const> guideAtoms ; //= nullptr; // std::make_shared<std::vector<int>>();
+    gmx::SimulationContext* simulationContext_ = nullptr;
+    std::shared_ptr<std::vector<int> const> guideAtoms0Indexed; //ZERO indexed
 
 public:
     inline const static char *const GUIDE_C_ALPHA = "guideC-alpha";

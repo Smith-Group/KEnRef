@@ -36,8 +36,8 @@ void KEnRefForceProvider::setSimulationContext(gmx::SimulationContext *simulatio
     this->simulationContext_ = simulationContext;
 }
 
-void KEnRefForceProvider::setGuideAtomIndices(std::shared_ptr<std::vector<int> const> targetAtomIndices) {
-    this->guideAtomIndices_ = std::move(targetAtomIndices);
+void KEnRefForceProvider::setGuideAtom0Indices(std::shared_ptr<std::vector<int> const> targetAtoms0Indices) {
+    this->guideAtom0Indices_ = std::move(targetAtoms0Indices);
 }
 
 void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forceProviderInput,
@@ -100,12 +100,12 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         paramsInitialized = true;
     }
 
-    std::vector<int> const &guideAtomIndices = *this->guideAtomIndices_;
-    auto &atomName_to_atomSubId_map = *this->atomName_to_atomSubId_map_;
+    std::vector<int> const &guideAtom0Indices = *this->guideAtom0Indices_; //ZERO indexed
+    auto &atomName_to_atomSub0Id_map = *this->atomName_to_atomSub0Id_map_;
 //	auto& globalAtomIdFlags_ = *this->globalAtomIdFlags_;
 //	auto& atomName_to_atomGlobalId_map_ = *this->atomName_to_atomGlobalId_map_;
 //	auto& globalId_to_subId_ = *this->globalId_to_subId_;
-    auto &subId_to_globalId = *this->subId_to_globalId_;
+    auto &sub0Id_to_global1Id = *this->sub0Id_to_global1Id_;
     auto experimentalData_table = *this->experimentalData_table_;
     auto atomName_pairs = *this->atomName_pairs_;
     auto g0 = *this->g0_;
@@ -124,16 +124,16 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     //Note that the first atom of guideAtomsX (i.e. guideAtomsX[0]) is not the same subAtomsX_[0], and even subAtomsX_[0] ((may)) later not be the first atom in the system.
 #endif
 
-    int guideAtomIndicesSize = static_cast<int>(guideAtomIndices.size());
-    KEnRef_Real_t guideAtomsX_buffer[guideAtomIndicesSize * 3];
-    for (auto i = 0; i < guideAtomIndicesSize; i++) {
-        const int *pi = &guideAtomIndices[i];
+    int guideAtom0IndicesSize = static_cast<int>(guideAtom0Indices.size());
+    KEnRef_Real_t guideAtomsX_ZEROIndexed_buffer[guideAtom0IndicesSize * 3];
+    for (auto i = 0; i < guideAtom0IndicesSize; i++) {
+        const int *pi = &guideAtom0Indices[i];
         const int *piLocal = cr.dd->ga2la->findHome(*pi);
         GMX_ASSERT(piLocal, "ERROR: Can't find local index of atom");
         const gmx::RVec atom_x = x[*piLocal];
 
         auto rvec = atom_x.as_vec();
-        std::copy(rvec, rvec + 3, &guideAtomsX_buffer[i * 3]);
+        std::copy(rvec, rvec + 3, &guideAtomsX_ZEROIndexed_buffer[i * 3]);
 //		// for test only
 //		for(auto j = 0; j < 3; j++){
 //			guideAtomsX_buffer[i * 3 + j] = (isMultiSimulation? 100000 * simulationIndex : 0) + 100 * i + j;
@@ -141,10 +141,11 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     }
     const KEnRef_Real_t maxForce = maxForce_;
 //    std::cout << "KENREF_K_MAXFORCE = " << maxForce << std::endl;
-	CoordsMapType<KEnRef_Real_t> guideAtomsX = CoordsMapType<KEnRef_Real_t>(guideAtomsX_buffer, guideAtomIndicesSize, 3);//TODO CoordsMapType or CoordsMatrixType?
+	CoordsMapType<KEnRef_Real_t> guideAtomsX_ZEROIndexed = CoordsMapType<KEnRef_Real_t>(guideAtomsX_ZEROIndexed_buffer, guideAtom0IndicesSize, 3);//TODO CoordsMapType or CoordsMatrixType?
+    //TODO make a unit test to validate that the value coming in rvec is equal to the value in guideAtomsX_ZEROIndexed
 #if VERBOSE
-    std::cout << "guideAtomsX shape is (" << guideAtomsX.rows() << ", " << guideAtomsX.cols() << ")" << std::endl;
-    std::cout << "guideAtomsX" << std::endl << guideAtomsX << std::endl;
+    std::cout << "guideAtomsX_ZEROIndexed shape is (" << guideAtomsX_ZEROIndexed.rows() << ", " << guideAtomsX_ZEROIndexed.cols() << ")" << std::endl;
+    std::cout << "guideAtomsX_ZEROIndexed" << std::endl << guideAtomsX_ZEROIndexed << std::endl;
 #endif
 
     if (haveDDAtomOrdering(cr)) {
@@ -155,13 +156,13 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     // pbc_dx(pbc, *box_const, atom_x, atoms_nopbc[*pii]);
 
     // Broadcast targetAtomsPositions of model 0
-    KEnRef_Real_t guideAtoms_model0_X_buffer[guideAtomIndicesSize * 3]; //TODO Do it the other way around: create the matrix and get its data in buffer
-    Eigen::MatrixX3<KEnRef_Real_t> subAtomsXAfterFitting;
+    KEnRef_Real_t guideAtoms_model0_X_buffer[guideAtom0IndicesSize * 3]; //TODO Do it the other way around: create the matrix and get its data in buffer
+    Eigen::MatrixX3<KEnRef_Real_t> subAtomsXAfterFitting; // TODO check whether this is the right format or we should use CoordsMatrixType<KEnRef_Real_t> (i.e. row major)
 
-    if (simulationIndex == 0) {
-        std::copy(guideAtomsX_buffer, guideAtomsX_buffer + guideAtomIndicesSize * 3, guideAtoms_model0_X_buffer);
+    if (simulationIndex == 0) {//TODO add `isMultiSimulation && ` and check its consequences
+        std::copy(guideAtomsX_ZEROIndexed_buffer, guideAtomsX_ZEROIndexed_buffer + guideAtom0IndicesSize * 3, guideAtoms_model0_X_buffer);
     } else {
-//		//Leave unintialized.
+//		//Leave uninitialized.
         //This initialization is for testing only
 //		std::copy(guideAtomsX_buffer, guideAtomsX_buffer + targetAtomIndicesSize * 3, targetAtoms_model0_X_buffer);
     }
@@ -172,12 +173,12 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
     if (isMultiSimulation) {
         //Broadcast guideAtomsX from rank 0 to all other ranks
-        gmx_bcast(guideAtomIndicesSize * 3 * sizeof(KEnRef_Real_t), guideAtomsX_buffer, mainRanksComm); //FIXME INSPECT HERE
+        gmx_bcast(guideAtom0IndicesSize * 3 * sizeof(KEnRef_Real_t), guideAtomsX_ZEROIndexed_buffer, mainRanksComm); //FIXME INSPECT HERE
         //I don't think this line is important. Only for easy printing
 //        gmx_barrier(mainRanksComm);
     }
 
-    CoordsMapType<KEnRef_Real_t> model0guideAtomsX = CoordsMapType<KEnRef_Real_t>(guideAtomsX_buffer, guideAtomIndicesSize, 3);
+    CoordsMapType<KEnRef_Real_t> model0guideAtomsX = CoordsMapType<KEnRef_Real_t>(guideAtomsX_ZEROIndexed_buffer, guideAtom0IndicesSize, 3);
 
 //	//For testing only
 //	CoordsMapType tempMatrix1 = CoordsMapType(guideAtomsX_buffer, 5, 3); //guideAtomIndicesSize, 3);
@@ -186,22 +187,35 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     Eigen::Transform<KEnRef_Real_t, 3, Eigen::Affine> affine = (
             simulationIndex == 0 ?
             Eigen::Transform<KEnRef_Real_t, 3, Eigen::Affine>::Identity() :
-            Kabsch<KEnRef_Real_t>::Find3DAffineTransform(guideAtomsX, model0guideAtomsX));
+            Kabsch<KEnRef_Real_t>::Find3DAffineTransform(guideAtomsX_ZEROIndexed, model0guideAtomsX));
 #if VERBOSE
     std::cout << "Affine Matrix" << std::endl << affine.matrix() << std::endl;
 #endif
+    IoUtils::printVector(sub0Id_to_global1Id);
 
-    auto subAtomsX_buffer = subAtomsX.data();
     // Fill needed atoms of subAtomsX with atoms (in the original order). The rest were set to zero earlier
     for (int i = 0; i < subAtomsX.rows(); i++) {
-        const int i0Global = subId_to_globalId[i] - 1;
-        const int *pi = &i0Global;
-        const int *piLocal = cr.dd->ga2la->findHome(*pi);
+        const int i0Global = sub0Id_to_global1Id[i] - 1;
+        const int *piGlobal = &i0Global;
+        const int *piLocal = cr.dd->ga2la->findHome(*piGlobal);
 //		GMX_ASSERT(piLocal, "ERROR: Can't find local index of atom");
         const gmx::RVec atom_x = x[*piLocal];
-        const auto rvec = atom_x.as_vec();
-        std::copy(rvec, rvec + 3, &subAtomsX_buffer[i * 3]);
+#if VERBOSE
+        std::cout << i0Global << "\t" << *piGlobal << "\t" << *piLocal << "\t x: " << atom_x[0] << ", " << atom_x[1] << ", " << atom_x[2] << std::endl;
+#endif
+        if (std::is_same<KEnRef_Real_t, real>()) {
+            auto subAtomsX_buffer = subAtomsX.data();
+            const auto rvec = atom_x.as_vec();
+            std::copy(rvec, rvec + 3, &subAtomsX_buffer[i * 3]);
+        } else {
+            for (int j = 0; j < 3; ++j) {
+                subAtomsX(i, j) = static_cast<KEnRef_Real_t>(atom_x[j]);
+            }
+        }
     }
+    std::cout << "subAtomsX shape: (" << subAtomsX.rows() << ", " << subAtomsX.cols() <<"). Before :" << std::endl << subAtomsX << std::endl;
+    subAtomsX *= 10;
+    std::cout << "subAtomsX shape: (" << subAtomsX.rows() << ", " << subAtomsX.cols() <<"). After :" << std::endl << subAtomsX << std::endl;
 
     // Fit every replica (except 0) to model 0
     if (simulationIndex == 0) {
@@ -242,15 +256,15 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     }
 #endif
 
-	KEnRef_Real_t derivatives_buffer[subAtomsX.size()], allDerivatives_buffer[subAtomsX.size()*numSimulations];// TODO try to avoid repeated memory allocation
+    KEnRef_Real_t derivatives_buffer[subAtomsX.size()], allDerivatives_buffer[subAtomsX.size()*numSimulations];// TODO try to avoid repeated memory allocation
     CoordsMatrixType<KEnRef_Real_t> derivatives_rectified;
     //in rank 0
     if (simulationIndex == 0) {
         //collect all matrices of all replica into a vector of atom coordinates.
-		std::vector<Eigen::MatrixX3<KEnRef_Real_t>> allSimulationsSubAtomsX_vector = std::vector<Eigen::MatrixX3<KEnRef_Real_t>>(numSimulations);
+        std::vector<Eigen::MatrixX3<KEnRef_Real_t>> allSimulationsSubAtomsX_vector = std::vector<Eigen::MatrixX3<KEnRef_Real_t>>(numSimulations);
         for (int i = 0; i < numSimulations; i++) {
             //TODO Review and Simplify this
-			CoordsMatrixType<KEnRef_Real_t> temp1Matrix = CoordsMapType<KEnRef_Real_t>(&allSimulationsSubAtomsX.data()[i * subAtomsX.size()], subAtomsX.rows(), 3);
+            CoordsMatrixType<KEnRef_Real_t> temp1Matrix = CoordsMapType<KEnRef_Real_t>(&allSimulationsSubAtomsX.data()[i * subAtomsX.size()], subAtomsX.rows(), 3);
             const CoordsMatrixType<KEnRef_Real_t> &temp2Matrix = temp1Matrix;
             allSimulationsSubAtomsX_vector.at(i) = temp2Matrix;
         }
@@ -258,21 +272,23 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 //		KEnRef_Real_t energy;
 //		std::vector<Eigen::MatrixX3<KEnRef_Real_t>> allDerivatives;
         //do force calculations
-        auto [energy, allDerivatives] = KEnRef<KEnRef_Real_t>::coord_array_to_energy(allSimulationsSubAtomsX_vector, atomName_pairs,
-                                                                                     simulated_grouping_list, g0, static_cast<KEnRef_Real_t>(pow(2, -30)), atomName_to_atomSubId_map, true);
+        auto [energy, allDerivatives] = KEnRef<KEnRef_Real_t>::coord_array_to_energy(
+                allSimulationsSubAtomsX_vector, atomName_pairs,
+                simulated_grouping_list, g0, static_cast<KEnRef_Real_t>(pow(2, -30)),
+                atomName_to_atomSub0Id_map, true);
 #if VERBOSE
         std::cout << "energy = " << energy << ", allDerivatives:" << std::endl;
         for(int i = 0; i < allDerivatives.size(); i++){
             std::cout << "model "<< i << " shape (" << allDerivatives[i].rows() << " x " << allDerivatives[i].cols() << ")" << std::endl << allDerivatives[i] << std::endl;
         }
 #endif
-		//I will use the slow method of copying data now, as it is less error-prone. TODO change it.
-		for (int i = 0; i < allDerivatives.size(); ++i) {
-			auto matrix = allDerivatives[i];
-			std::copy(matrix.data(), matrix.data() + subAtomsX.size(), &allDerivatives_buffer[i * subAtomsX.size()]);
-		}
-		derivatives_rectified = allDerivatives[0];
-	}
+        //I will use the slow method of copying data now, as it is less error-prone. TODO change it.
+        for (int i = 0; i < allDerivatives.size(); ++i) {
+            auto matrix = allDerivatives[i];
+            std::copy(matrix.data(), matrix.data() + subAtomsX.size(), &allDerivatives_buffer[i * subAtomsX.size()]);
+        }
+        derivatives_rectified = allDerivatives[0];
+    }
 
     CoordsMapType<KEnRef_Real_t> derivatives_map(nullptr, 0, 3);
     if (isMultiSimulation) {
@@ -289,10 +305,10 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 //    }
 
     // Transform them back
-	if(simulationIndex != 0){
-		derivatives_rectified = (derivatives_map.cast<KEnRef_Real_t>().rowwise().homogeneous() * affine.inverse().matrix().transpose()).leftCols(3).cast<KEnRef_Real_t>();
+    if(simulationIndex != 0){
+        derivatives_rectified = (derivatives_map.cast<KEnRef_Real_t>().rowwise().homogeneous() * affine.inverse().matrix().transpose()).leftCols(3).cast<KEnRef_Real_t>();
 //		std::cout << "derivatives_rectified # " << simulationIndex << " shape (" << derivatives_rectified.rows() << " x " << derivatives_rectified.cols() << ")" << std::endl << derivatives_rectified << std::endl;
-	}
+    }
 
 
     auto max = derivatives_rectified.cwiseAbs().maxCoeff();
@@ -344,13 +360,16 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
     //Finally, add them to corresponding atoms
     for(int i = 0; i< subAtomsX.rows(); i++){
-    	const int *pGlobalId = &subId_to_globalId[i] - 1;
-//    	//TODO Check whether it use global or local ID?
-    	const int *pLocalId = cr.dd->ga2la->findHome(*pGlobalId);
+        const int i0Global = sub0Id_to_global1Id[i] - 1;
+        const int *piGlobal = &i0Global;
+        const int *piLocal = cr.dd->ga2la->findHome(*piGlobal); //TODO Confirm whether it use global or local ID?
 
+#if VERBOSE
+        std::cout << i0Global << "\t" << *piGlobal << "\t" << *piLocal << "\t force: " << force[*piLocal][0] << "," << force[*piLocal][1] << "," <<force[*piLocal][2] << std::endl;
+#endif
         //next line assumes that the basic type of force is **real**
         // TODO optimize this line/process
-    	force[*pLocalId] += {static_cast<real>(derivatives_rectified(i, 0)), static_cast<real>(derivatives_rectified(i, 1)), static_cast<real>(derivatives_rectified(i, 2))};
+        force[*piLocal] += {static_cast<real>(derivatives_rectified(i, 0)), static_cast<real>(derivatives_rectified(i, 1)), static_cast<real>(derivatives_rectified(i, 2))};
 //        force[*pLocalId] += {100, 100, 1000}; //FIXME test only
     }
 
@@ -359,7 +378,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 //    	std::cout << ((*globalAtomIdFlags_).at(i) ? "*" : " ") << "\t" << force[i][0] << "\t" << force[i][1] << "\t" << force[i][2] << ((*globalAtomIdFlags_).at(i) ? "\t*" : "") << std::endl;
 //    }
 
-	//I don't think this line is important. Only for easy printing
+    //I don't think this line is important. Only for easy printing
 //	if(isMultiSimulation) gmx_barrier(mainRanksComm);
     std::cout << "=================" << std::endl;
 }
@@ -393,7 +412,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
     (IoUtils::readTable(KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME));
     GMX_ASSERT(experimentalData_table_ && !std::get<1>(*experimentalData_table_).empty(), "No simulated data found");
 #if VERBOSE
-    const auto& [table_header, table_data] = *simulatedData_table_;
+    const auto& [table_header, table_data] = *experimentalData_table_;
         IoUtils::printVector(table_header);
         for(const auto& record: table_data){
             IoUtils::printVector(record);
@@ -459,34 +478,34 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
 #endif
     globalAtomIdFlags.resize(maxAtomIdOfInterest +1);
 
-    this->globalId_to_subId_ = std::make_shared<std::vector<int>>(globalAtomIdFlags.size(), -1);
-    this->subId_to_globalId_ = std::make_shared<std::vector<int>>(globalAtomIdFlags.size(), -1);
-    auto& globalId_to_subId = *this->globalId_to_subId_;
-    auto& subId_to_globalId = *this->subId_to_globalId_;
+    this->global1Id_to_sub0Id_ = std::make_shared<std::vector<int>>(globalAtomIdFlags.size(), -1);
+    this->sub0Id_to_global1Id_ = std::make_shared<std::vector<int>>(globalAtomIdFlags.size(), -1);
+    auto& global1Id_to_sub0Id = *this->global1Id_to_sub0Id_;
+    auto& sub0Id_to_global1Id = *this->sub0Id_to_global1Id_;
     {
         int localId = 0;
         for(int i = 0; i < globalAtomIdFlags.size(); i++){
             if(globalAtomIdFlags[i]){
-                globalId_to_subId[i] = localId;
-                subId_to_globalId[localId] = i;
+                global1Id_to_sub0Id[i] = localId;
+                sub0Id_to_global1Id[localId] = i;
                 localId++;
             }
         }
-        subId_to_globalId.resize(localId);
+        sub0Id_to_global1Id.resize(localId);
     }
 
-    this->atomName_to_atomSubId_map_ = std::make_shared<std::map<std::string, int>>();
-    auto& atomName_to_atomSubId_map = *this->atomName_to_atomSubId_map_;
+    this->atomName_to_atomSub0Id_map_ = std::make_shared<std::map<std::string, int>>();
+    auto& atomName_to_atomSub0Id_map = *this->atomName_to_atomSub0Id_map_;
     for(auto [name, globalId]: atomName_to_atomGlobalId_map){
-        atomName_to_atomSubId_map[name] = globalId_to_subId[globalId];
+        atomName_to_atomSub0Id_map[name] = global1Id_to_sub0Id[globalId];
     }
 #if VERBOSE
     for(const auto& [name, subId]: atomName_to_atomSubId_map){
             std::cout << "[" << name << "]\t:" << subId << std::endl;
-        }
+    }
 #endif
 
-    this->subAtomsX_ = std::make_shared<CoordsMatrixType<KEnRef_Real_t>>(subId_to_globalId.size(), 3);//contains needed atoms only
+    this->subAtomsX_ = std::make_shared<CoordsMatrixType<KEnRef_Real_t>>(sub0Id_to_global1Id.size(), 3);//contains needed atoms only
 #if VERBOSE
     auto subAtomsX = *this->subAtomsX_; std::cout << "subAtomsX_ shape is (" << subAtomsX.rows() << ", " << subAtomsX.cols() << ")" << std::endl;
 #endif

@@ -28,6 +28,7 @@ GmxKEnRefInitializer::loadGmxIndexFile(const std::string& indexFileName){
     return groupAtoms;
 }
 
+//returns ZERO indexed index file
 std::vector<int>
 GmxKEnRefInitializer::loadGmxIndexGroup(const std::string& groupName, const std::string& indexFileName){
 	auto groups = loadGmxIndexFile(indexFileName);
