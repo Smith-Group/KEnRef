@@ -155,7 +155,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     // pbc_dx(pbc, *box_const, atom_x, atoms_nopbc[*pii]);
 
     // Broadcast targetAtomsPositions of model 0
-    float guideAtoms_model0_X_buffer[guideAtomIndicesSize * 3]; //TODO Do it the other way around: create the matrix and get its data in buffer
+    KEnRef_Real_t guideAtoms_model0_X_buffer[guideAtomIndicesSize * 3]; //TODO Do it the other way around: create the matrix and get its data in buffer
     Eigen::MatrixX3<KEnRef_Real_t> subAtomsXAfterFitting;
 
     if (simulationIndex == 0) {
@@ -172,7 +172,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
     if (isMultiSimulation) {
         //Broadcast guideAtomsX from rank 0 to all other ranks
-        gmx_bcast(guideAtomIndicesSize * 3 * sizeof(float), guideAtomsX_buffer, mainRanksComm); //FIXME INSPECT HERE
+        gmx_bcast(guideAtomIndicesSize * 3 * sizeof(KEnRef_Real_t), guideAtomsX_buffer, mainRanksComm); //FIXME INSPECT HERE
         //I don't think this line is important. Only for easy printing
 //        gmx_barrier(mainRanksComm);
     }
@@ -194,7 +194,8 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     auto subAtomsX_buffer = subAtomsX.data();
     // Fill needed atoms of subAtomsX with atoms (in the original order). The rest were set to zero earlier
     for (int i = 0; i < subAtomsX.rows(); i++) {
-        const int *pi = &i;
+        const int i0Global = subId_to_globalId[i] - 1;
+        const int *pi = &i0Global;
         const int *piLocal = cr.dd->ga2la->findHome(*pi);
 //		GMX_ASSERT(piLocal, "ERROR: Can't find local index of atom");
         const gmx::RVec atom_x = x[*piLocal];
@@ -273,13 +274,14 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 		derivatives_rectified = allDerivatives[0];
 	}
 
-	CoordsMapType<KEnRef_Real_t> derivatives_map(nullptr, 0, 3);
-	if (isMultiSimulation) {
-		// Distribute all derivatives
-		MPI_Scatter(allDerivatives_buffer, static_cast<int>(subAtomsX.size()), MPI_FLOAT, derivatives_buffer, static_cast<int>(subAtomsX.size()), MPI_FLOAT, 0, mainRanksComm);
-		//once you have the derivatives, retrieve them from the buffer
-		new (&derivatives_map) CoordsMapType<KEnRef_Real_t>(derivatives_buffer, subAtomsX.rows(), 3);
-	}
+    CoordsMapType<KEnRef_Real_t> derivatives_map(nullptr, 0, 3);
+    if (isMultiSimulation) {
+        // Distribute all derivatives
+        MPI_Scatter(allDerivatives_buffer, static_cast<int>(subAtomsX.size()), ((std::is_same<KEnRef_Real_t, float>()) ? MPI_FLOAT : MPI_DOUBLE),
+                    derivatives_buffer   , static_cast<int>(subAtomsX.size()), ((std::is_same<KEnRef_Real_t, float>()) ? MPI_FLOAT : MPI_DOUBLE), 0, mainRanksComm);
+        //once you have the derivatives, retrieve them from the buffer
+        new (&derivatives_map) CoordsMapType<KEnRef_Real_t>(derivatives_buffer, subAtomsX.rows(), 3);
+    }
 
 //    if (simulationIndex == 2) {
 //        std::cout << "derivatives_map thread # " << simulationIndex << " shape (" << derivatives_map.rows()
@@ -342,7 +344,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
     //Finally, add them to corresponding atoms
     for(int i = 0; i< subAtomsX.rows(); i++){
-    	const int *pGlobalId = &subId_to_globalId[i];
+    	const int *pGlobalId = &subId_to_globalId[i] - 1;
 //    	//TODO Check whether it use global or local ID?
     	const int *pLocalId = cr.dd->ga2la->findHome(*pGlobalId);
 
@@ -426,7 +428,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
     auto &g0 = *g0_;
     for (int i = 0; i < data.size(); ++i) {
         auto record = data[i];
-        std::istringstream temp1(record[3]), temp2(record[4]);
+        std::istringstream temp1(record[5]), temp2(record[6]);
         temp1 >> g0(i, 0);
         temp2 >> g0(i, 1);
     }
@@ -461,15 +463,17 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
     this->subId_to_globalId_ = std::make_shared<std::vector<int>>(globalAtomIdFlags.size(), -1);
     auto& globalId_to_subId = *this->globalId_to_subId_;
     auto& subId_to_globalId = *this->subId_to_globalId_;
-    int localId = 0;
-    for(int i = 0; i < globalAtomIdFlags.size(); i++){
-        if(globalAtomIdFlags[i]){
-            globalId_to_subId[i] = localId;
-            subId_to_globalId[localId] = i;
-            localId++;
+    {
+        int localId = 0;
+        for(int i = 0; i < globalAtomIdFlags.size(); i++){
+            if(globalAtomIdFlags[i]){
+                globalId_to_subId[i] = localId;
+                subId_to_globalId[localId] = i;
+                localId++;
+            }
         }
+        subId_to_globalId.resize(localId);
     }
-    subId_to_globalId.resize(localId);
 
     this->atomName_to_atomSubId_map_ = std::make_shared<std::map<std::string, int>>();
     auto& atomName_to_atomSubId_map = *this->atomName_to_atomSubId_map_;
