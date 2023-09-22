@@ -14,6 +14,9 @@ FetchContent_Declare(
 # For Windows: Prevent overriding the parent project's compiler/linker settings
 set(google_tests_force_shared_crt ON CACHE BOOL "" FORCE)  #what should the first syllable be?
 
+##TODO use the next line to find resources folder and test files (later). You may combine it with creating a header file
+#cmake_path(ABSOLUTE_PATH "../res" BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE OUTPUT_VARIABLE RESOURCES_ABSOLUTE_PATH)
+
 message(STATUS "google_tests_SOURCE_DIR is: ${google_tests_SOURCE_DIR}")
 #set(google_tests_SOURCE_DIR Google_tests/lib)
 message(STATUS "google_tests_SOURCE_DIR is: ${google_tests_SOURCE_DIR}")
@@ -28,7 +31,10 @@ add_subdirectory(lib/google_tests-src)
 message(STATUS "gtest_SOURCE_DIR is: ${gtest_SOURCE_DIR}")
 include_directories(${gtest_SOURCE_DIR}/include ${gtest_SOURCE_DIR})
 
+include_directories(
+        "${EIGEN3_INCLUDE_DIR}"
+        )
 # Now simply link against gtest or gtest_main as needed. Eg
-add_executable(Google_tests_exe testKabsch.cpp)
-target_link_libraries(Google_tests_exe gtest gtest_main)
+add_executable(Google_tests_exe testKabsch.cpp testKEnRef.cpp testIoUtils.cpp)
+target_link_libraries(Google_tests_exe gtest gtest_main kenref Eigen3::Eigen)
 ##add_test(NAME Google_tests COMMAND example)

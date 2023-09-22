@@ -33,8 +33,33 @@ include_directories("${GROMACS_INSTALL_DIR}/include"
         "${GROMACS_SRC_DIR}/src"
         "${GROMACS_SRC_DIR}/src/include"
         "${GROMACS_SRC_DIR}/src/gromacs/math/include"
+#		"${EIGEN3_INCLUDE_DIR}"
         )
 
+add_library(kenref
+		config/KEnRefConfig.h
+		core/ensembleutils.h
+		core/IoUtils.cpp
+		core/IoUtils.h
+		core/kabsch.h
+		core/KEnRef.cpp
+		core/KEnRef.h
+		core/kenreffinalizer.h
+		core/kenrefinitializer.cpp
+		core/kenrefinitializer.h
+		core/kenrefrunner.h
+		gmxinterface/gmxkenrefinitializer.cpp
+		gmxinterface/gmxkenrefinitializer.h
+		gmxinterface/gmxkenrefrunner.cpp
+		gmxinterface/gmxkenrefrunner.h
+		gmxinterface/gmxwrapper.cpp
+		gmxinterface/gmxwrapper.h
+		gmxinterface/KEnRefForceProvider.cpp
+		gmxinterface/KEnRefForceProvider.h
+		gmxinterface/KEnRefMDModule.cpp
+		gmxinterface/KEnRefMDModule.h
+		gmxinterface/KENRefRunner.cpp
+		gmxinterface/mdrun.cpp)
 
 
 add_executable(KEnRef
@@ -62,11 +87,12 @@ add_executable(KEnRef
         gmxinterface/KENRefRunner.cpp
         gmxinterface/mdrun.cpp)
 
-target_link_libraries(KEnRef PRIVATE MPI::MPI_CXX
-        Eigen3::Eigen
+target_link_libraries(KEnRef PRIVATE MPI::MPI_CXX Eigen3::Eigen
 #        Eigen3::unsupported #TODO restore it later
 	${GROMACS_INSTALL_DIR}/lib64/libgromacs_mpi.so)
-
+target_link_libraries(kenref PRIVATE MPI::MPI_CXX Eigen3::Eigen
+#        Eigen3::unsupported #TODO restore it later
+	${GROMACS_INSTALL_DIR}/lib64/libgromacs_mpi.so)
 ###########################################
 ## Add gtest
 add_subdirectory(google_tests)
