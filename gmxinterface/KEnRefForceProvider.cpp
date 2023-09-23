@@ -139,7 +139,6 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 //			guideAtomsX_buffer[i * 3 + j] = (isMultiSimulation? 100000 * simulationIndex : 0) + 100 * i + j;
 //		}
     }
-    const KEnRef_Real_t maxForce = maxForce_;
 //    std::cout << "KENREF_K_MAXFORCE = " << maxForce << std::endl;
 	CoordsMapType<KEnRef_Real_t> guideAtomsX_ZEROIndexed = CoordsMapType<KEnRef_Real_t>(guideAtomsX_ZEROIndexed_buffer, guideAtom0IndicesSize, 3);//TODO CoordsMapType or CoordsMatrixType?
     //TODO make a unit test to validate that the value coming in rvec is equal to the value in guideAtomsX_ZEROIndexed
@@ -213,9 +212,11 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
             }
         }
     }
-    std::cout << "subAtomsX shape: (" << subAtomsX.rows() << ", " << subAtomsX.cols() <<"). Before :" << std::endl << subAtomsX << std::endl;
+    //transform to Angstrom
     subAtomsX *= 10;
+#if VERBOSE
     std::cout << "subAtomsX shape: (" << subAtomsX.rows() << ", " << subAtomsX.cols() <<"). After :" << std::endl << subAtomsX << std::endl;
+#endif
 
     // Fit every replica (except 0) to model 0
     if (simulationIndex == 0) {
@@ -273,8 +274,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 //		std::vector<Eigen::MatrixX3<KEnRef_Real_t>> allDerivatives;
         //do force calculations
         auto [energy, allDerivatives] = KEnRef<KEnRef_Real_t>::coord_array_to_energy(
-                allSimulationsSubAtomsX_vector, atomName_pairs,
-                simulated_grouping_list, g0, static_cast<KEnRef_Real_t>(pow(2, -30)),
+                allSimulationsSubAtomsX_vector, atomName_pairs, simulated_grouping_list, g0, this->k_,
                 atomName_to_atomSub0Id_map, true);
 #if VERBOSE
         std::cout << "energy = " << energy << ", allDerivatives:" << std::endl;
@@ -312,7 +312,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
 
     auto max = derivatives_rectified.cwiseAbs().maxCoeff();
-    auto scaleDown = static_cast<KEnRef_Real_t>(maxForce / max);
+    auto scaleDown = static_cast<KEnRef_Real_t>(this->maxForce_ / max);
     if(scaleDown < 1.0){
         derivatives_rectified *= scaleDown;
     }
@@ -370,7 +370,6 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         //next line assumes that the basic type of force is **real**
         // TODO optimize this line/process
         force[*piLocal] += {static_cast<real>(derivatives_rectified(i, 0)), static_cast<real>(derivatives_rectified(i, 1)), static_cast<real>(derivatives_rectified(i, 2))};
-//        force[*pLocalId] += {100, 100, 1000}; //FIXME test only
     }
 
 //    std::cout << "final force values of simulation # " << simulationIndex << std::endl;
@@ -389,14 +388,19 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
     GMX_ASSERT(!atomName_to_atomGlobalId_map_->empty(), "No atom mapping found");
     auto& atomName_to_atomGlobalId_map = *this->atomName_to_atomGlobalId_map_;
 
-    KEnRef_Real_t maxForce;
-    if(const char* kenref_k = std::getenv("KENREF_K_MAXFORCE")){
-        std::stringstream sstream(kenref_k);
-        sstream >> maxForce;
-        std::cout << "KENREF_K_MAXFORCE is: " << maxForce << '\n';
-        maxForce_ = maxForce;
+    if(const char* kenref_maxForce = std::getenv("KENREF_MAXFORCE")){
+        std::stringstream sstream(kenref_maxForce);
+        sstream >> this->maxForce_;
+        std::cout << "KENREF_MAXFORCE is: " << this->maxForce_ << '\n';
     }else{
-        std::cout << "No KENREF_K_MAXFORCE identified. Will use default value of " << maxForce_ << std::endl;
+        std::cout << "No KENREF_MAXFORCE identified. Will use default value of " << this->maxForce_ << std::endl;
+    }
+    if(const char* kenref_k = std::getenv("KENREF_K")){
+        std::stringstream sstream(kenref_k);
+        sstream >> this->k_;
+        std::cout << "KENREF_K is: " << this->k_ << '\n';
+    }else{
+        std::cout << "No KENREF_K identified. Will use default value of " << this->k_ << std::endl;
     }
 
 #if VERBOSE

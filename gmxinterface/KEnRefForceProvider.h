@@ -19,7 +19,8 @@
 class KEnRefForceProvider: public gmx::IForceProvider {
 
 	gmx::SimulationContext* simulationContext_ = nullptr;
-    KEnRef_Real_t maxForce_ = 100.0;
+    KEnRef_Real_t maxForce_ = 800.0;
+    KEnRef_Real_t k_ = 1.0;
     bool paramsInitialized = false;
 //	gmx::Selection* selection = nullptr;
 //	std::string selectionString = "resid 16 to 20 and pdbname CB"; // "distance from [3., 3., 3.] < 5.0";//"atomnr 6";
