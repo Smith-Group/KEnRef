@@ -91,7 +91,7 @@ public:
     inline const static char *const GUIDE_C_ALPHA = "guideC-alpha";
     inline const static char *const INDEX_FILE_LOCATION = "../../res/cleanstart/KEnRefAtomIndex.ndx";
     inline const static char *const ATOMNAME_MAPPING_FILENAME = "../../res/cleanstart/6v5d_step0_for_atomname_mapping.pdb";
-    inline const static char *const EXPERIMENTAL_DATA_FILENAME = "../../res/cleanstart/singleton_data_step0_fewAtomPairs.csv";
+    inline const static char *const EXPERIMENTAL_DATA_FILENAME = "../../res/cleanstart/singleton_data_step0_model01.csv";
 
     KEnRefMDModule();
 	~KEnRefMDModule() override;

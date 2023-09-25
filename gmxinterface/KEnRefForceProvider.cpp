@@ -190,7 +190,6 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 #if VERBOSE
     std::cout << "Affine Matrix" << std::endl << affine.matrix() << std::endl;
 #endif
-    IoUtils::printVector(sub0Id_to_global1Id);
 
     // Fill needed atoms of subAtomsX with atoms (in the original order). The rest were set to zero earlier
     for (int i = 0; i < subAtomsX.rows(); i++) {
