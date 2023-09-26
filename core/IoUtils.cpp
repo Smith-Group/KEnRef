@@ -1,6 +1,8 @@
+#include <filesystem>
 #include <regex>
 #include <fstream>
 #include <string>
+#include <system_error>
 #include "IoUtils.h"
 
 template<typename T>
@@ -305,15 +307,20 @@ std::map<std::string, int>
 IoUtils::getAtomNameMappingFromPdb(const std::string& pdbFilename){
 	std::map<std::string, int> ret = {};
 
-    std::ifstream pdbFile(pdbFilename);
-    if (!pdbFile.is_open()) {
-        throw std::runtime_error(std::string("Error opening file: ").append(pdbFilename));
-    }
+//    std::filesystem::path pdbFilePath(pdbFilename);
+//    std::ifstream pdbFileStream;
+//    try {
+//        pdbFileStream = std::ifstream (pdbFilename);
+//    } catch (std::filesystem::filesystem_error& e) {
+//        throw e;
+//    }
+    std::ifstream pdbFileStream(pdbFilename); //no need to try and catch here.
+
     std::string line;
     std::regex atomRecordTemplate {"^((ATOM  )|(HETATM))([0-9 ]{5}) (.{15}).+$" };
     std::smatch sm;
     int index;
-    while (std::getline(pdbFile, line)) {
+    while (std::getline(pdbFileStream, line)) {
         if (line.empty()) continue;
         if(std::regex_match(line, sm, atomRecordTemplate)){
         	std::string atomId = sm[5];
@@ -323,7 +330,7 @@ IoUtils::getAtomNameMappingFromPdb(const std::string& pdbFilename){
         	ret[atomId] = index;
         }
     }
-    pdbFile.close();
+    pdbFileStream.close();
     std::cerr << "number of items in the map = " << ret.size() << std::endl;
     return ret; //std::move(&ret);
 }
@@ -346,10 +353,9 @@ void IoUtils::printVector(const std::vector<std::string>& vec){
 }
 template<typename TYPE>
 void IoUtils::printVector(const std::vector<TYPE>& vec){
-	for (const TYPE& val : vec) {
-		std::cout << val << " ";
-	}
-	std::cout << std::endl;
+    for (const TYPE &val: vec)
+        std::cout << val << " ";
+    std::cout << std::endl;
 }
 
 ///////////////////////////////////////////////////////

@@ -21,8 +21,8 @@ public:
 	virtual ~KEnRefRunner();
 	KEnRefRunner(const KEnRefRunner &other);
 	KEnRefRunner(KEnRefRunner &&other) noexcept ;
-//	KEnRefRunner& operator=(KEnRefRunner &&other);
-//	KEnRefRunner& operator=(const KEnRefRunner &other);
+	KEnRefRunner& operator=(KEnRefRunner &&other) noexcept;
+	KEnRefRunner& operator=(const KEnRefRunner &other);
 	virtual int run() = 0;
 };
 

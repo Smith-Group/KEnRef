@@ -32,9 +32,13 @@ public:
                     int /*nfile*/,
                     const t_filenm /*fnm*/[],
                     bool /*bAppendFiles*/,
-                    const gmx_output_env_t* /*oenv*/) override{}
+                    const gmx_output_env_t* /*oenv*/) override{
+        std::cout << "====> initOutput() called" << std::endl;
+    }
     //! Finalizes output from a simulation run.
-    void finishOutput() override {}
+    void finishOutput() override {
+        std::cout << "====> finishOutput() called" << std::endl;
+    }
 };
 
 /*
@@ -42,13 +46,15 @@ public:
  * empty implementation as KEnRef does not use that yet. TODO It might move to a separate file later.
  */
 class KEnRefOptions final : public gmx::IMdpOptionProvider{
-    void initMdpTransform(gmx::IKeyValueTreeTransformRules* transform) override {}
+    void initMdpTransform(gmx::IKeyValueTreeTransformRules* transform) override {
+        std::cout << "====> initMdpTransform() called" << std::endl;
+    }
     /*! \brief
      * Initializes options that declare input (mdp) parameters for this
      * module.
      */
     void initMdpOptions(gmx::IOptionsContainerWithSections* options) override {
-//    	std::cout << "====> initMdpOptions() called" << std::endl;
+    	std::cout << "====> initMdpOptions() called" << std::endl;
 //        auto section = options->addSection(gmx::OptionSection("KEnRef Options"));
 //         section.addOption(gmx::FileNameOption("top")
 //                               .filetype(gmx::OptionFileType::Topology)
@@ -64,6 +70,7 @@ class KEnRefOptions final : public gmx::IMdpOptionProvider{
     }
     //! Prepares to write a flat key-value tree like an mdp file.
     void buildMdpOutput(gmx::KeyValueTreeObjectBuilder* builder) const override {
+        std::cout << "====> buildMdpOutput() called" << std::endl;
         builder->addValue("top", "topol.tpr");
         builder->addValue("select", selection.name()/*"resnum 5"*/);
     }
@@ -83,7 +90,7 @@ class KEnRefMDModule final: public gmx::IMDModule {
 	KEnRefOptions kEnRefOptions;
 	KEnRefOutputProvider kEnRefOutputProvider;
     //! Object that evaluates the forces
-    std::unique_ptr<KEnRefForceProvider> forceProvider_;
+    std::shared_ptr<KEnRefForceProvider> forceProvider_;
     gmx::SimulationContext* simulationContext_ = nullptr;
     std::shared_ptr<std::vector<int> const> guideAtoms0Indexed; //ZERO indexed
 
@@ -97,8 +104,8 @@ public:
 	~KEnRefMDModule() override;
 	KEnRefMDModule(const KEnRefMDModule &other);
 	KEnRefMDModule(KEnRefMDModule &&other) noexcept;
-//	KEnRefMDModule& operator=(const NENRefMDModule &other);
-//	KEnRefMDModule& operator=(NENRefMDModule &&other);
+	KEnRefMDModule& operator=(const KEnRefMDModule &other);
+	KEnRefMDModule& operator=(KEnRefMDModule &&other) noexcept;
 
     //! Returns an interface for handling mdp input (and tpr I/O).
     gmx::IMdpOptionProvider* mdpOptionProvider() override;
@@ -127,7 +134,7 @@ struct KEnRefModuleInfo
         return std::make_unique<KEnRefMDModule>();
     }
     //! The name of the module
-    static const std::string name_;
+    inline static const std::string name_ = "Kinetic-Ensemble-Refinement";
 };
 
 

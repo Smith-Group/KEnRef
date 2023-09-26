@@ -7,34 +7,15 @@
 
 #include "gmxkenrefrunner.h"
 
-GmxKEnRefRunner::GmxKEnRefRunner() {
-	// TODO Auto-generated constructor stub
-
-}
-
-GmxKEnRefRunner::~GmxKEnRefRunner() {
-	// TODO Auto-generated destructor stub
-}
-
-GmxKEnRefRunner::GmxKEnRefRunner(const GmxKEnRefRunner &other) {
-	// TODO Auto-generated constructor stub
-
-}
-
-GmxKEnRefRunner::GmxKEnRefRunner(GmxKEnRefRunner &&other) {
-	// TODO Auto-generated constructor stub
-
-}
+GmxKEnRefRunner::GmxKEnRefRunner() = default;
+GmxKEnRefRunner::~GmxKEnRefRunner() = default;
+GmxKEnRefRunner::GmxKEnRefRunner(const GmxKEnRefRunner &other) = default;
+GmxKEnRefRunner::GmxKEnRefRunner(GmxKEnRefRunner &&other)  noexcept = default;
+GmxKEnRefRunner& GmxKEnRefRunner::operator=(const GmxKEnRefRunner &other) = default;
+GmxKEnRefRunner& GmxKEnRefRunner::operator=(GmxKEnRefRunner &&other)  noexcept = default;
 
 int GmxKEnRefRunner::run(){
 	return 0;
 
 }
-
-//GmxKEnRefRunner& GmxKEnRefRunner::operator=(const GmxKEnRefRunner &other) {
-//	// TODO Auto-generated method stub
-//}
-//GmxKEnRefRunner& GmxKEnRefRunner::operator=(GmxKEnRefRunner &&other) {
-//	// TODO Auto-generated method stub
-//}
 

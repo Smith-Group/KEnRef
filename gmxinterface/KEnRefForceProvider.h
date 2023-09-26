@@ -18,14 +18,15 @@
 
 class KEnRefForceProvider: public gmx::IForceProvider {
 
+//	gmx::Selection* selection = nullptr;
+//	std::string selectionString = "resid 16 to 20 and pdbname CB"; // "distance from [3., 3., 3.] < 5.0";//"atomnr 6";
+//	bool *selectionMask = nullptr;
+
 	gmx::SimulationContext* simulationContext_ = nullptr;
     KEnRef_Real_t maxForce_ = 800.0;
     KEnRef_Real_t k_ = 1.0;
     bool paramsInitialized = false;
-//	gmx::Selection* selection = nullptr;
-//	std::string selectionString = "resid 16 to 20 and pdbname CB"; // "distance from [3., 3., 3.] < 5.0";//"atomnr 6";
-	std::shared_ptr<std::vector<int> const> guideAtom0Indices_; //ZERO indexed
-//	bool *selectionMask = nullptr;
+    std::shared_ptr<std::vector<int> const> guideAtom0Indices_; //ZERO indexed
 	std::shared_ptr<std::map<std::string, int> const> atomName_to_atomGlobalId_map_; //TODO later you may remove this and keep atomName_to_atomSubId_map_, or update it and delete atomName_to_atomSubId_map_
 	std::shared_ptr<std::map<std::string, int>> atomName_to_atomSub0Id_map_; //atomName is normalized string. SubId is a small subset and is ZERO based
 	std::shared_ptr<std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>> experimentalData_table_ = nullptr; //TODO remove this pointer when it is no longer needed
@@ -40,10 +41,10 @@ class KEnRefForceProvider: public gmx::IForceProvider {
 public:
 	KEnRefForceProvider();
 	virtual ~KEnRefForceProvider();
-//	KEnRefForceProvider(const KEnRefForceProvider &other);
-//	KEnRefForceProvider(KEnRefForceProvider &&other) noexcept ;
-//	KEnRefForceProvider& operator=(const KEnRefForceProvider &other);
-//	KEnRefForceProvider& operator=(KEnRefForceProvider &&other);
+	KEnRefForceProvider(const KEnRefForceProvider &other);
+	KEnRefForceProvider(KEnRefForceProvider &&other) noexcept ;
+	KEnRefForceProvider& operator=(const KEnRefForceProvider &other);
+	KEnRefForceProvider& operator=(KEnRefForceProvider &&other) noexcept;
     void calculateForces(const gmx::ForceProviderInput& forceProviderInput, gmx::ForceProviderOutput* forceProviderOutput) override;
     virtual void setSimulationContext(gmx::SimulationContext* simulationContext);
     virtual void setGuideAtom0Indices(std::shared_ptr<std::vector<int> const> targetAtoms0Indices);

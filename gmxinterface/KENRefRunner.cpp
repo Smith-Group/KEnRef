@@ -8,34 +8,12 @@
 #include "../core/kenrefrunner.h"
 
 
-KEnRefRunner::KEnRefRunner() {
-	// TODO Auto-generated constructor stub
-
-}
-
-KEnRefRunner::~KEnRefRunner() {
-	// TODO Auto-generated destructor stub
-}
-
-KEnRefRunner::KEnRefRunner(const KEnRefRunner &other) {
-	// TODO Auto-generated constructor stub
-
-}
-
-KEnRefRunner::KEnRefRunner(KEnRefRunner &&other) noexcept {
-	// TODO Auto-generated constructor stub
-
-}
-
-//KENRefRunner& KENRefRunner::operator=(KENRefRunner &&other) {
-//	// TODO Auto-generated method stub
-//
-//}
-//
-//KENRefRunner& KENRefRunner::operator=(const KENRefRunner &other) {
-//	// TODO Auto-generated method stub
-//
-//}
+KEnRefRunner::KEnRefRunner() = default;
+KEnRefRunner::~KEnRefRunner() = default;
+KEnRefRunner::KEnRefRunner(const KEnRefRunner &other) = default;
+KEnRefRunner::KEnRefRunner(KEnRefRunner &&other) noexcept= default;
+KEnRefRunner& KEnRefRunner::operator=(KEnRefRunner &&other)  noexcept = default;
+KEnRefRunner& KEnRefRunner::operator=(const KEnRefRunner &other) = default;
 
 int KEnRefRunner::run(){
 	return 0;

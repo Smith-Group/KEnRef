@@ -13,50 +13,35 @@
 
 
 KEnRefMDModule::KEnRefMDModule() {
-//	const char* H_HA_HA1_HA2 = "H_HA_HA1_HA2";
-//	auto indexGroups = GmxKEnRefInitializer::loadGmxIndexFile(indexFileLocation);
-//	for(auto group: indexGroups){
-//		std::cout << "'" << group.first << "':" << std::endl;
-//		IoUtils::printVector(group.second);
-//	}
 	std::vector<int>const& indices = GmxKEnRefInitializer::loadGmxIndexGroup(KEnRefMDModule::GUIDE_C_ALPHA, KEnRefMDModule::INDEX_FILE_LOCATION);
-	IoUtils::printVector(indices);
-//	const auto& indices3 = IoUtils::getGmxNdxGroup(indexFileLocation, H_HA_HA1_HA2);
-//	IoUtils::printVector(indices3);
-
 	this->guideAtoms0Indexed = std::make_shared<std::vector<int> const>(indices);
-//	for(auto v : *vv1){std::cout << v << " ";}std::cout << std::endl;
-//	std::cout << this->guideAtoms << std::endl;
-
+    IoUtils::printVector(indices);
 }
 
 KEnRefMDModule::~KEnRefMDModule() = default;
-
-KEnRefMDModule::KEnRefMDModule(const KEnRefMDModule &other) {}
-
-KEnRefMDModule::KEnRefMDModule(KEnRefMDModule &&other)  noexcept {}
-//KEnRefMDModule& NENRefMDModule::operator=(const NENRefMDModule &other) {}
-//KEnRefMDModule& NENRefMDModule::operator=(NENRefMDModule &&other) {}
+KEnRefMDModule::KEnRefMDModule(const KEnRefMDModule &other) = default;
+KEnRefMDModule::KEnRefMDModule(KEnRefMDModule &&other)  noexcept = default;
+KEnRefMDModule& KEnRefMDModule::operator=(const KEnRefMDModule &other) = default;
+KEnRefMDModule& KEnRefMDModule::operator=(KEnRefMDModule &&other) noexcept = default;
 
 //! Returns an interface for handling mdp input (and tpr I/O).
 gmx::IMdpOptionProvider* KEnRefMDModule::mdpOptionProvider() {
+    std::cout << "====> KEnRefMDModule::mdpOptionProvider() called" << std::endl;
 	return &kEnRefOptions;
 }
 
 //! Returns an interface for handling output files during simulation.
 gmx::IMDOutputProvider* KEnRefMDModule::outputProvider() {
+    std::cout << "====> KEnRefMDModule::outputProvider() called" << std::endl;
 	return &kEnRefOutputProvider;
 }
 
 //! Initializes force provider(s) from this module (only one now).
 void KEnRefMDModule::initForceProviders(gmx::ForceProviders* forceProviders) {
-	std::cout << "KEnRefMDModule::initForceProviders()" << std::endl;
-	forceProvider_ = std::make_unique<KEnRefForceProvider>();
+	std::cout << "====> KEnRefMDModule::initForceProviders() called" << std::endl;
+	forceProvider_ = std::make_shared<KEnRefForceProvider>();
 	forceProvider_->setSimulationContext(simulationContext_);
     forceProvider_->setGuideAtom0Indices(this->guideAtoms0Indexed);
-//	forceProvider_->setAtomNameAtomIdMap(this->atomName_atomId_map);
-//	forceProvider_->setSimulatedDataTable(this->simulatedData_table_);
-
 	forceProviders->addForceProvider(forceProvider_.get());
 }
 
@@ -90,6 +75,3 @@ void KEnRefMDModule::subscribeToPreProcessingNotifications(gmx::MDModulesNotifie
 void KEnRefMDModule::setSimulationContext(gmx::SimulationContext* simulationContext){
 	this->simulationContext_ = simulationContext;
 }
-
-const std::string KEnRefModuleInfo::name_ = "Kinetic-Ensemble-Refinement";
-

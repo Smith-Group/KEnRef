@@ -24,13 +24,11 @@
 #define VERBOSE false
 
 KEnRefForceProvider::KEnRefForceProvider() = default;
-
 KEnRefForceProvider::~KEnRefForceProvider() = default;
-
-//KEnRefForceProvider::KEnRefForceProvider(KEnRefForceProvider &&other) noexcept {}
-//KEnRefForceProvider::KEnRefForceProvider(const KEnRefForceProvider &other) {}
-//KEnRefForceProvider& KEnRefForceProvider::operator=(const KEnRefForceProvider &other) {}
-//KEnRefForceProvider& KEnRefForceProvider::operator=(KEnRefForceProvider &&other) {}
+KEnRefForceProvider::KEnRefForceProvider(KEnRefForceProvider &&other) noexcept = default;
+KEnRefForceProvider::KEnRefForceProvider(const KEnRefForceProvider &other) = default;
+KEnRefForceProvider& KEnRefForceProvider::operator=(const KEnRefForceProvider &other) = default;
+KEnRefForceProvider& KEnRefForceProvider::operator=(KEnRefForceProvider &&other) noexcept = default;
 
 void KEnRefForceProvider::setSimulationContext(gmx::SimulationContext *simulationContext) {
     this->simulationContext_ = simulationContext;
@@ -102,9 +100,6 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
     std::vector<int> const &guideAtom0Indices = *this->guideAtom0Indices_; //ZERO indexed
     auto &atomName_to_atomSub0Id_map = *this->atomName_to_atomSub0Id_map_;
-//	auto& globalAtomIdFlags_ = *this->globalAtomIdFlags_;
-//	auto& atomName_to_atomGlobalId_map_ = *this->atomName_to_atomGlobalId_map_;
-//	auto& globalId_to_subId_ = *this->globalId_to_subId_;
     auto &sub0Id_to_global1Id = *this->sub0Id_to_global1Id_;
     auto experimentalData_table = *this->experimentalData_table_;
     auto atomName_pairs = *this->atomName_pairs_;
@@ -344,7 +339,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
     if (isMultiSimulation && haveDDAtomOrdering(cr)){
         // Note: this assumes that all ranks are hitting this line, which is not generally true.
-        // I need to find the right subcommunicator. What I really want is a _scoped_ communicator...
+        // I need to find the right sub-communicator. What I really want is a _scoped_ communicator...
         gmx_barrier(cr.mpi_comm_mygroup);
     }
 
