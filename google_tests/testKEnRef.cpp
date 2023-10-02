@@ -28,7 +28,7 @@ TEST(KEnRefTestSuite, TestRArrayToDArray1) {
 
     std::vector<std::vector<std::vector<int>>> toy_grouping_list{{{0, 1, 2, 3}},
                                                                  {{0, 1}, {2, 3}},
-                                                                 {{0},    {1}, {2}, {3}}};
+                                                                 {{0}, {1}, {2}, {3}}};
     Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, 3> toy_r_mat(4, 3);
     toy_r_mat <<
               0.848351683690084, -0.529433112659379, 0,
@@ -90,18 +90,22 @@ TEST(KEnRefTestSuite, TestRArrayToDArray1) {
     EXPECT_MATRIX_NEAR(toy_d_array_grad, expected_toy_d_array_grad);
 }
 
-TEST(KEnRefTestSuite, restOfTestsToWrite){
-    std::vector<std::vector<std::vector<int>>> toy_grouping_list {{{0, 1, 2, 3}}, {{0, 1}, {2, 3}}, {{0}, {1}, {2}, {3}}};
-    Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, 3> toy_r_mat(4, 3);
-    toy_r_mat <<
-              0.848351683690084, -0.529433112659379, 0,
-            0.966177888683851, 0.257876496444355, 0,
-            0.966177888683851, -0.257876496444355, 0,
-            0.848351683690084, 0.529433112659379, 0;
+TEST(KEnRefTestSuite, testDArrayToG){
+    std::vector<std::vector<std::vector<int>>> toy_grouping_list{{{0, 1, 2, 3}},
+                                                                 {{0, 1}, {2, 3}},
+                                                                 {{0}, {1}, {2}, {3}}};
 
-    std::cout << "toy_r_mat" << std::endl << toy_r_mat << std::endl;
+    Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, 5> toy_d_array(4, 5);
+    Eigen::Matrix<KEnRef_Real_t, 5, Eigen::Dynamic> temp(5, 4);
+    temp <<
+         -0.500000000000001, -0.5, -0.5, -0.500000000000001,
+            0.380532565661007, 0.750843527257811, 0.750843527257811, 0.380532565661007,
+            0, 0, 0, 0,
+            0, 0, 0, 0,
+            -0.777942778404335, 0.431548372230798, -0.431548372230798, 0.777942778404335;
+    toy_d_array = temp.transpose();
 
-    auto [toy_d_array, toy_d_array_grad] = KEnRef<KEnRef_Real_t>::r_array_to_d_array(toy_r_mat, true);
+//    auto [toy_d_array, toy_d_array_grad] = KEnRef<KEnRef_Real_t>::r_array_to_d_array(toy_r_mat, true);
 
     std::vector<Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, 5>> toy_d_array_vec;
     toy_d_array_vec.reserve((toy_d_array.rows()));
@@ -120,9 +124,11 @@ TEST(KEnRefTestSuite, restOfTestsToWrite){
         }
         std::cout << "----------" << std::endl;
     }
+    //TODO calculate and validate
+}
 
-    /////////////////////////////////////////////////////////////////////////
 
+TEST(KEnRefTestSuite, restOfTestsToWrite){
     Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, 3> model1(5, 3);
     model1 <<
            32.708, 53.484, 20.701,
