@@ -366,7 +366,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 #endif
         //next line assumes that the basic type of force is **real**
         // TODO optimize this line/process
-        force[*piLocal] += {static_cast<real>(derivatives_rectified(i, 0)), static_cast<real>(derivatives_rectified(i, 1)), static_cast<real>(derivatives_rectified(i, 2))};
+        force[*piLocal] -= {static_cast<real>(derivatives_rectified(i, 0)), static_cast<real>(derivatives_rectified(i, 1)), static_cast<real>(derivatives_rectified(i, 2))};
     }
 
 //    std::cout << "final force values of simulation # " << simulationIndex << std::endl;
