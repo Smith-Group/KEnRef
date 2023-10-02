@@ -336,21 +336,6 @@ IoUtils::getAtomNameMappingFromPdb(const std::string& pdbFilename){
 }
 
 
-void IoUtils::printVector(const std::vector<int>& vec){
-	for(int val : vec)
-		std::cout << val << " ";
-	std::cout << std::endl;
-}
-void IoUtils::printVector(const std::vector<bool>& vec){
-	for(bool val : vec)
-		std::cout << std::boolalpha << val << " ";
-	std::cout << std::endl;
-}
-void IoUtils::printVector(const std::vector<std::string>& vec){
-	for(const std::string& val : vec)
-		std::cout << val << " ";
-	std::cout << std::endl;
-}
 template<typename TYPE>
 void IoUtils::printVector(const std::vector<TYPE>& vec){
     for (const TYPE &val: vec)
@@ -358,64 +343,8 @@ void IoUtils::printVector(const std::vector<TYPE>& vec){
     std::cout << std::endl;
 }
 
-///////////////////////////////////////////////////////
-void test() {
-	std::istringstream input(
-			"1 2 3\n"
-			"4 5 6\n"
-			"7 8 9\n");
-	auto table = IoUtils::read_uniform_table_of<int>(input);
-	for (const auto& record : table) {
-		for (auto field : record)
-			std::cout << field << " ";
-		std::cout << "\n";
-	}
-	std::cout << std::endl;
-	///////////////////////////////////
-	std::string strin, strout;
-	strin = "\"doublequote in the beginning";
-	strout = IoUtils::strip_enclosing_quotoes(strin);
-	std::cout << strout << std::endl;
-	strin = "doublequote at the end\"";
-	strout = IoUtils::strip_enclosing_quotoes(strin);
-	std::cout << strout << std::endl;
-	strin = "doublequote in the (\") middle";
-	strout = IoUtils::strip_enclosing_quotoes(strin);
-	std::cout << strout << std::endl;
-	strin = R"("escaped doublequote at the end\")";
-	strout = IoUtils::strip_enclosing_quotoes(strin);
-	std::cout << strout << std::endl;
-	strin = "\"doublequote at both ends\"";
-	strout = IoUtils::strip_enclosing_quotoes(strin);
-	std::cout << strout << std::endl;
-	strin = "`escaped back quote at the end\\`";
-	strout = IoUtils::strip_enclosing_quotoes(strin);
-	std::cout << strout << std::endl;
-	strin = "`back quote at both ends`";
-	strout = IoUtils::strip_enclosing_quotoes(strin, '`');
-	std::cout << strout << std::endl;
-	///////////////////////////////////
-	std::ifstream in("res/noe_1.tsv");
-	if (in) {
-		const auto& [group1names, group2names, values] = IoUtils::read_noe_table(in);
-		for(int i = 0; i < group1names.size(); ++i){
-			std::cout<< group1names[i] << "\t| " << group2names[i] << "\t| " << values[i] << std::endl;
-		}
-	}
-
-	std::ifstream noe_groups_file("../res/noe_groups.R");
-	auto noe_groups = IoUtils::read_noe_groups(noe_groups_file);
-	for(auto [key, val] : noe_groups){
-		std::cout << "<" << key<< ">"  << " " << val.size() << ":";
-		for(const auto& str: val){
-			std::cout << " [" << str << ']';
-		}
-		std::cout << std::endl;
-	}
-}
-
-#if _TEST_
-int main() {
-	test();
-}
-#endif
+template std::vector<std::vector<int>>IoUtils::read_uniform_table_of(std::istream&);
+template void IoUtils::printVector(const std::vector<int> &vec);
+template void IoUtils::printVector(const std::vector<float> &vec);
+template void IoUtils::printVector(const std::vector<double> &vec);
+template void IoUtils::printVector(const std::vector<std::string> &vec);

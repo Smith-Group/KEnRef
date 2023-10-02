@@ -121,7 +121,7 @@ KEnRef<KEnRef_Real>::r_array_to_d_array(const std::vector<Eigen::MatrixX3<KEnRef
     ret1.reserve(models_Nxyz.size());
     ret2.reserve(models_Nxyz.size());
     for (const auto &Nxyz: models_Nxyz) {
-        auto [arr1, arr2] = r_array_to_d_array(Nxyz, gradient);
+        auto[arr1, arr2] = r_array_to_d_array(Nxyz, gradient);
         ret1.emplace_back(arr1);
         ret2.emplace_back(arr2);
     }

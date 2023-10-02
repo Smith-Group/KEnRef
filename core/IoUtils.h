@@ -46,9 +46,6 @@ public:
 	static std::vector<int> getGmxNdxGroup(const std::string& filename, const std::string& groupName);
 	static std::map<std::string, std::vector<int>> getAllGmxNdxGroups(const std::string& filename);
 
-	static void printVector(const std::vector<int>& vec);
-	static void printVector(const std::vector<bool>& vec);
-	static void printVector(const std::vector<std::string>& vec);
 	template<typename TYPE>
 	static void printVector(const std::vector<TYPE>& vec);
 

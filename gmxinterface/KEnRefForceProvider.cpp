@@ -188,8 +188,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
     // Fill needed atoms of subAtomsX with atoms (in the original order). The rest were set to zero earlier
     for (int i = 0; i < subAtomsX.rows(); i++) {
-        const int i0Global = sub0Id_to_global1Id[i] - 1;
-        const int *piGlobal = &i0Global;
+        const int *piGlobal = new int{sub0Id_to_global1Id[i] - 1};
         const int *piLocal = cr.dd->ga2la->findHome(*piGlobal);
 //		GMX_ASSERT(piLocal, "ERROR: Can't find local index of atom");
         const gmx::RVec atom_x = x[*piLocal];
@@ -256,12 +255,13 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     //in rank 0
     if (simulationIndex == 0) {
         //collect all matrices of all replica into a vector of atom coordinates.
-        std::vector<Eigen::MatrixX3<KEnRef_Real_t>> allSimulationsSubAtomsX_vector = std::vector<Eigen::MatrixX3<KEnRef_Real_t>>(numSimulations);
+        std::vector<Eigen::MatrixX3<KEnRef_Real_t>> allSimulationsSubAtomsX_vector;
+        allSimulationsSubAtomsX_vector.reserve(numSimulations);
         for (int i = 0; i < numSimulations; i++) {
             //TODO Review and Simplify this
             CoordsMatrixType<KEnRef_Real_t> temp1Matrix = CoordsMapType<KEnRef_Real_t>(&allSimulationsSubAtomsX.data()[i * subAtomsX.size()], subAtomsX.rows(), 3);
             const CoordsMatrixType<KEnRef_Real_t> &temp2Matrix = temp1Matrix;
-            allSimulationsSubAtomsX_vector.at(i) = temp2Matrix;
+            allSimulationsSubAtomsX_vector.emplace_back(temp2Matrix);
         }
 
 //		KEnRef_Real_t energy;
@@ -306,11 +306,15 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
 
     auto max = derivatives_rectified.cwiseAbs().maxCoeff();
+    auto avg = derivatives_rectified.colwise().sum()/derivatives_rectified.size();
     auto scaleDown = static_cast<KEnRef_Real_t>(this->maxForce_ / max);
     if(scaleDown < 1.0){
         derivatives_rectified *= scaleDown;
     }
-    std::cout << "Simulation # " << simulationIndex << " max: " << max << ", scaleDown " << scaleDown << (scaleDown < 1.0 ? " Scaled down" : " NOT USED") << std::endl;
+    std::cout << "Simulation # " << simulationIndex << " max: " << max << " scaleDown " << scaleDown <<
+    (scaleDown < 1.0 ? " Scaled down " : " NOT USED ") << "Average " << avg <<
+//    "Energy " << energy
+    std::endl;
 //    gmx_barrier(mainRanksComm);
 
 
@@ -354,8 +358,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
     //Finally, add them to corresponding atoms
     for(int i = 0; i< subAtomsX.rows(); i++){
-        const int i0Global = sub0Id_to_global1Id[i] - 1;
-        const int *piGlobal = &i0Global;
+        const int *piGlobal = new int{sub0Id_to_global1Id[i] - 1};
         const int *piLocal = cr.dd->ga2la->findHome(*piGlobal); //TODO Confirm whether it use global or local ID?
 
 #if VERBOSE
