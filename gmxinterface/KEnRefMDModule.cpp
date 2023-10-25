@@ -7,12 +7,21 @@
 #include <iostream>
 #include "gromacs/mdrunutility/mdmodulesnotifiers.h"
 #include "gromacs/topology/topology.h"
-#include "../core/IoUtils.h"
 #include "../gmxinterface/gmxkenrefinitializer.h"
 #include "KEnRefMDModule.h"
 
 
 KEnRefMDModule::KEnRefMDModule() {
+    ///// load default params /////////////////////////
+    if (const char *kenref_params = std::getenv("KENREF_PARAMS")) {
+        std::cout << "KENREF_PARAMS path is: " << kenref_params << std::endl;
+       readParams(kenref_params);
+    }else{
+        std::cout << "No KENREF_PARAMS identified. Will use default value of " << "KENREF_PARAMS.txt" << std::endl;
+        readParams("KENREF_PARAMS.txt");
+    }
+    //////////////////////////////////////////////////
+
 	std::vector<int>const& indices = GmxKEnRefInitializer::loadGmxIndexGroup(KEnRefMDModule::GUIDE_C_ALPHA, KEnRefMDModule::INDEX_FILE_LOCATION);
 	this->guideAtoms0Indexed = std::make_shared<std::vector<int> const>(indices);
     IoUtils::printVector(indices);

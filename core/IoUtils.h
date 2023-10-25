@@ -29,6 +29,12 @@ public:
 	static std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>
 	readTable(const std::string& fileName, bool has_header=true);
 
+    static std::map<std::string, std::string>
+    readParams(const std::string& fileName);
+
+    static std::map<std::string, std::string>
+    readParams(std::istream &paramsFileStream);
+
 	static std::string
 	strip_enclosing_quotoes(const std::string& str, char delim = '\"');
 

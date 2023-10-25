@@ -19,6 +19,7 @@
 #include <gromacs/mdtypes/imdpoptionprovider.h>
 #include <gromacs/mdrun/simulationcontext.h>
 #include "KEnRefForceProvider.h"
+#include "../core/IoUtils.h"
 
 
 /*
@@ -94,11 +95,18 @@ class KEnRefMDModule final: public gmx::IMDModule {
     gmx::SimulationContext* simulationContext_ = nullptr;
     std::shared_ptr<std::vector<int> const> guideAtoms0Indexed; //ZERO indexed
 
+    static void readParams(const char *kenref_params) {
+        const std::map<std::string, std::string> &params = IoUtils::readParams(kenref_params);
+        KEnRefMDModule::GUIDE_C_ALPHA = params.at("GUIDE_C_ALPHA");
+        KEnRefMDModule::INDEX_FILE_LOCATION = params.at("INDEX_FILE_LOCATION");
+        KEnRefMDModule::ATOMNAME_MAPPING_FILENAME = params.at("ATOMNAME_MAPPING_FILENAME");
+        KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME = params.at("EXPERIMENTAL_DATA_FILENAME");
+    }
 public:
-    inline const static char *const GUIDE_C_ALPHA = "guideC-alpha";
-    inline const static char *const INDEX_FILE_LOCATION = "../../res/cleanstart/KEnRefAtomIndex.ndx";
-    inline const static char *const ATOMNAME_MAPPING_FILENAME = "../../res/cleanstart/6v5d_step0_for_atomname_mapping.pdb";
-    inline const static char *const EXPERIMENTAL_DATA_FILENAME = "../../res/cleanstart/singleton_data_step0_model01.csv";
+    inline static std::string GUIDE_C_ALPHA; // = "guideC-alpha";
+    inline static std::string INDEX_FILE_LOCATION; // = "../../res/cleanstart/KEnRefAtomIndex.ndx";
+    inline static std::string ATOMNAME_MAPPING_FILENAME; // = "../../res/cleanstart/6v5d_step0_for_atomname_mapping.pdb";
+    inline static std::string EXPERIMENTAL_DATA_FILENAME; // = "../../res/cleanstart/singleton_data_step0_model01.csv";
 
     KEnRefMDModule();
 	~KEnRefMDModule() override;

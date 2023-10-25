@@ -74,8 +74,32 @@ TEST(IoUtilsTestSuite, testStripEnclosingQuotes){
     strout = IoUtils::strip_enclosing_quotoes(strin, '`');
     std::cout << "Testing: " << strin << "-->" << strout << std::endl;
     EXPECT_EQ(strout, strexp);
-
 }
+
+TEST(IoUtilsTestSuite, testReadParams) {
+    std::istringstream input(
+            "#note line\n"
+            "# key = value\n"
+            "noSpace=noSpace\n"
+            " headingSpace= headingSpace\n"
+            "trailingSpace  =trailingSpace    \n"
+            " bothSpaces =  bothSpaces   \n"
+            "internal Space=internal Space\n"
+            " internal and external Space = internal and external Space \n"
+            " spaces and a comment = spaces and a comment    # this is an inline comment\n"
+            "non matching line\n"
+            );
+    auto map = IoUtils::readParams(input);
+    EXPECT_EQ(map.size(), 7);
+    EXPECT_EQ(map["noSpace"], "noSpace");
+    EXPECT_EQ(map["headingSpace"], "headingSpace");
+    EXPECT_EQ(map["trailingSpace"], "trailingSpace");
+    EXPECT_EQ(map["bothSpaces"], "bothSpaces");
+    EXPECT_EQ(map["internal Space"], "internal Space");
+    EXPECT_EQ(map["internal and external Space"], "internal and external Space");
+    EXPECT_EQ(map["spaces and a comment"], "spaces and a comment");
+}
+
 TEST(IoUtilsTestSuite, restOfTests){
     //TODO make them tests
     std::ifstream in("../../res/noe_1.tsv");

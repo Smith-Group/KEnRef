@@ -1,0 +1,4 @@
+GUIDE_C_ALPHA = "guideC-alpha"
+INDEX_FILE_LOCATION = "../../res/cleanstart/KEnRefAtomIndex.ndx"
+ATOMNAME_MAPPING_FILENAME = "../../res/cleanstart/6v5d_step0_for_atomname_mapping.pdb"
+EXPERIMENTAL_DATA_FILENAME = "../../res/cleanstart/singleton_data_step0_model01.csv"

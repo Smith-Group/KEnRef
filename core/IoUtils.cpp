@@ -335,6 +335,28 @@ IoUtils::getAtomNameMappingFromPdb(const std::string& pdbFilename){
     return ret; //std::move(&ret);
 }
 
+std::map<std::string, std::string> IoUtils::readParams(const std::string &fileName) {
+    std::ifstream paramsFileStream(fileName);
+    return readParams(paramsFileStream);
+}
+
+std::map<std::string, std::string> IoUtils::readParams(std::istream &paramsFileStream) {
+    std::string line;
+    std::regex recordTemplate {R"(^\s*(.+?)\s*=\s*(\S.*?)\s*(#.*)?)" };
+    std::smatch sm;
+    std::map<std::string, std::string> ret{};
+    while (std::getline(paramsFileStream, line)) {
+        if (line.empty()) continue;
+        if (std::regex_match(line, sm, recordTemplate)) {
+            const std::string &key = sm[1].str();
+            if(key[0] == '#') continue;
+            const std::string &value = strip_enclosing_quotoes(sm[2].str());
+            ret[key] = value;
+        }
+    }
+    return ret;
+}
+
 
 template<typename TYPE>
 void IoUtils::printVector(const std::vector<TYPE>& vec){
