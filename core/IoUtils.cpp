@@ -366,6 +366,7 @@ void IoUtils::printVector(const std::vector<TYPE>& vec){
 }
 
 template std::vector<std::vector<int>>IoUtils::read_uniform_table_of(std::istream&);
+template void IoUtils::printVector(const std::vector<bool> &vec);
 template void IoUtils::printVector(const std::vector<int> &vec);
 template void IoUtils::printVector(const std::vector<float> &vec);
 template void IoUtils::printVector(const std::vector<double> &vec);
