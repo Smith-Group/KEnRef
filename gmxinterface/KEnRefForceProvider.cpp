@@ -23,6 +23,7 @@
 #include<unistd.h>
 
 #define VERBOSE false
+#define VALIDATE_VECTORS false
 
 KEnRefForceProvider::KEnRefForceProvider() = default;
 KEnRefForceProvider::~KEnRefForceProvider() = default;
@@ -244,7 +245,8 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         //do force calculations
         std::tie(energy, allDerivatives) =
                 KEnRef<KEnRef_Real_t>::coord_array_to_energy(allSimulationsSubAtomsX_vector, atomName_pairs,
-                                                             simulated_grouping_list, g0, this->k_, atomName_to_atomSub0Id_map, true);
+                                                             simulated_grouping_list, g0, this->k_,
+                                                             atomName_to_atomSub0Id_map, true);
 #if VERBOSE
         std::cout << "energy = " << energy << ", allDerivatives:" << std::endl;
         for (int i = 0; i < allDerivatives.size(); i++) {
@@ -328,40 +330,45 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     }
 
     /////////////////// print angle between vectors //////////////////////////////////////
-    bool found0 = false, found180 = false; KEnRef_Real_t targetLength = 7.0;
-    Eigen::RowVector3<KEnRef_Real_t> vec1 = subAtomsX.row(1) - subAtomsX.row(0);
-    KEnRef_Real_t norm1 = vec1.norm();
-    for (int i = 0; i < derivatives_rectified.rows(); i++) {
-        Eigen::RowVector3<KEnRef_Real_t> vec2 = derivatives_rectified.row(i);
-        KEnRef_Real_t v1DotV2 = vec1.dot(vec2);
-        KEnRef_Real_t norm2 = vec2.norm();
-        std::cout << "Vec1 " << vec1 << " norm1 " << norm1 << " Vec2 " << vec2 << " norm2 " << norm2 << " dot " << v1DotV2
-                  << std::flush;
-        KEnRef_Real_t cos = v1DotV2 / (norm1 * norm2);
-        if (abs(cos) > 1) cos = round(cos);
-        KEnRef_Real_t theta = std::acos(cos);
-        const auto thetaInDegrees = theta * 180 / M_PI;
-        std::cout << " cos " << cos << " theta (in degrees) " << thetaInDegrees << std::endl;
-        
-        if(thetaInDegrees < 2) {
-            found0 = true;
-            bool wider = norm1 > targetLength;
-            bool shrinking = /*thetaInDegrees < 2 &&*/ i == 0;
-            //assert either (wider and shrinking) or (smaller and expanding),
-            // then negate all of that because the value is subtracted from forces
-            assert(!((wider && shrinking) || (!wider && !shrinking) /*(expanding)*/));
-        }else if(thetaInDegrees > 178){
-            found180 = true;
-            //opposite to the above condition. no need to check.
-        }else{
-            std::cerr << "WARNING: Theta = " << thetaInDegrees << " degrees." << std::endl;
+    if (derivatives_rectified.rows() == 2){
+        bool found0 = false, found180 = false; KEnRef_Real_t targetLength = 7.0;
+        Eigen::RowVector3<KEnRef_Real_t> vec1 = subAtomsX.row(1) - subAtomsX.row(0);
+        KEnRef_Real_t norm1 = vec1.norm();
+        std::cout << "Step\t" << step << "\tDist\t" << norm1 << "\tEnergy\t" << energy << std::endl;
+#if VALIDATE_VECTORS
+        for (int i = 0; i < derivatives_rectified.rows(); i++) {
+            Eigen::RowVector3<KEnRef_Real_t> vec2 = derivatives_rectified.row(i);
+            KEnRef_Real_t v1DotV2 = vec1.dot(vec2);
+            KEnRef_Real_t norm2 = vec2.norm();
+            std::cout << "Vec1 " << vec1 << " norm1 " << norm1 << " Vec2 " << vec2 << " norm2 " << norm2 << " dot "
+                      << v1DotV2 << std::flush;
+            KEnRef_Real_t cos = v1DotV2 / (norm1 * norm2);
+            if (abs(cos) > 1) cos = round(cos);
+            KEnRef_Real_t theta = std::acos(cos);
+            const auto thetaInDegrees = theta * 180 / M_PI;
+            std::cout << " cos " << cos << " theta (in degrees) " << thetaInDegrees << std::endl;
+
+            if(thetaInDegrees < 2) {
+                found0 = true;
+                bool wider = norm1 > targetLength;
+                bool shrinking = /*thetaInDegrees < 2 &&*/ i == 0;
+                //assert either (wider and shrinking) or (smaller and expanding),
+                // then negate all of that because the value is subtracted from forces
+                assert(!((wider && shrinking) || (!wider && !shrinking) /*(expanding)*/));
+            }else if(thetaInDegrees > 178){
+                found180 = true;
+                //opposite to the above condition. no need to check.
+            }else{
+                std::cerr << "WARNING: Theta = " << thetaInDegrees << " degrees." << std::endl;
 //            assert(false);
+            }
         }
-    }
 //    assert(found0 && found180);
-if (!(found0 && found180)){
-    std::cerr << "WARNING: angles are NOT 0 and 180 degrees." << std::endl;
-}
+        if (!(found0 && found180)){
+            std::cerr << "WARNING: angles are NOT 0 and 180 degrees." << std::endl;
+        }
+#endif
+    }
     /////////////////// End print angle between vectors //////////////////////////////////////
 
 //    std::cout << "final force values of simulation # " << simulationIndex << std::endl;
