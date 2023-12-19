@@ -5,6 +5,7 @@
  *      Author: amr
  */
 
+#include <limits>
 #include <memory>
 #include <Eigen/Dense>
 #include "KEnRef.h"
@@ -54,7 +55,7 @@ KEnRef<KEnRef_Real>::r_array_to_d_array(const Eigen::MatrixX3<KEnRef_Real> &Nxyz
 //	CACHE(xyz) 			= CACHE(xy) * z;
     CACHE(x2_y2_z2) = CACHE(x2) + CACHE(y2) + CACHE(z2); //x2 + y2 + z2;
     CACHE(x2_minusy2) = CACHE(x2) - CACHE(y2);
-    CACHE(x2_y2_z2_p52) = CACHE(x2_y2_z2).pow(5).sqrt();
+    CACHE(x2_y2_z2_p52) = CACHE(x2_y2_z2).pow(5).sqrt() + std::numeric_limits<KEnRef_Real_t>::epsilon();
     CACHE(half_minusx2_minusy2__z2) = ((-CACHE(x2) - CACHE(y2)) / 2) + CACHE(z2);
 
     Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> ret1(N, 5);
@@ -68,13 +69,13 @@ KEnRef<KEnRef_Real>::r_array_to_d_array(const Eigen::MatrixX3<KEnRef_Real> &Nxyz
 //	std::cout << "x2_y2_z2 power 5/2" << std::endl << CACHE(x2_y2_z2_p52).rowwise().replicate<5>() << std::endl;
 
 //	std::cout << "ret1.array()" << ret1.array() << std::endl /*<< "CACHE(x2_y2_z2_p52)" << CACHE(x2_y2_z2_p52)*/ << std::endl << "CACHE(x2_y2_z2_p52).rowwise().replicate<5>()" << std::endl << CACHE(x2_y2_z2_p52).rowwise().replicate<5>() << std::endl;
-    ret1.array() /= CACHE(x2_y2_z2_p52).rowwise().template replicate<5>();
+    ret1.array() /= CACHE(x2_y2_z2_p52).rowwise().template replicate<5>()/* + std::numeric_limits<KEnRef_Real_t>::epsilon()*/;
 
     if (!gradient) {
         return {ret1, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15>{}};
     }
 
-    CACHE(x2_y2_z2_p72) = CACHE(x2_y2_z2).pow(7).sqrt();
+    CACHE(x2_y2_z2_p72) = CACHE(x2_y2_z2).pow(7).sqrt() + std::numeric_limits<KEnRef_Real_t>::epsilon();
 //	CACHE(sqrt3_x2_y2_z2_p52) = sqrt3 * CACHE(x2_y2_z2_p52);
 //	CACHE(sqrt3_x2_y2_z2_p72) = sqrt3 * CACHE(x2_y2_z2_p72);
     CACHE(sqrt3_over_x2_y2_z2_p52) = sqrt3 / CACHE(x2_y2_z2_p52);
