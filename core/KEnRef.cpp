@@ -237,10 +237,10 @@ KEnRef<KEnRef_Real>::d_array_to_g(
 
 
 // Calculate restraint energy from group norm squared values
-// returns restraint energy calculated using \eqn{k*(g-g0)^2} +/- gradient using \eqn{2*k(g-g0)}
+// returns restraint energy (loss function) calculated using \eqn{k*(g-g0)^2} +/- gradient using \eqn{2*k(g-g0)}
 template<typename KEnRef_Real>
 std::tuple<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>>
-KEnRef<KEnRef_Real>::g_to_energy(
+KEnRef<KEnRef_Real>::g_to_energy_uncorrected(
         Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> g,    // current group norm squared values
         Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> g0,    // target group norm squared values
         KEnRef_Real k,    // force constant
@@ -252,6 +252,38 @@ KEnRef<KEnRef_Real>::g_to_energy(
     if (gradient) {
         auto ret2 = 2.0 * k * g_minus_g0.matrix();
         return {ret1, ret2};
+    } else {
+        return {ret1, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>{}};
+    }
+}
+
+// Calculate restraint energy from group norm squared values
+// returns restraint energy (loss function) calculated using \eqn{k*(Sign[g]*Abs[g]^n - Sign[g0]*Abs[g0]^n)^2} +/- gradient using \eqn{2*k(g-g0)}
+template<typename KEnRef_Real>
+std::tuple<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>>
+KEnRef<KEnRef_Real>::g_to_energy(
+        Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> g,    // current group norm squared values
+        Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> g0,    // target group norm squared values. Cached first time, ignored next times.
+        KEnRef_Real k,    // force constant
+        KEnRef_Real n,    // correction power. Cached first time, ignored next times.
+        bool gradient) {
+//	std::cout << "g   (" << g.rows() << " x " << g.cols() << ")" <<std::endl;
+//	std::cout << "g0  (" << g0.rows() << " x " << g0.cols() << ")" <<std::endl;
+
+    auto g_ = g.array() /*+ std::numeric_limits<KEnRef_Real_t>::epsilon()*/;
+    auto g0_ = g0.array();
+    std::cout << "g_ " << g_ << std::endl;
+    Eigen::Array<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> loss =
+            (Eigen::pow(1 + Eigen::abs(g_), n) - 1) * Eigen::sign(g_) - (Eigen::pow(1 + Eigen::abs(g0_), n) - 1) * Eigen::sign(g0_) ;
+    std::cout << "loss " << loss << std::endl;
+    auto ret1 = k * loss.square().matrix(); //This value may become infinity if it excceds 3.402823466E38 in a single precision float
+    std::cout << "g ret1 " << ret1 << std::endl;
+
+
+    if (gradient) {
+        auto ret2 = 2.0 * k * loss * (n * Eigen::pow(1 + Eigen::abs(g_), (n-1)));
+        std::cout << "g ret2 " << ret2 << std::endl;
+        return {ret1, ret2.matrix()};
     } else {
         return {ret1, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>{}};
     }
@@ -296,7 +328,7 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
         const Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>& g0,
         KEnRef_Real k,
         std::map<std::string, int> atomNames_2_atomIds,
-        bool gradient) {
+        KEnRef_Real n, bool gradient) {
 //	std::cout << "coord_array_to_energy(atomName_pairs_) called" << std::endl;
     std::vector<std::tuple<int, int>> atomId_pairs{};
     // Fill the vector using atomNames_2_atomIds
@@ -313,7 +345,7 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
 //                matrix(j, l) = static_cast<KEnRef_Real>(i * 10000 + j * 10 + l);
 //    }
 //    return temp;
-    return KEnRef::coord_array_to_energy(coord_array, atomId_pairs, grouping_list, g0, k, gradient);
+    return KEnRef::coord_array_to_energy(coord_array, atomId_pairs, grouping_list, g0, k, n, gradient);
 }
 
 template<typename KEnRef_Real>
@@ -322,7 +354,7 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
         std::vector<Eigen::MatrixX3<KEnRef_Real>> coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
 		std::vector<std::tuple<int, int>> atomId_pairs, 	// Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
 		const std::vector<std::vector<std::vector<int>>>& grouping_list,	// list of lists of integer vectors giving groupings of models to average interaction tensors
-		const Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> &g0, KEnRef_Real k, bool gradient)
+		const Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> &g0, KEnRef_Real k, KEnRef_Real n, bool gradient)
 {
 	// calculate inter nuclear vectors
 	auto r_arrays = coord_array_to_r_array(coord_array, atomId_pairs);
@@ -343,13 +375,14 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
 	auto g_matrix = vectorOfVectors_to_Matrix(g_list);
 
 	// calculate energies from the norm squared values
-	auto [energy_matrix, energy_matrix_grad] = g_to_energy(g_matrix, g0, k, gradient);
+//    auto [energy_matrix, energy_matrix_grad] = g_to_energy_uncorrected(g_matrix, g0, k, gradient);
+    auto [energy_matrix, energy_matrix_grad] = g_to_energy(g_matrix, g0, k, n, gradient);
 //	std::cout << "energy_matrix" << std::endl << energy_matrix << std::endl;
 //	std::cout << "energy_matrix_grad" << std::endl << energy_matrix_grad << std::endl;
 
 	// return the sum of all the individual restraint energies
 	KEnRef_Real sum = energy_matrix.sum();
-//	std::cout << "sum" << std::endl << sum << std::endl;
+//	std::cout << "energy_matrix sum" << std::endl << sum << std::endl;
 
 	//Add derivatives using the chain rule: de/dr = de/dd  * dd/dr = de/dg * dg/dd * dd/dr
 	if(gradient){

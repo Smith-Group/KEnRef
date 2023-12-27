@@ -192,7 +192,7 @@ TEST(KEnRefTestSuite, restOfTestsToWrite){
     std::cout << "eros3_sub_1_g" << std::endl << eros3_sub_1_g << std::endl;
 
 
-    auto[eros3_sub_energy, eros3_sub_energy_grad] = KEnRef<KEnRef_Real_t>::coord_array_to_energy(eros3_sub_coord, eros3_sub_atom_idPairs, eros3_grouping_list, eros3_sub_1_g, 1.0, true);
+    auto[eros3_sub_energy, eros3_sub_energy_grad] = KEnRef<KEnRef_Real_t>::coord_array_to_energy(eros3_sub_coord, eros3_sub_atom_idPairs, eros3_grouping_list, eros3_sub_1_g, 1.0, 0.25, true);
     std::cout << "eros3_sub_energy" << std::endl << eros3_sub_energy << std::endl;
     for (const auto& mat: eros3_sub_energy_grad) {
         std::cout << "eros3_sub_energy_grad" << std::endl << mat << std::endl;

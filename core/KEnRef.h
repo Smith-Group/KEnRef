@@ -90,6 +90,7 @@ public:
 			const Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>& g0, //target group norm squared values
 			KEnRef_Real k, //force constant
 			std::map<std::string, int> atomNames_2_atomIds,
+            KEnRef_Real n = 1.0,
 			bool gradient=false
 			);
 
@@ -100,6 +101,7 @@ public:
 			const std::vector<std::vector<std::vector<int>>>& grouping_list,	// list of lists of integer vectors giving groupings of models to average interaction tensors
 			const Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> &g0, //target group norm squared values
 			KEnRef_Real k, //force constant
+            KEnRef_Real n = 1.0,
 			bool gradient=false
 			);
 
@@ -113,17 +115,26 @@ public:
 	// Calculate restraint energy from group norm squared values
 	// returns restraint energy calculated using \eqn{k*(g-g0)^2}
 	static std::tuple<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>>
-	g_to_energy(
+	g_to_energy_uncorrected(
 			Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> g_list,	// current group norm squared values
 			Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> g0,	// target group norm squared values
 			KEnRef_Real k = 1.0,	// force constant
-			bool gradient=false // whether to calculate the derivative
+            bool gradient=false // whether to calculate the derivative
 			);
 
+    // Calculate restraint energy from group norm squared values
+    // returns restraint energy calculated using \eqn{k*(g^n -g0^n)^2}
+    static std::tuple<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>>
+    g_to_energy(
+            Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> g_list,	// current group norm squared values
+            Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> g0,	// target group norm squared values
+            KEnRef_Real k = 1.0,	// force constant
+            KEnRef_Real n = 1.0,    // correction power
+            bool gradient=false // whether to calculate the derivative
+    );
 	//Collects list/vector of norm squared of all groups in a single matrix (num_pairIds, num_models (or num of grouping vectors?))
 	static Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>
 	vectorOfVectors_to_Matrix(std::vector<Eigen::VectorX<KEnRef_Real>> g_vect);
-
 };
 
 #endif /* KENREF_H_ */
