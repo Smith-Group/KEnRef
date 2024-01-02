@@ -51,7 +51,6 @@ public:
     void fillParamsStep0(size_t homenr, int numSimulations);
     static CoordsMatrixType<KEnRef_Real_t>
     getGuideAtomsX(const gmx::ArrayRef<const gmx::RVec> &x, const t_commrec& cr, const std::vector<int> &guideAtom0Indices) ;
-    void scaleDown(CoordsMatrixType<KEnRef_Real_t> &derivatives_rectified, int simulationIndex, KEnRef_Real_t energy) const;
 };
 
 #endif /* KENREFFORCEPROVIDER_H_ */

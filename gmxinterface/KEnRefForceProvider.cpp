@@ -284,7 +284,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         }
     }
 
-//    scaleDown(derivatives_rectified, simulationIndex, energy);
+    KEnRef<KEnRef_Real_t>::saturate(derivatives_rectified, simulationIndex, energy);
 
     //////////////////////////////////////////////////////////////////////////////////////////////////
     std::cout << "computeVirial_ = " << std::boolalpha  << forceProviderOutput->forceWithVirial_.computeVirial_ << std::endl;
@@ -380,19 +380,6 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 //	if(isMultiSimulation) gmx_barrier(mainRanksComm);
     std::cout << "=================" << std::endl;
 }
-
-//void KEnRefForceProvider::scaleDown(CoordsMatrixType<KEnRef_Real_t> &derivatives_rectified, int simulationIndex,
-//                                    KEnRef_Real_t energy) const {
-//    auto max = derivatives_rectified.cwiseAbs().maxCoeff();
-//    auto avg = derivatives_rectified.colwise().sum()/derivatives_rectified.size();
-//    auto scaleDown = static_cast<KEnRef_Real_t>(this->maxForce_ / max);
-//    if(scaleDown < 1.0){
-//        derivatives_rectified *= scaleDown;
-//    }
-//    std::cout << "Simulation # " << simulationIndex << " max: " << max << " scaleDown " << scaleDown << (scaleDown < 1.0 ? " Scaled down " : " NOT USED ") <<
-//              "Average " << avg << "Energy " << energy <<
-//              std::endl;
-//}
 
 CoordsMatrixType<KEnRef_Real_t> KEnRefForceProvider::getGuideAtomsX(const gmx::ArrayRef<const gmx::RVec> &x,
                                                                  const t_commrec& cr,

@@ -127,6 +127,35 @@ TEST(KEnRefTestSuite, testDArrayToG){
     //TODO calculate and validate
 }
 
+TEST(KEnRefTestSuite, testSaturate){
+    CoordsMatrixType<KEnRef_Real_t> testMatrix(1, 3);
+    CoordsMatrixType<KEnRef_Real_t> expectedMatrix(1, 3);
+
+    testMatrix << 0., 0., 0.;
+    expectedMatrix << 0., 0., 0.;
+    KEnRef<KEnRef_Real_t>::saturate(testMatrix, 0, 0.0);
+    EXPECT_EQ(testMatrix, expectedMatrix);
+
+    testMatrix << 1., 1., 1.;
+    expectedMatrix << 1., 1., 1.;
+    KEnRef<KEnRef_Real_t>::saturate(testMatrix, 0, 0.0);
+    EXPECT_EQ(testMatrix, expectedMatrix);
+
+    testMatrix << 0., 0., 900.;
+    expectedMatrix << 0., 0., 900.;
+    KEnRef<KEnRef_Real_t>::saturate(testMatrix, 0, 0.0);
+    EXPECT_EQ(testMatrix, expectedMatrix);
+
+    testMatrix << 1000., 0., 0.;
+    expectedMatrix << 1000., 0., 0.;
+    KEnRef<KEnRef_Real_t>::saturate(testMatrix, 0, 0.0);
+    EXPECT_MATRIX_NEAR(testMatrix, expectedMatrix);
+
+    testMatrix << 0., 10000., 0.;
+    expectedMatrix << 0., 1000., 0.;
+    KEnRef<KEnRef_Real_t>::saturate(testMatrix, 0, 0.0);
+    EXPECT_MATRIX_NEAR(testMatrix, expectedMatrix, 0.0001);
+}
 
 TEST(KEnRefTestSuite, restOfTestsToWrite){
     Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, 3> model1(5, 3);
