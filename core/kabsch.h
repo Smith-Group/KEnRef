@@ -17,6 +17,9 @@
 // The input 3D points are stored as rows (every point in a row).
 template <typename precision>
 class Kabsch{
+    //TODO check whether there is an available implementation in Eigen.
+    //TODO you can check here https://eigen.tuxfamily.org/dox/group__TutorialLinearAlgebra.html
+    //TODO and https://eigen.tuxfamily.org/dox/group__TutorialGeometry.html
 public:
     static Eigen::Transform<precision,3,Eigen::Affine> Find3DAffineTransform(const Eigen::MatrixX3<precision>& p, const Eigen::MatrixX3<precision>& q) {
 

@@ -57,6 +57,7 @@ KEnRef<KEnRef_Real>::r_array_to_d_array(const Eigen::MatrixX3<KEnRef_Real> &Nxyz
     CACHE(x2_minusy2) = CACHE(x2) - CACHE(y2);
     CACHE(x2_y2_z2_p52) = CACHE(x2_y2_z2).pow(5).sqrt() + std::numeric_limits<KEnRef_Real_t>::epsilon();
     CACHE(half_minusx2_minusy2__z2) = ((-CACHE(x2) - CACHE(y2)) / 2) + CACHE(z2);
+//    std::cout << "cache" << cache << std:: endl;
 
     Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> ret1(N, 5);
     ret1.col(0) = CACHE(half_minusx2_minusy2__z2);
@@ -66,14 +67,16 @@ KEnRef<KEnRef_Real>::r_array_to_d_array(const Eigen::MatrixX3<KEnRef_Real> &Nxyz
     ret1.col(4) = sqrt3 * CACHE(xy);
 //	std::cout << "ret1 before division" << std::endl << ret1 << std::endl;
 //	std::cout << "x2_y2_z2" << std::endl << CACHE(x2_y2_z2) << std::endl;
-//	std::cout << "x2_y2_z2 power 5/2" << std::endl << CACHE(x2_y2_z2_p52).rowwise().replicate<5>() << std::endl;
+//	std::cout << "x2_y2_z2 power 5/2" << std::endl << CACHE(x2_y2_z2_p52).rowwise().template replicate<5>() << std::endl;
 
 //	std::cout << "ret1.array()" << ret1.array() << std::endl /*<< "CACHE(x2_y2_z2_p52)" << CACHE(x2_y2_z2_p52)*/ << std::endl << "CACHE(x2_y2_z2_p52).rowwise().replicate<5>()" << std::endl << CACHE(x2_y2_z2_p52).rowwise().replicate<5>() << std::endl;
     ret1.array() /= CACHE(x2_y2_z2_p52).rowwise().template replicate<5>()/* + std::numeric_limits<KEnRef_Real_t>::epsilon()*/;
 
+//    std:: cout << "ret1 after division" << std::endl << ret1 << std::endl;
     if (!gradient) {
         return {ret1, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15>{}};
     }
+//    std::cout << "CACHE after d ret1 " << cache << std::endl;
 
     CACHE(x2_y2_z2_p72) = CACHE(x2_y2_z2).pow(7).sqrt() + std::numeric_limits<KEnRef_Real_t>::epsilon();
 //	CACHE(sqrt3_x2_y2_z2_p52) = sqrt3 * CACHE(x2_y2_z2_p52);
@@ -84,6 +87,7 @@ KEnRef<KEnRef_Real>::r_array_to_d_array(const Eigen::MatrixX3<KEnRef_Real> &Nxyz
     CACHE(neg5sqrt3_over_2_x2_y2_z2_p72) = CACHE(neg5sqrt3_over_x2_y2_z2_p72) / 2;
 //	CACHE(sqrt3_over_x2_y2_z2_p52)			=  sqrt3 / CACHE(x2_y2_z2).pow(5).sqrt();
 //	CACHE(_neg10_over_sqrt3_x2_y2_z2_p72) 	= -10 / (sqrt3 * CACHE(x2_y2_z2).pow(7).sqrt());
+//    std::cout << "CACHE after completion " << cache << std::endl;
 
 	Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> ret2 = Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>(N, 15);
 
@@ -108,7 +112,7 @@ KEnRef<KEnRef_Real>::r_array_to_d_array(const Eigen::MatrixX3<KEnRef_Real> &Nxyz
     ret2.col(14) = (z * CACHE(xy) * CACHE(neg5sqrt3_over_x2_y2_z2_p72));
 
 #undef CACHE
-
+//    std:: cout << "d ret2 " << std::endl << ret2 << std::endl;
     return {ret1, ret2};
 }
 
@@ -228,6 +232,7 @@ KEnRef<KEnRef_Real>::d_array_to_g(
         for (int j = 0; j < num_pairIds; j++) {
             auto &d_matrix_temp = d_matrix[j];
 //			std::cout << "d_matrix_temp " << j << std::endl << d_matrix_temp << std::endl;
+//            std::cout << "d_matrix_temp.row(j) " << d_matrix_temp.row(j) << " d_matrix_temp.row(j).squaredNorm() " << d_matrix_temp.row(j).squaredNorm() << " currentGroupSize " << currentGroupSize << " num_models " << num_models << std::endl;
             ret1(j) += d_matrix_temp.row(j).squaredNorm() * currentGroupSize / num_models;
         }
     }
@@ -480,6 +485,7 @@ KEnRef<KEnRef_Real>::coord_array_to_g(
 	return vectorOfVectors_to_Matrix(g_list);
 }
 
+//TODO Shall we move it (with its test of course) to GMXKenRefForceProvider?
 template<typename KEnRef_Real>
 void
 KEnRef<KEnRef_Real>::saturate(CoordsMatrixType<KEnRef_Real> &derivatives_rectified, int simulationIndex, KEnRef_Real energy) {

@@ -14,11 +14,9 @@
 #include "gromacs/gmxlib/network.h"
 #include "KEnRefForceProvider.h"
 #include "KEnRefMDModule.h"
-#include "../core/IoUtils.h"
 #include "../core/kabsch.h"
 #include "gromacs/domdec/domdec_struct.h"
 #include "gromacs/domdec/ga2la.h"
-//#include <fstream>// needed only during simulated data
 #include <utility>
 #include<unistd.h>
 
