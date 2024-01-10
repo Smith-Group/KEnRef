@@ -23,8 +23,9 @@ class KEnRefForceProvider: public gmx::IForceProvider {
 //	bool *selectionMask = nullptr;
 
 	gmx::SimulationContext* simulationContext_ = nullptr;
-    KEnRef_Real_t maxForceSquared_ = 800.0 * 800.0;
+    KEnRef_Real_t maxForceSquared_ = 200.0 * 200.0;
     KEnRef_Real_t k_ = 1.0;
+    KEnRef_Real_t n_ = 0.25;
     bool paramsInitialized = false;
     std::shared_ptr<std::vector<int> const> guideAtom0Indices_; //ZERO indexed
 	std::shared_ptr<std::map<std::string, int> const> atomName_to_atomGlobalId_map_; //TODO later you may remove this and keep atomName_to_atomSubId_map_, or update it and delete atomName_to_atomSubId_map_

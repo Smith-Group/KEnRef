@@ -331,8 +331,8 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
         const std::vector<std::tuple<std::string, std::string>>& atomName_pairs,    // Matrix with each row having the names of an atom pair (related to first dimension in `coord_array` matrices)
         const std::vector<std::vector<std::vector<int>>>& grouping_list,    // list of lists of integer vectors giving groupings of models to average interaction tensors
         const Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>& g0,
-        KEnRef_Real k,
         std::map<std::string, int> atomNames_2_atomIds,
+        KEnRef_Real k,
         KEnRef_Real n, bool gradient) {
 //	std::cout << "coord_array_to_energy(atomName_pairs_) called" << std::endl;
     std::vector<std::tuple<int, int>> atomId_pairs{};

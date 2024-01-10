@@ -243,8 +243,8 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         //do force calculations
         std::tie(energy, allDerivatives) =
                 KEnRef<KEnRef_Real_t>::coord_array_to_energy(allSimulationsSubAtomsX_vector, atomName_pairs,
-                                                             simulated_grouping_list, g0, this->k_,
-                                                             atomName_to_atomSub0Id_map, 0.25, true);
+                                                             simulated_grouping_list, g0, atomName_to_atomSub0Id_map,
+                                                             this->k_, this->n_, true);
 #if VERBOSE
         std::cout << "energy = " << energy << ", allDerivatives:" << std::endl;
         for (int i = 0; i < allDerivatives.size(); i++) {
@@ -427,8 +427,15 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
         std::stringstream sstream(kenref_k);
         sstream >> this->k_;
         std::cout << "KENREF_K is: " << this->k_ << '\n';
-    }else{
+    } else {
         std::cout << "No KENREF_K identified. Will use default value of " << this->k_ << std::endl;
+    }
+    if (const char *kenref_n = std::getenv("KENREF_N")) {
+        std::stringstream sstream(kenref_n);
+        sstream >> this->n_;
+        std::cout << "KENREF_N is: " << this->n_ << '\n';
+    } else {
+        std::cout << "No KENREF_N identified. Will use default value of " << this->n_ << std::endl;
     }
 
 #if VERBOSE

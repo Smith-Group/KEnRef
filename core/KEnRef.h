@@ -88,9 +88,9 @@ public:
 			const std::vector<std::tuple<std::string, std::string>>& atomName_pairs, 	// Matrix with each row having the names of an atom pair (related to first dimension in `coord_array` matrices)
 			const std::vector<std::vector<std::vector<int>>>& grouping_list,	// list of lists of integer vectors giving groupings of models to average interaction tensors
 			const Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>& g0, //target group norm squared values
-			KEnRef_Real k, //force constant
 			std::map<std::string, int> atomNames_2_atomIds,
-            KEnRef_Real n = 1.0,
+            KEnRef_Real k = 1.0, //force constant
+            KEnRef_Real n = 0.25,
 			bool gradient=false
 			);
 
@@ -100,8 +100,8 @@ public:
 			std::vector<std::tuple<int, int>> atomId_pairs, 	// Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
 			const std::vector<std::vector<std::vector<int>>>& grouping_list,	// list of lists of integer vectors giving groupings of models to average interaction tensors
 			const Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> &g0, //target group norm squared values
-			KEnRef_Real k, //force constant
-            KEnRef_Real n = 1.0,
+			KEnRef_Real k = 1.0, //force constant
+            KEnRef_Real n = 0.25,
 			bool gradient=false
 			);
 
@@ -129,8 +129,10 @@ public:
             Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> g_list,	// current group norm squared values
             Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> g0,	// target group norm squared values
             KEnRef_Real k = 1.0,	// force constant
-            KEnRef_Real n = 1.0,    // correction power
-            bool gradient=false // whether to calculate the derivative
+            KEnRef_Real n = 0.25,    // correction power
+            bool gradient = false  // whether to calculate the derivative
+            ,
+            lossFunction lossFunc = KEnRef::SQRT_ABS_POWER_N
     );
 	//Collects list/vector of norm squared of all groups in a single matrix (num_pairIds, num_models (or num of grouping vectors?))
 	static Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>
