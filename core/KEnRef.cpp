@@ -270,28 +270,43 @@ KEnRef<KEnRef_Real>::g_to_energy(
         Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> g,    // current group norm squared values
         Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> g0,    // target group norm squared values. Cached first time, ignored next times.
         KEnRef_Real k,    // force constant
-        KEnRef_Real n,    // correction power. Cached first time, ignored next times.
-        bool gradient) {
+        KEnRef_Real n,    // correction power.
+        bool gradient,
+        lossFunction lossFunc) {
 //	std::cout << "g   (" << g.rows() << " x " << g.cols() << ")" <<std::endl;
 //	std::cout << "g0  (" << g0.rows() << " x " << g0.cols() << ")" <<std::endl;
 
     auto g_ = g.array() /*+ std::numeric_limits<KEnRef_Real_t>::epsilon()*/;
     auto g0_ = g0.array();
-    std::cout << "g_ " << g_ << std::endl;
-    Eigen::Array<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> loss =
-            (Eigen::pow(1 + Eigen::abs(g_), n) - 1) * Eigen::sign(g_) - (Eigen::pow(1 + Eigen::abs(g0_), n) - 1) * Eigen::sign(g0_) ;
-    std::cout << "loss " << loss << std::endl;
-    auto ret1 = k * loss.square().matrix(); //This value may become infinity if it excceds 3.402823466E38 in a single precision float
-    std::cout << "g ret1 " << ret1 << std::endl;
+//    std::cout << "g_ " << g_ << std::endl;
+    Eigen::Array<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> common; //TODO better keep it as an ArrayExpression (or simply auto) for better optimization
+    Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> ret1;
+    Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> ret2{};
 
-
-    if (gradient) {
-        auto ret2 = 2.0 * k * loss * (n * Eigen::pow(1 + Eigen::abs(g_), (n-1)));
-        std::cout << "g ret2 " << ret2 << std::endl;
-        return {ret1, ret2.matrix()};
-    } else {
-        return {ret1, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>{}};
+    switch (lossFunc) {
+        case SQRT_ABS_POWER_N:
+            common = (Eigen::pow(1 + Eigen::abs(g_), n) - 1) * Eigen::sign(g_) - (Eigen::pow(1 + Eigen::abs(g0_), n) - 1) * Eigen::sign(g0_) ;
+//          std::cout << "loss " << loss << std::endl;
+            ret1 = k * common.square().matrix(); //This value may become infinity if it excceds 3.402823466E38 in a single precision float
+            if (gradient) {
+                ret2 = (2.0 * k * common * (n * Eigen::pow(1 + Eigen::abs(g_), (n-1)))).matrix();
+            }/* else {
+                ret2 = Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>{};
+            }*/
+            break;
+        case LOG_ABS_DIFFERENCE_OVER_NOE0:
+            common = g0_ + Eigen::abs(g_ - g0_);
+            ret1 = (k * Eigen::log(common / g0_)).matrix();
+            if (gradient) {
+                ret2 = (k * Eigen::sign(g_ - g0_) / common).matrix();
+            } /*else {
+                ret2 = Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>{};
+            }*/
+            break;
     }
+//    std::cout << "g ret1 " << ret1 << std::endl;
+//    std::cout << "g ret2 " << ret2 << std::endl;
+    return {ret1, ret2};
 }
 
 template<typename KEnRef_Real>

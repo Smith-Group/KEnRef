@@ -38,6 +38,8 @@ public:
 //	KEnRef& operator=(const KEnRef &other);
 //	KEnRef& operator=(KEnRef &&other);
 
+    enum lossFunction{SQRT_ABS_POWER_N, LOG_ABS_DIFFERENCE_OVER_NOE0};
+
     //First element of the returned tuple is (numPairs, <d_1,d_2,d_3,d_4,d_5,>)
     //Second element of the returned tuple is (numPairs, <  x1d1,x2d1,x3d1,
     //                                                      x1d2,x2d2,x3d2,
