@@ -23,7 +23,7 @@ class KEnRefForceProvider: public gmx::IForceProvider {
 //	bool *selectionMask = nullptr;
 
 	gmx::SimulationContext* simulationContext_ = nullptr;
-//    KEnRef_Real_t maxForce_ = 800.0;
+    KEnRef_Real_t maxForceSquared_ = 800.0 * 800.0;
     KEnRef_Real_t k_ = 1.0;
     bool paramsInitialized = false;
     std::shared_ptr<std::vector<int> const> guideAtom0Indices_; //ZERO indexed

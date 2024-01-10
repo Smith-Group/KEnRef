@@ -282,7 +282,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         }
     }
 
-    KEnRef<KEnRef_Real_t>::saturate(derivatives_rectified, simulationIndex, energy);
+    KEnRef<KEnRef_Real_t>::saturate(derivatives_rectified, simulationIndex, energy, this->maxForceSquared_);
 
     //////////////////////////////////////////////////////////////////////////////////////////////////
     std::cout << "computeVirial_ = " << std::boolalpha  << forceProviderOutput->forceWithVirial_.computeVirial_ << std::endl;
@@ -413,14 +413,17 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
     GMX_ASSERT(!atomName_to_atomGlobalId_map_->empty(), "No atom mapping found");
     auto& atomName_to_atomGlobalId_map = *this->atomName_to_atomGlobalId_map_;
 
-//    if(const char* kenref_maxForce = std::getenv("KENREF_MAXFORCE")){
-//        std::stringstream sstream(kenref_maxForce);
-//        sstream >> this->maxForce_;
-//        std::cout << "KENREF_MAXFORCE is: " << this->maxForce_ << '\n';
-//    }else{
-//        std::cout << "No KENREF_MAXFORCE identified. Will use default value of " << this->maxForce_ << std::endl;
-//    }
-    if(const char* kenref_k = std::getenv("KENREF_K")){
+    if (const char *kenref_maxForce = std::getenv("KENREF_MAXFORCE")) {
+        std::stringstream sstream(kenref_maxForce);
+        KEnRef_Real_t maxForce;
+        sstream >> maxForce;
+        std::cout << "KENREF_MAXFORCE is: " << maxForce << '\n';
+        this->maxForceSquared_ = maxForce * maxForce;
+    } else {
+        std::cout << "No KENREF_MAXFORCE identified. Will use default value of " << std::sqrt(this->maxForceSquared_)
+                  << std::endl;
+    }
+    if (const char *kenref_k = std::getenv("KENREF_K")) {
         std::stringstream sstream(kenref_k);
         sstream >> this->k_;
         std::cout << "KENREF_K is: " << this->k_ << '\n';

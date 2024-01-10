@@ -488,12 +488,11 @@ KEnRef<KEnRef_Real>::coord_array_to_g(
 //TODO Shall we move it (with its test of course) to GMXKenRefForceProvider?
 template<typename KEnRef_Real>
 void
-KEnRef<KEnRef_Real>::saturate(CoordsMatrixType<KEnRef_Real> &derivatives_rectified, int simulationIndex, KEnRef_Real energy) {
-    constexpr KEnRef_Real threshold = 1000. * 1000.;
+KEnRef<KEnRef_Real>::saturate(CoordsMatrixType<KEnRef_Real> &derivatives_rectified, int simulationIndex, KEnRef_Real energy, KEnRef_Real thresholdSquared) {
 //    for(int i = 0; i < derivatives_rectified.rows(); i++){
 //        auto rowBlock = derivatives_rectified.row(i);
     for(auto rowBlock: derivatives_rectified.rowwise()){
-        KEnRef_Real scaleDown = rowBlock.squaredNorm() / threshold;
+        KEnRef_Real scaleDown = rowBlock.squaredNorm() / thresholdSquared;
         if (scaleDown > 1){
             rowBlock /= std::sqrt(scaleDown);
 //            std::cout << "Simulation # " << simulationIndex << " row: " << i << " scaleDown " << scaleDown <<
