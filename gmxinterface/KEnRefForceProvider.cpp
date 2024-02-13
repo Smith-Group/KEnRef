@@ -288,7 +288,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         }
     }
 
-    KEnRef<KEnRef_Real_t>::saturate(derivatives_rectified, simulationIndex, energy, this->maxForceSquared_);
+    KEnRef<KEnRef_Real_t>::saturate(derivatives_rectified, simulationIndex, energy, this->maxForceSquared_, gmx_omp_nthreads_get(ModuleMultiThread::Default));
 
     //////////////////////////////////////////////////////////////////////////////////////////////////
     std::cout << "computeVirial_ = " << std::boolalpha  << forceProviderOutput->forceWithVirial_.computeVirial_ << std::endl;

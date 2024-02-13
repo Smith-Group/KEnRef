@@ -133,27 +133,27 @@ TEST(KEnRefTestSuite, testSaturate) {
 
     testMatrix << 0., 0., 0.;
     expectedMatrix << 0., 0., 0.;
-    KEnRef<KEnRef_Real_t>::saturate(testMatrix, 0, 0.0, 0.0);
+    KEnRef<KEnRef_Real_t>::saturate(testMatrix, 0, 0.0, 0.0, 0);
     EXPECT_EQ(testMatrix, expectedMatrix);
 
     testMatrix << 1., 1., 1.;
     expectedMatrix << 1., 1., 1.;
-    KEnRef<KEnRef_Real_t>::saturate(testMatrix, 0, 0.0, 3.0);
+    KEnRef<KEnRef_Real_t>::saturate(testMatrix, 0, 0.0, 3.0, 0);
     EXPECT_EQ(testMatrix, expectedMatrix);
 
     testMatrix << 0., 0., 900.;
     expectedMatrix << 0., 0., 900.;
-    KEnRef<KEnRef_Real_t>::saturate(testMatrix, 0, 0.0, 1000. * 1000.);
+    KEnRef<KEnRef_Real_t>::saturate(testMatrix, 0, 0.0, 1000. * 1000., 0);
     EXPECT_EQ(testMatrix, expectedMatrix);
 
     testMatrix << 1000., 0., 0.;
     expectedMatrix << 1000., 0., 0.;
-    KEnRef<KEnRef_Real_t>::saturate(testMatrix, 0, 0.0, 1000.0 * 1000.0);
+    KEnRef<KEnRef_Real_t>::saturate(testMatrix, 0, 0.0, 1000.0 * 1000.0, 0);
     EXPECT_MATRIX_NEAR(testMatrix, expectedMatrix);
 
     testMatrix << 0., 10000., 0.;
     expectedMatrix << 0., 1000., 0.;
-    KEnRef<KEnRef_Real_t>::saturate(testMatrix, 0, 0.0, 1000.0 * 1000.0);
+    KEnRef<KEnRef_Real_t>::saturate(testMatrix, 0, 0.0, 1000.0 * 1000.0, 0);
     EXPECT_MATRIX_NEAR(testMatrix, expectedMatrix, 0.0001);
 }
 

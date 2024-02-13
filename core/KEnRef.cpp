@@ -5,6 +5,7 @@
  *      Author: amr
  */
 
+#include <omp.h>
 #include <limits>
 #include <memory>
 #include <Eigen/Dense>
@@ -503,17 +504,33 @@ KEnRef<KEnRef_Real>::coord_array_to_g(
 //TODO Shall we move it (with its test of course) to GMXKenRefForceProvider?
 template<typename KEnRef_Real>
 void
-KEnRef<KEnRef_Real>::saturate(CoordsMatrixType<KEnRef_Real> &derivatives_rectified, int simulationIndex, KEnRef_Real energy, KEnRef_Real thresholdSquared) {
-//    for(int i = 0; i < derivatives_rectified.rows(); i++){
-//        auto rowBlock = derivatives_rectified.row(i);
-    for(auto rowBlock: derivatives_rectified.rowwise()){
-        KEnRef_Real scaleDown = rowBlock.squaredNorm() / thresholdSquared;
-        if (scaleDown > 1){
-            rowBlock /= std::sqrt(scaleDown);
-//            std::cout << "Simulation # " << simulationIndex << " row: " << i << " scaleDown " << scaleDown <<
-//                      (scaleDown > 1.0 ? " Scaled down " : " NOT USED ") << std::endl;
+KEnRef<KEnRef_Real>::saturate(CoordsMatrixType<KEnRef_Real> &derivatives_rectified, int simulationIndex,
+                              KEnRef_Real energy, KEnRef_Real thresholdSquared, int numOmpThreads) {
+
+//#pragma parallel //if (omp_get_level() == 0)
+//    {
+
+//        std::cout << "omp_get_num_devices " << omp_get_num_devices() << ", omp_get_num_places: " << omp_get_num_places()
+//        << ", omp_get_num_procs: " << omp_get_num_procs() << ", omp_get_num_teams: " << omp_get_num_teams()
+//        << ", omp_get_num_threads: " << omp_get_num_threads() << std::endl;
+
+    auto scaleDown = derivatives_rectified.rowwise().squaredNorm() / thresholdSquared;
+
+    #pragma omp parallel for default(shared)
+    for (int i = 0; i < derivatives_rectified.rows(); i++) {
+        if (scaleDown(i) > 1.0) {
+            derivatives_rectified.row(i) /= std::sqrt(scaleDown(i));
+            std::cout << "Simulation # " << simulationIndex << " row: " << i << " scaleDown " << scaleDown(i) <<
+                      (scaleDown(i) > 1.0 ? " Scaled down " : " NOT USED ")
+                      << " on OMP thread # " << omp_get_thread_num()
+                      << std::endl;
+
+//                      std::cout << " omp_get_num_devices " << omp_get_num_devices() << ", omp_get_num_places: " << omp_get_num_places()
+//                      << ", omp_get_num_procs: " << omp_get_num_procs() << ", omp_get_num_teams: " << omp_get_num_teams()
+//                      << ", omp_get_num_threads: " << omp_get_num_threads() << std::endl;
         }
     }
+//    }
 }
 
 template class KEnRef<float>;

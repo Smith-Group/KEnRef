@@ -139,7 +139,8 @@ public:
 	//Collects list/vector of norm squared of all groups in a single matrix (num_pairIds, num_models (or num of grouping vectors?))
 	static Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>
 	vectorOfVectors_to_Matrix(std::vector<Eigen::VectorX<KEnRef_Real>> g_vect);
-    static void saturate(CoordsMatrixType<KEnRef_Real> &derivatives_rectified, int simulationIndex, KEnRef_Real energy, KEnRef_Real thresholdSquared);
+    static void saturate(CoordsMatrixType<KEnRef_Real> &derivatives_rectified, int simulationIndex,
+                         KEnRef_Real energy, KEnRef_Real thresholdSquared, int numOmpThreads = 0);
 };
 
 #endif /* KENREF_H_ */
