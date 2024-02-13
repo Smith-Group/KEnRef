@@ -276,29 +276,29 @@ KEnRef<KEnRef_Real>::g_to_energy(
 //	std::cout << "g   (" << g.rows() << " x " << g.cols() << ")" <<std::endl;
 //	std::cout << "g0  (" << g0.rows() << " x " << g0.cols() << ")" <<std::endl;
 
-    auto g_ = g.array() /*+ std::numeric_limits<KEnRef_Real_t>::epsilon()*/;
-    auto g0_ = g0.array();
-//    std::cout << "g_ " << g_ << std::endl;
+    auto g_arr = g.array() /*+ std::numeric_limits<KEnRef_Real_t>::epsilon()*/;
+    auto g0_arr = g0.array();
+//    std::cout << "g_arr " << g_arr << std::endl;
     Eigen::Array<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> common; //TODO better keep it as an ArrayExpression (or simply auto) for better optimization
     Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> ret1;
     Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> ret2{};
 
     switch (lossFunc) {
         case SQRT_ABS_POWER_N:
-            common = (Eigen::pow(1 + Eigen::abs(g_), n) - 1) * Eigen::sign(g_) - (Eigen::pow(1 + Eigen::abs(g0_), n) - 1) * Eigen::sign(g0_) ;
+            common = (Eigen::pow(1 + Eigen::abs(g_arr), n) - 1) * Eigen::sign(g_arr) - (Eigen::pow(1 + Eigen::abs(g0_arr), n) - 1) * Eigen::sign(g0_arr) ;
 //          std::cout << "loss " << loss << std::endl;
             ret1 = k * common.square().matrix(); //This value may become infinity if it excceds 3.402823466E38 in a single precision float
             if (gradient) {
-                ret2 = (2.0 * k * common * (n * Eigen::pow(1 + Eigen::abs(g_), (n-1)))).matrix();
+                ret2 = (2.0 * k * common * (n * Eigen::pow(1 + Eigen::abs(g_arr), (n - 1)))).matrix();
             }/* else {
                 ret2 = Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>{};
             }*/
             break;
         case LOG_ABS_DIFFERENCE_OVER_NOE0:
-            common = g0_ + Eigen::abs(g_ - g0_);
-            ret1 = (k * Eigen::log(common / g0_)).matrix();
+            common = g0_arr + Eigen::abs(g_arr - g0_arr);
+            ret1 = (k * Eigen::log(common / g0_arr)).matrix();
             if (gradient) {
-                ret2 = (k * Eigen::sign(g_ - g0_) / common).matrix();
+                ret2 = (k * Eigen::sign(g_arr - g0_arr) / common).matrix();
             } /*else {
                 ret2 = Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>{};
             }*/
