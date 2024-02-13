@@ -6,7 +6,7 @@ nstlog                   = 5000
 nstenergy                = 5000
 nstxout-compressed       = 5000
 
-constraints              = all-bonds
+constraints              = H-bonds
 constraint-algorithm     = lincs
 
 cutoff-scheme            = Verlet
@@ -28,6 +28,6 @@ tau-p                    = 2.0
 compressibility          = 4.5e-5
 ref-p                    = 1.0
 
-continuation             = no
-gen-vel                  = yes
+continuation             = yes
+gen-vel                  = no
 gen-temp                 = 300
