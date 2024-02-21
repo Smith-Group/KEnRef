@@ -169,14 +169,15 @@ KEnRef<KEnRef_Real>::d_array_to_g(
 //	std::cout << "num_pairIds "	<< num_pairIds << std::endl;
 //	std::cout << "num_groups "	<< num_groups << std::endl;
     Eigen::VectorX<KEnRef_Real> ret1(num_pairIds);
-    ret1.fill(0.0);
+    ret1.setZero();
 
     //Every element of ret2 (every d_matrix_grad) is a matrix(num_pairIds x 5)
     std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>> ret2;
     if (gradient) {
-        ret2.reserve(num_models);
+        ret2 = std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>>(num_models);
+        #pragma omp parallel for
         for (int i = 0; i < num_models; ++i) {
-            ret2.emplace_back(num_pairIds, 5); // d_matrix_grad
+            ret2.at(i) = std::move(Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>(num_pairIds, 5)); // d_matrix_grad
         }
     } else {
         ret2 = std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>>(0);
@@ -186,24 +187,37 @@ KEnRef<KEnRef_Real>::d_array_to_g(
         //create a new empty d_matrix (filled with 0) to carry "average dipole interaction tensor" every group
         std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>> d_matrix;// d_matrix is in the form num_pairIds<1 x 5> (previosly I thought it is num_pairIds<num_groups x 5> but it seems that I am wrong. in such case it would be just an Eigen::vector
         //TODO remove the vector altogether and keep only an Eigen::Matrix(num_pairIds, 5)
-        d_matrix.reserve(num_pairIds);
+//        d_matrix.reserve(num_pairIds);
+//        for (int temp = 0; temp < num_pairIds; ++temp) {
+//            Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> d_matrix_temp(num_pairIds, 5); // TODO 95% confirmed
+////            d_matrix_temp.fill(0);
+//            d_matrix_temp.setZero();
+//            d_matrix.emplace_back(d_matrix_temp);  // TODO move()?
+//        }
+        d_matrix = std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>>(num_pairIds);
+        #pragma omp parallel for
         for (int temp = 0; temp < num_pairIds; ++temp) {
-            Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> d_matrix_temp(num_pairIds, 5); // TODO 95% confirmed
-            d_matrix_temp.fill(0);
-            d_matrix.emplace_back(d_matrix_temp);
+            d_matrix.at(temp) = std::move(Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> (num_pairIds, 5));
+            d_matrix[temp].setZero();
         }
 
         std::vector<int> currentGrouping = grouping[i];
         auto currentGroupSize = currentGrouping.size();
 
         // sum the dipole interaction tensors within each group/block
+        #pragma omp parallel for collapse(2) // schedule(static) //num_threads(gmx_omp_nthreads_get(ModuleMultiThread::Default))
         for (int j = 0; j < currentGroupSize; ++j) { //for every member of the grouping block
             //sum relevant models into relevant groups (e.g. model 1 & 2 into group 1, and models 3 & 4 into group 2)
             //d_matrix += d_array[currentGrouping[j]]
-            for (auto &d_matrix_temp: d_matrix) {
+//            for (auto &d_matrix_temp: d_matrix) {
+////				std::cout << "j = "<< j <<", d_matrix_temp        (" << d_matrix_temp.rows() << " x " << d_matrix_temp.cols() << ")" <<std::endl;
+////				std::cout << "d_arrays[currentGrouping[j]](" << d_arrays[currentGrouping[j]].rows() << " x " << d_arrays[currentGrouping[j]].cols() << ")" <<std::endl;
+//                d_matrix_temp += d_arrays[currentGrouping[j]];
+//            }
+            for (int k = 0; k< d_matrix.size(); k++) {
 //				std::cout << "j = "<< j <<", d_matrix_temp        (" << d_matrix_temp.rows() << " x " << d_matrix_temp.cols() << ")" <<std::endl;
 //				std::cout << "d_arrays[currentGrouping[j]](" << d_arrays[currentGrouping[j]].rows() << " x " << d_arrays[currentGrouping[j]].cols() << ")" <<std::endl;
-                d_matrix_temp += d_arrays[currentGrouping[j]];
+                d_matrix[k] += d_arrays[currentGrouping[j]];
             }
         }
 
@@ -211,10 +225,12 @@ KEnRef<KEnRef_Real>::d_array_to_g(
             //# matrix is pairIDs * interaction tensor elements
             Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> d_matrix_grad_temp(num_pairIds, 5);
             // calculate  d_matrix_grad
+            #pragma omp parallel for
             for (int j = 0; j < num_pairIds; j++) {
 //				d_matrix_grad_temp.row(j) = d_matrix[j].row(i) * 2 / num_models / currentGroupSize; //just left the line in case I need it later
                 d_matrix_grad_temp = d_matrix[j] * 2 / num_models / currentGroupSize;
             }
+            #pragma omp parallel for
             for (int k = 0; k < currentGroupSize; k++) {
                 // All models of the same group equally share the same value
                 // All elements are equal (i.e. all models get the same overall (average ?) value at the end.
@@ -224,17 +240,20 @@ KEnRef<KEnRef_Real>::d_array_to_g(
         }
 
         // Divide d_matrix by currentGroupSize to get the average
+        #pragma omp parallel for
         for (int j = 0; j < num_pairIds; j++) {
             auto &d_matrix_temp = d_matrix[j];
             d_matrix_temp.array() /= currentGroupSize;
         }
 
         // calculate self dot product (norm squared) and accumulate group's contribution to mean g
+        #pragma omp parallel for
         for (int j = 0; j < num_pairIds; j++) {
-            auto &d_matrix_temp = d_matrix[j];
-//			std::cout << "d_matrix_temp " << j << std::endl << d_matrix_temp << std::endl;
-//            std::cout << "d_matrix_temp.row(j) " << d_matrix_temp.row(j) << " d_matrix_temp.row(j).squaredNorm() " << d_matrix_temp.row(j).squaredNorm() << " currentGroupSize " << currentGroupSize << " num_models " << num_models << std::endl;
-            ret1(j) += d_matrix_temp.row(j).squaredNorm() * currentGroupSize / num_models;
+//            auto &d_matrix_temp = d_matrix[j];
+////			std::cout << "d_matrix_temp " << j << std::endl << d_matrix_temp << std::endl;
+////            std::cout << "d_matrix_temp.row(j) " << d_matrix_temp.row(j) << " d_matrix_temp.row(j).squaredNorm() " << d_matrix_temp.row(j).squaredNorm() << " currentGroupSize " << currentGroupSize << " num_models " << num_models << std::endl;
+//            ret1(j) += d_matrix_temp.row(j).squaredNorm() * currentGroupSize / num_models;
+            ret1(j) += d_matrix[j].row(j).squaredNorm() * currentGroupSize / num_models;
         }
     }
 //	std::cout << "ret1" << std::endl << ret1 << std::endl;
@@ -520,10 +539,10 @@ KEnRef<KEnRef_Real>::saturate(CoordsMatrixType<KEnRef_Real> &derivatives_rectifi
     for (int i = 0; i < derivatives_rectified.rows(); i++) {
         if (scaleDown(i) > 1.0) {
             derivatives_rectified.row(i) /= std::sqrt(scaleDown(i));
-            std::cout << "Simulation # " << simulationIndex << " row: " << i << " scaleDown " << scaleDown(i) <<
-                      (scaleDown(i) > 1.0 ? " Scaled down " : " NOT USED ")
-                      << " on OMP thread # " << omp_get_thread_num()
-                      << std::endl;
+//            std::cout << "Simulation # " << simulationIndex << " row: " << i << " scaleDown " << scaleDown(i) <<
+//                      (scaleDown(i) > 1.0 ? " Scaled down " : " NOT USED ")
+//                      << " on OMP thread # " << omp_get_thread_num()
+//                      << std::endl;
 
 //                      std::cout << " omp_get_num_devices " << omp_get_num_devices() << ", omp_get_num_places: " << omp_get_num_places()
 //                      << ", omp_get_num_procs: " << omp_get_num_procs() << ", omp_get_num_teams: " << omp_get_num_teams()
