@@ -1,27 +1,47 @@
 cmake_minimum_required(VERSION 3.24)
 project(KEnRef)
+set(CMAKE_CXX_STANDARD 17)
 
 string(TOLOWER ${CMAKE_BUILD_TYPE} build_type)
 message(STATUS "the build type is: ${build_type}")
 
-#change these if needed
+#TODO rearrange setting *_DIR variables after reading https://cmake.org/cmake/help/latest/command/find_package.html [then delete this line :)]
+##change these if needed
+set(SUFFIX_MPI _mpi)
 set(GROMACS_SRC_DIR /home/amr/CLionProjects/gromacs)
 set(GROMACS_BUILD_DIR /home/amr/CLionProjects/gromacs/cmake-build-${build_type})
-set(GROMACS_INSTALL_DIR /smithlab/opt/gromacs-dev/${build_type})
+#set(GROMACS_INSTALL_DIR /smithlab/opt/gromacs-dev/${build_type})
+#set(GROMACS_DIR /smithlab/opt/gromacs-dev/${build_type}) #set by me then changed/masked (?) by CMake
+set(GROMACS_INSTALL_DIR /usr/local/gromacs/${build_type})
+set(GROMACS_DIR /usr/local/gromacs/${build_type}/share/cmake/gromacs${SUFFIX_MPI}) #set by me then changed/masked (?) by CMake
+#set(CMAKE_MODULE_PATH /usr/local/gromacs-dev/share/gromacs/template/cmake:$CMAKE_MODULE_PATH)
+set(Eigen3_DIR /smithlab/opt/eigen/3.4.0/share/eigen3/cmake) #:/smithlab/opt/eigen/3.4.0/include/eigen3/unsupported
 ## comment the next line to make it float. Uncomment to make it double.
 #add_compile_options(-DDOUBLE)
 
-set(CMAKE_CXX_STANDARD 17)
-set(GROMACS_DIR /smithlab/opt/gromacs-dev/${build_type}) #set by me then changed/masked (?) by CMake
-#set(CMAKE_MODULE_PATH /usr/local/gromacs-dev/share/gromacs/template/cmake:$CMAKE_MODULE_PATH)
-set(EIGEN3_INCLUDE_DIR /smithlab/opt/eigen/3.4.0/include/eigen3) #:/smithlab/opt/eigen/3.4.0/include/eigen3/unsupported
-
 find_package(MPI REQUIRED)
-find_package(Eigen3 REQUIRED)
-#find_package (Eigen3 3.4 REQUIRED)
+#find_package(Eigen3 REQUIRED)
+find_package (Eigen3 3.4 REQUIRED)
+if (Eigen3_FOUND)
+	message("Eigen3 FOUND")
+	message(STATUS "EIGEN3_INCLUDE_DIR is: ${EIGEN3_INCLUDE_DIR}")
+	message(STATUS "EIGEN3_INCLUDE_DIRS is: ${EIGEN3_INCLUDE_DIRS}")
+	message(STATUS "EIGEN3_LIBRARIES is: ${EIGEN3_LIBRARIES}")
+endif ()
+
 
 find_package(GROMACS NAMES gromacs_mpi)
 #find_package(GROMACS)
+
+# find and use OpenMP
+find_package(OpenMP REQUIRED)
+if (OPENMP_FOUND)
+	message("OPENMP FOUND")
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+endif ()
+
+
 
 include_directories(config core gmxinterface)
 include_directories("${GROMACS_INSTALL_DIR}/include"
@@ -33,7 +53,7 @@ include_directories("${GROMACS_INSTALL_DIR}/include"
         "${GROMACS_SRC_DIR}/src"
         "${GROMACS_SRC_DIR}/src/include"
         "${GROMACS_SRC_DIR}/src/gromacs/math/include"
-#		"${EIGEN3_INCLUDE_DIR}"
+		"${EIGEN3_INCLUDE_DIR}"
         )
 
 add_library(kenref
