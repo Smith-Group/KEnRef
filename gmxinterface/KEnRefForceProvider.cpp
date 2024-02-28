@@ -250,7 +250,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         std::tie(energy, allDerivatives) =
                 KEnRef<KEnRef_Real_t>::coord_array_to_energy(allSimulationsSubAtomsX_vector, atomName_pairs,
                                                              simulated_grouping_list, g0, atomName_to_atomSub0Id_map,
-                                                             this->k_, this->n_, true);
+                                                             this->k_, this->n_, true, gmx_omp_nthreads_get(ModuleMultiThread::Default));
 #if VERBOSE
         std::cout << "energy = " << energy << ", allDerivatives:" << std::endl;
         for (int i = 0; i < allDerivatives.size(); i++) {

@@ -116,7 +116,9 @@ TEST(KEnRefTestSuite, testDArrayToG){
 
     for (int gg = 0; gg < toy_grouping_list.size(); gg++) {
         std::cout << "Calculating g" << gg+1 << std::endl;
-        auto [toy_g_array, toy_g_array_grad] = KEnRef<KEnRef_Real_t>::d_array_to_g(toy_d_array_vec, toy_grouping_list[gg], true);
+        auto [toy_g_array, toy_g_array_grad] = KEnRef<KEnRef_Real_t>::d_array_to_g(toy_d_array_vec,
+                                                                                   toy_grouping_list[gg], true,
+                                                                                   0);
         std::cout << "toy_g_array" << std::endl << toy_g_array << std::endl;
         std::cout << "toy_g_array_grad" << std::endl;
         for(const auto& matrix: toy_g_array_grad){
@@ -197,7 +199,9 @@ TEST(KEnRefTestSuite, restOfTestsToWrite){
     std::vector<Eigen::VectorX<KEnRef_Real_t>> g_list;
     for (int gg = 0; gg < eros3_grouping_list.size(); gg++) {
         std::cout << "Calculating eros3_sub g" << gg+1 << std::endl;
-        auto [eros3_sub_g_list, eros3_sub_g_list_grad] = KEnRef<KEnRef_Real_t>::d_array_to_g(eros3_sub_d_array, eros3_grouping_list[gg], true); //TODO d_arrays_to_g ???
+        auto [eros3_sub_g_list, eros3_sub_g_list_grad] = KEnRef<KEnRef_Real_t>::d_array_to_g(eros3_sub_d_array,
+                                                                                             eros3_grouping_list[gg],
+                                                                                             true, 0); //TODO d_arrays_to_g ???
         std::cout << "eros3_sub_g_list" << std::endl << eros3_sub_g_list << std::endl;
         std::cout << "eros3_sub_g_list_grad" << std::endl;
         for(const auto& matrix: eros3_sub_g_list_grad){

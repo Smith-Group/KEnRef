@@ -24,7 +24,7 @@ KEnRef<KEnRef_Real>::~KEnRef() = default;
 
 template<typename KEnRef_Real>
 std::tuple<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15>>
-KEnRef<KEnRef_Real>::r_array_to_d_array(const Eigen::MatrixX3<KEnRef_Real> &Nxyz, bool gradient) {
+KEnRef<KEnRef_Real>::r_array_to_d_array(const Eigen::MatrixX3<KEnRef_Real> &Nxyz, bool gradient, int numOmpThreads) {
 //	std::cout << "r_array_to_d_array(Nxyz) called" << std::endl;
     auto N = Nxyz.rows();
 
@@ -120,14 +120,14 @@ KEnRef<KEnRef_Real>::r_array_to_d_array(const Eigen::MatrixX3<KEnRef_Real> &Nxyz
 //	std::tuple<Eigen::MatrixXf, Eigen::MatrixXf> KEnRef::r_array_to_d_array(const Eigen::MatrixX3f& Nxyz, bool gradient){
 template<typename KEnRef_Real>
 std::tuple<std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>>, std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15>>>
-KEnRef<KEnRef_Real>::r_array_to_d_array(const std::vector<Eigen::MatrixX3<KEnRef_Real>> &models_Nxyz, bool gradient) {
+KEnRef<KEnRef_Real>::r_array_to_d_array(const std::vector<Eigen::MatrixX3<KEnRef_Real>> &models_Nxyz, bool gradient, int numOmpThreads) {
 //	std::cout << "r_array_to_d_array(models_Nxyz) called" << std::endl;
     std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>> ret1;
     std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15>> ret2;
     ret1.reserve(models_Nxyz.size());
     ret2.reserve(models_Nxyz.size());
     for (const auto &Nxyz: models_Nxyz) {
-        auto[arr1, arr2] = r_array_to_d_array(Nxyz, gradient);
+        auto[arr1, arr2] = r_array_to_d_array(Nxyz, gradient, numOmpThreads);
         ret1.emplace_back(arr1);
         ret2.emplace_back(arr2);
     }
@@ -139,14 +139,14 @@ std::tuple<std::vector<Eigen::VectorX<KEnRef_Real>>, std::vector<std::vector<Eig
 KEnRef<KEnRef_Real>::d_arrays_to_g(
         const std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>> &d_array, //vector (models<pairId, tensor_elements>) with interaction tensors
         const std::vector<std::vector<std::vector<int>>> &groupings, //groupings of models to average interaction tensors (per dipole dipole interaction pair), i.e. outer list for pairId and inner list for modelId
-        bool gradient) {
+        bool gradient, int numOmpThreads) {
 //	std::cout << "d_arrays_to_g() called" << std::endl;
     std::vector<Eigen::VectorX<KEnRef_Real>> ret1;
     std::vector<std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>>> ret2;
     ret1.reserve(d_array.size());
 
     for (const auto & grouping : groupings) {
-        const auto& [ret1_temp, ret2_temp] = d_array_to_g(d_array, grouping, gradient);
+        const auto& [ret1_temp, ret2_temp] = d_array_to_g(d_array, grouping, gradient, numOmpThreads);
         ret1.emplace_back(ret1_temp);
         if (gradient)
             ret2.emplace_back(ret2_temp);
@@ -159,7 +159,7 @@ std::tuple<Eigen::VectorX<KEnRef_Real>, std::vector<Eigen::Matrix<KEnRef_Real, E
 KEnRef<KEnRef_Real>::d_array_to_g(
         const std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>> &d_arrays, //vector (models<pairId, tensor_elements>) with interaction tensors
         const std::vector<std::vector<int>> &grouping, //groupings of models to average interaction tensors (per dipole-dipole interaction pair), i.e. outer list for pairId and inner list for modelId
-        bool gradient) {
+        bool gradient, int numOmpThreads) {
 
     auto num_models = d_arrays.size();
     auto num_pairIds = d_arrays[0].rows();
@@ -168,14 +168,13 @@ KEnRef<KEnRef_Real>::d_array_to_g(
 //	std::cout << "num_models " 	<< num_models << std::endl;
 //	std::cout << "num_pairIds "	<< num_pairIds << std::endl;
 //	std::cout << "num_groups "	<< num_groups << std::endl;
-    Eigen::VectorX<KEnRef_Real> ret1(num_pairIds);
-    ret1.setZero();
+    Eigen::VectorX<KEnRef_Real> ret1 = Eigen::VectorX<KEnRef_Real>::Zero(num_pairIds);
 
     //Every element of ret2 (every d_matrix_grad) is a matrix(num_pairIds x 5)
     std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>> ret2;
     if (gradient) {
         ret2 = std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>>(num_models);
-        #pragma omp parallel for
+#pragma omp parallel for num_threads(numOmpThreads)
         for (int i = 0; i < num_models; ++i) {
             ret2.at(i) = std::move(Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>(num_pairIds, 5)); // d_matrix_grad
         }
@@ -195,17 +194,16 @@ KEnRef<KEnRef_Real>::d_array_to_g(
 //            d_matrix.emplace_back(d_matrix_temp);  // TODO move()?
 //        }
         d_matrix = std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>>(num_pairIds);
-        #pragma omp parallel for
+#pragma omp parallel for num_threads(numOmpThreads)
         for (int temp = 0; temp < num_pairIds; ++temp) {
-            d_matrix.at(temp) = std::move(Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> (num_pairIds, 5));
-            d_matrix[temp].setZero();
+            d_matrix.at(temp) = std::move(Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>::Zero(num_pairIds, 5));
         }
 
         std::vector<int> currentGrouping = grouping[i];
         auto currentGroupSize = currentGrouping.size();
 
         // sum the dipole interaction tensors within each group/block
-        #pragma omp parallel for collapse(2) // schedule(static) //num_threads(gmx_omp_nthreads_get(ModuleMultiThread::Default))
+#pragma omp parallel for collapse(2) num_threads(numOmpThreads) // schedule(static) //num_threads(gmx_omp_nthreads_get(ModuleMultiThread::Default))
         for (int j = 0; j < currentGroupSize; ++j) { //for every member of the grouping block
             //sum relevant models into relevant groups (e.g. model 1 & 2 into group 1, and models 3 & 4 into group 2)
             //d_matrix += d_array[currentGrouping[j]]
@@ -225,12 +223,12 @@ KEnRef<KEnRef_Real>::d_array_to_g(
             //# matrix is pairIDs * interaction tensor elements
             Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> d_matrix_grad_temp(num_pairIds, 5);
             // calculate  d_matrix_grad
-            #pragma omp parallel for
+#pragma omp parallel for num_threads(numOmpThreads)
             for (int j = 0; j < num_pairIds; j++) {
 //				d_matrix_grad_temp.row(j) = d_matrix[j].row(i) * 2 / num_models / currentGroupSize; //just left the line in case I need it later
                 d_matrix_grad_temp = d_matrix[j] * 2 / num_models / currentGroupSize;
             }
-            #pragma omp parallel for
+#pragma omp parallel for num_threads(numOmpThreads)
             for (int k = 0; k < currentGroupSize; k++) {
                 // All models of the same group equally share the same value
                 // All elements are equal (i.e. all models get the same overall (average ?) value at the end.
@@ -240,14 +238,14 @@ KEnRef<KEnRef_Real>::d_array_to_g(
         }
 
         // Divide d_matrix by currentGroupSize to get the average
-        #pragma omp parallel for
+#pragma omp parallel for num_threads(numOmpThreads)
         for (int j = 0; j < num_pairIds; j++) {
             auto &d_matrix_temp = d_matrix[j];
             d_matrix_temp.array() /= currentGroupSize;
         }
 
         // calculate self dot product (norm squared) and accumulate group's contribution to mean g
-        #pragma omp parallel for
+#pragma omp parallel for num_threads(numOmpThreads)
         for (int j = 0; j < num_pairIds; j++) {
 //            auto &d_matrix_temp = d_matrix[j];
 ////			std::cout << "d_matrix_temp " << j << std::endl << d_matrix_temp << std::endl;
@@ -269,7 +267,7 @@ KEnRef<KEnRef_Real>::g_to_energy_uncorrected(
         Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> g,    // current group norm squared values
         Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> g0,    // target group norm squared values
         KEnRef_Real k,    // force constant
-        bool gradient) {
+        bool gradient, int numOmpThreads) {
 //	std::cout << "g   (" << g.rows() << " x " << g.cols() << ")" <<std::endl;
 //	std::cout << "g0  (" << g0.rows() << " x " << g0.cols() << ")" <<std::endl;
     Eigen::Array<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> g_minus_g0 = g.array() - g0.array();
@@ -292,7 +290,7 @@ KEnRef<KEnRef_Real>::g_to_energy(
         KEnRef_Real k,    // force constant
         KEnRef_Real n,    // correction power.
         bool gradient,
-        lossFunction lossFunc) {
+        int numOmpThreads, lossFunction lossFunc) {
 //	std::cout << "g   (" << g.rows() << " x " << g.cols() << ")" <<std::endl;
 //	std::cout << "g0  (" << g0.rows() << " x " << g0.cols() << ")" <<std::endl;
 
@@ -331,8 +329,9 @@ KEnRef<KEnRef_Real>::g_to_energy(
 
 template<typename KEnRef_Real>
 Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>
-KEnRef<KEnRef_Real>::vectorOfVectors_to_Matrix(std::vector<Eigen::VectorX<KEnRef_Real>> g_vect) {
+KEnRef<KEnRef_Real>::vectorOfVectors_to_Matrix(std::vector<Eigen::VectorX<KEnRef_Real>> g_vect, int numOmpThreads) {
     Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> g_mat(g_vect[0].rows(), g_vect.size());
+#pragma omp parallel for num_threads(numOmpThreads)
     for (int i = 0; i < g_vect.size(); ++i) {
         g_mat.col(i) = g_vect[i];
     }
@@ -343,17 +342,15 @@ template<typename KEnRef_Real>
 std::vector<Eigen::MatrixX3<KEnRef_Real>>
 KEnRef<KEnRef_Real>::coord_array_to_r_array( //TODO shall we change the return type to CoordsMatrixType ?
         const std::vector<Eigen::MatrixX3<KEnRef_Real>> &coord_array,
-        const std::vector<std::tuple<int, int>> &atomId_pairs) {
+        const std::vector<std::tuple<int, int>> &atomId_pairs, int numOmpThreads) {
 //	std::cout << "coord_array_to_r_array() called" << std::endl;
-    std::vector<Eigen::MatrixX3<KEnRef_Real>> ret;
-    ret.reserve(coord_array.size());
+    std::vector<Eigen::MatrixX3<KEnRef_Real>> ret(coord_array.size());
     for (int model_no = 0; model_no < coord_array.size(); ++model_no) {
-        Eigen::MatrixX3<KEnRef_Real> mat(atomId_pairs.size(), 3);
-        for (int i = 0; i < mat.rows(); ++i) {
+        ret.at(model_no) = {atomId_pairs.size(), 3};
+        for (int i = 0; i < atomId_pairs.size(); ++i) {
             auto [atom0, atom1] = atomId_pairs.at(i);
-            mat.row(i) = coord_array[model_no].row(atom1) - coord_array[model_no].row(atom0);
+            ret.at(model_no).row(i) = coord_array[model_no].row(atom1) - coord_array[model_no].row(atom0);
         }
-        ret.emplace_back(mat);
     }
     return ret;
 }
@@ -368,13 +365,15 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
         const Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>& g0,
         std::map<std::string, int> atomNames_2_atomIds,
         KEnRef_Real k,
-        KEnRef_Real n, bool gradient) {
+        KEnRef_Real n, bool gradient, int numOmpThreads) {
 //	std::cout << "coord_array_to_energy(atomName_pairs_) called" << std::endl;
-    std::vector<std::tuple<int, int>> atomId_pairs{};
+    std::vector<std::tuple<int, int>> atomId_pairs(atomName_pairs.size());
     // Fill the vector using atomNames_2_atomIds
-    for (const auto &[left, right]: atomName_pairs) {
+#pragma omp parallel for num_threads(numOmpThreads)
+    for (int i = 0; i < atomName_pairs.size(); ++i) {
+        auto [left, right] = atomName_pairs.at(i);
         // I use at() instead of operator[] to force an exception to be thrown
-        atomId_pairs.emplace_back(atomNames_2_atomIds.at(left), atomNames_2_atomIds.at(right));
+        atomId_pairs.at(i) = { atomNames_2_atomIds.at(left), atomNames_2_atomIds.at(right) };
     }
 //    std::tuple<KEnRef_Real, std::vector<CoordsMatrixType>> temp = KEnRef::coord_array_to_energy(coord_array, atomId_pairs, grouping_list, g0, k, gradient);
 //    std::vector<CoordsMatrixType> &derivatives = std::get<1>(temp);
@@ -385,7 +384,7 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
 //                matrix(j, l) = static_cast<KEnRef_Real>(i * 10000 + j * 10 + l);
 //    }
 //    return temp;
-    return KEnRef::coord_array_to_energy(coord_array, atomId_pairs, grouping_list, g0, k, n, gradient);
+    return KEnRef::coord_array_to_energy(coord_array, atomId_pairs, grouping_list, g0, k, n, gradient, numOmpThreads);
 }
 
 template<typename KEnRef_Real>
@@ -394,16 +393,20 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
         std::vector<Eigen::MatrixX3<KEnRef_Real>> coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
 		std::vector<std::tuple<int, int>> atomId_pairs, 	// Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
 		const std::vector<std::vector<std::vector<int>>>& grouping_list,	// list of lists of integer vectors giving groupings of models to average interaction tensors
-		const Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> &g0, KEnRef_Real k, KEnRef_Real n, bool gradient)
+		const Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> &g0, KEnRef_Real k, KEnRef_Real n, bool gradient, int numOmpThreads)
 {
 	// calculate inter nuclear vectors
-	auto r_arrays = coord_array_to_r_array(coord_array, atomId_pairs);
+	auto r_arrays = coord_array_to_r_array(coord_array, atomId_pairs, numOmpThreads);
 
 	// calculate dipole-dipole interaction tensors [and their derivates]
-	auto [d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, gradient);
+    std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>> d_arrays;
+    std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15>> d_arrays_grad;
+    std::tie(d_arrays, d_arrays_grad) = r_array_to_d_array(r_arrays, gradient, numOmpThreads);
 
 	// calculate norm squared for different groupings of dipole-dipole interaction tensors
-	auto [g_list, g_list_grad] = d_arrays_to_g(d_arrays, grouping_list, gradient);
+    std::vector<Eigen::VectorX<KEnRef_Real>> g_list;
+    std::vector<std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>>> g_list_grad;
+	std::tie(g_list, g_list_grad) = d_arrays_to_g(d_arrays, grouping_list, gradient, numOmpThreads);
 //	for(int i = 0; i < g_list_grad.size(); i++){
 //		auto g_list_grad_i = g_list_grad[i];
 //		for (int j = 0; j < g_list_grad_i.size(); j++){
@@ -412,11 +415,13 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
 //		}
 //	}
 
-	auto g_matrix = vectorOfVectors_to_Matrix(g_list);
+	auto g_matrix = vectorOfVectors_to_Matrix(g_list, numOmpThreads);
 
 	// calculate energies from the norm squared values
-//    auto [energy_matrix, energy_matrix_grad] = g_to_energy_uncorrected(g_matrix, g0, k, gradient);
-    auto [energy_matrix, energy_matrix_grad] = g_to_energy(g_matrix, g0, k, n, gradient);
+    Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> energy_matrix;
+    Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> energy_matrix_grad;
+//    std::tie(energy_matrix, energy_matrix_grad) = g_to_energy_uncorrected(g_matrix, g0, k, gradient, numOmpThreads /*, KEnRef::SQRT_ABS_POWER_N*/);
+    std::tie(energy_matrix, energy_matrix_grad) = g_to_energy(g_matrix, g0, k, n, gradient, numOmpThreads /*, KEnRef::SQRT_ABS_POWER_N*/);
 //	std::cout << "energy_matrix" << std::endl << energy_matrix << std::endl;
 //	std::cout << "energy_matrix_grad" << std::endl << energy_matrix_grad << std::endl;
 
@@ -430,13 +435,13 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
 		auto num_models = coord_array.size();
 		auto num_atoms = coord_array[0].rows();
 		// First calculate de/dd = de/dg * dg/dd for all individual interaction tensor components
-		std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>>d_energy_d_d_array; //<num_models(num_pairs, 5)>
-		d_energy_d_d_array.reserve(num_models); //num_models
-		for(int i = 0; i < num_models; i++){
-			d_energy_d_d_array.emplace_back(Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>::Zero(static_cast<int>(num_pairs), 5));
-		}
+		std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>>d_energy_d_d_array(num_models); //<num_models(num_pairs, 5)>
+        for (int i = 0; i < num_models; i++)
+            d_energy_d_d_array.at(i) = std::move(
+                    Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>::Zero(static_cast<int>(num_pairs), 5));
 
 		for(int i = 0; i < g_list.size(); i++){//for each grouping
+        for(int i = 0; i < g_list.size(); i++){//for each grouping
 			auto e_matrix_grad_replicated = energy_matrix_grad.col(i).rowwise().template replicate<5>().array();
 			auto g_list_grad_group_i = g_list_grad[i]; //<num_models>(num_pairs x 5)
 //			std::cout << "d_energy_d_d_array" << " after iteration " << i << std::endl;
@@ -447,20 +452,18 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
 		}
 
 		// Then calculate de/dr = de/dd  * dd/dr for each xyz component of the internuclear vectors
-		std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15>> d_energy_d_r_array_all;
-		d_energy_d_r_array_all.reserve(num_models);
+		std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15>> d_energy_d_r_array_all(num_models);
 		for(int i = 0; i < num_models; i++){
 //			std::cout << "d_energy_d_d_array[i].replicate(3,1).reshaped(num_pairs, 15)" << std::endl << d_energy_d_d_array[i].replicate(3,1).reshaped(num_pairs, 15) << std::endl;
 //			std::cout << "d_arrays_grad[i]" << std::endl << d_arrays_grad[i] << std::endl;
-			d_energy_d_r_array_all.emplace_back(d_arrays_grad[i].array() * d_energy_d_d_array[i].replicate(3,1).reshaped(num_pairs, 15).array());
+			d_energy_d_r_array_all.at(i) = d_arrays_grad[i].array() * d_energy_d_d_array[i].replicate(3,1).reshaped(num_pairs, 15).array();
 //			std::cout << "d_energy_d_d_array_all[" << i <<"]" << std::endl << d_energy_d_r_array_all[i] <<std::endl;
 		}
 
 		// sum the individual interaction tensor component derivatives associated with x, y, and z
-		std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 3>> d_energy_d_r_array;
-		d_energy_d_r_array.reserve(num_models);
+		std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 3>> d_energy_d_r_array(num_models);
 		for(int i = 0; i< num_models; i++){
-			d_energy_d_r_array.emplace_back(num_pairs, 3);
+			d_energy_d_r_array.at(i) = {num_pairs, 3};
 //			auto temp_array = d_energy_d_r_array[i];
 			Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> temp;
 //			std::cout << "d_energy_d_r_array" << std::endl;
@@ -471,11 +474,9 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
 //			std::cout << d_energy_d_r_array[i] << std::endl;
 		}
 
-		std::vector<CoordsMatrixType<KEnRef_Real>> gradients;
-		gradients.reserve(num_models);
+		std::vector<CoordsMatrixType<KEnRef_Real>> gradients(num_models);
 		for(int i = 0; i < num_models; i++){
-			gradients.emplace_back(num_atoms, 3);
-			gradients[i].setZero(); //TOOD There should be a better way than this
+			gradients.at(i) = CoordsMatrixType<KEnRef_Real>::Zero(num_atoms, 3);
 		}
 		// propagate the internuclear vector derivatives back onto the atomic coordinates
 		for (int p = 0; p < num_pairs; ++p) { // seq_len(dim(d_energy_d_r_array)[1])
@@ -504,20 +505,21 @@ Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>
 KEnRef<KEnRef_Real>::coord_array_to_g(
 		const std::vector<Eigen::MatrixX3<KEnRef_Real>>& coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
 		const std::vector<std::tuple<int, int>>& atomId_pairs, 	// Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
-		const std::vector<std::vector<std::vector<int>>>& grouping_list)	// list of lists of integer vectors giving groupings of models to average interaction tensors
+		const std::vector<std::vector<std::vector<int>>>& grouping_list,  // list of lists of integer vectors giving groupings of models to average interaction tensors
+        int numOmpThreads)
 {
 //	std::cout << "coord_array_to_g() called" << std::endl;
 	// calculate internuclear vectors
-	auto r_arrays = coord_array_to_r_array(coord_array, atomId_pairs);
+	auto r_arrays = coord_array_to_r_array(coord_array, atomId_pairs, numOmpThreads);
 
 	// calculate dipole-dipole interaction tensors [and their derivatives]
-	auto [d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays);
+	auto [d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, numOmpThreads);
 
 	// calculate norm squared for different groupings of dipole-dipole interaction tensors
 	//		g_list <- lapply(grouping_list, function(grouping) d_array_to_g(d_array, grouping, gradient=FALSE))
-	auto [g_list, ignore] = d_arrays_to_g(d_arrays, grouping_list);
+	auto [g_list, ignore] = d_arrays_to_g(d_arrays, grouping_list, numOmpThreads);
 
-	return vectorOfVectors_to_Matrix(g_list);
+	return vectorOfVectors_to_Matrix(g_list, numOmpThreads);
 }
 
 //TODO Shall we move it (with its test of course) to GMXKenRefForceProvider?
@@ -535,7 +537,7 @@ KEnRef<KEnRef_Real>::saturate(CoordsMatrixType<KEnRef_Real> &derivatives_rectifi
 
     auto scaleDown = derivatives_rectified.rowwise().squaredNorm() / thresholdSquared;
 
-    #pragma omp parallel for default(shared)
+#pragma omp parallel for num_threads(numOmpThreads) default(shared)
     for (int i = 0; i < derivatives_rectified.rows(); i++) {
         if (scaleDown(i) > 1.0) {
             derivatives_rectified.row(i) /= std::sqrt(scaleDown(i));
