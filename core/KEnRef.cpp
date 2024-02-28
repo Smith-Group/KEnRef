@@ -345,6 +345,7 @@ KEnRef<KEnRef_Real>::coord_array_to_r_array( //TODO shall we change the return t
         const std::vector<std::tuple<int, int>> &atomId_pairs, int numOmpThreads) {
 //	std::cout << "coord_array_to_r_array() called" << std::endl;
     std::vector<Eigen::MatrixX3<KEnRef_Real>> ret(coord_array.size());
+//    #pragma omp parallel for collapse(2) num_threads(numOmpThreads)
     for (int model_no = 0; model_no < coord_array.size(); ++model_no) {
         ret.at(model_no) = {atomId_pairs.size(), 3};
         for (int i = 0; i < atomId_pairs.size(); ++i) {
@@ -436,11 +437,12 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
 		auto num_atoms = coord_array[0].rows();
 		// First calculate de/dd = de/dg * dg/dd for all individual interaction tensor components
 		std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>>d_energy_d_d_array(num_models); //<num_models(num_pairs, 5)>
+//#pragma omp parallel for num_threads(numOmpThreads)
         for (int i = 0; i < num_models; i++)
             d_energy_d_d_array.at(i) = std::move(
                     Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>::Zero(static_cast<int>(num_pairs), 5));
 
-		for(int i = 0; i < g_list.size(); i++){//for each grouping
+//#pragma omp parallel for collapse(2) num_threads(numOmpThreads)
         for(int i = 0; i < g_list.size(); i++){//for each grouping
 			auto e_matrix_grad_replicated = energy_matrix_grad.col(i).rowwise().template replicate<5>().array();
 			auto g_list_grad_group_i = g_list_grad[i]; //<num_models>(num_pairs x 5)
@@ -453,6 +455,7 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
 
 		// Then calculate de/dr = de/dd  * dd/dr for each xyz component of the internuclear vectors
 		std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15>> d_energy_d_r_array_all(num_models);
+//#pragma omp parallel for num_threads(numOmpThreads)
 		for(int i = 0; i < num_models; i++){
 //			std::cout << "d_energy_d_d_array[i].replicate(3,1).reshaped(num_pairs, 15)" << std::endl << d_energy_d_d_array[i].replicate(3,1).reshaped(num_pairs, 15) << std::endl;
 //			std::cout << "d_arrays_grad[i]" << std::endl << d_arrays_grad[i] << std::endl;
@@ -462,6 +465,7 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
 
 		// sum the individual interaction tensor component derivatives associated with x, y, and z
 		std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 3>> d_energy_d_r_array(num_models);
+//#pragma omp parallel for collapse(2) num_threads(numOmpThreads)
 		for(int i = 0; i< num_models; i++){
 			d_energy_d_r_array.at(i) = {num_pairs, 3};
 //			auto temp_array = d_energy_d_r_array[i];
@@ -475,10 +479,12 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
 		}
 
 		std::vector<CoordsMatrixType<KEnRef_Real>> gradients(num_models);
+//#pragma omp parallel for num_threads(numOmpThreads)
 		for(int i = 0; i < num_models; i++){
 			gradients.at(i) = CoordsMatrixType<KEnRef_Real>::Zero(num_atoms, 3);
 		}
 		// propagate the internuclear vector derivatives back onto the atomic coordinates
+//#pragma omp parallel for collapse(2) num_threads(numOmpThreads)
 		for (int p = 0; p < num_pairs; ++p) { // seq_len(dim(d_energy_d_r_array)[1])
 			for(int m = 0; m < num_models; m++){
 				auto[atomId0, atomId1] = atomId_pairs[p];
