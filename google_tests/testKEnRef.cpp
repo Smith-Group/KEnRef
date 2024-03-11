@@ -2,7 +2,7 @@
 #include <Eigen/Core>
 #include <Eigen/src/Core/Matrix.h>
 #include <Eigen/src/Core/util/Constants.h>
-#include "KEnRef.h"
+#include "core/KEnRef.h"
 
 void EXPECT_MATRIX_NEAR(const Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, Eigen::Dynamic> &leftSide,
                         const Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, Eigen::Dynamic> &rightSide,

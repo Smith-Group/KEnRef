@@ -5,7 +5,7 @@
  */
 
 #include <filesystem>
-#include "kenrefinitializer.h"
+#include "core/kenrefinitializer.h"
 
 
 KEnRefIinitializer::~KEnRefIinitializer() = default;

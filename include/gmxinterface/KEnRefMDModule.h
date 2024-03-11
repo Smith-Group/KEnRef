@@ -19,7 +19,7 @@
 #include <gromacs/mdtypes/imdpoptionprovider.h>
 #include <gromacs/mdrun/simulationcontext.h>
 #include "KEnRefForceProvider.h"
-#include "../core/IoUtils.h"
+#include "core/IoUtils.h"
 
 
 /*

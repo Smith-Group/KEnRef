@@ -9,7 +9,7 @@
 #include <limits>
 #include <memory>
 #include <Eigen/Dense>
-#include "KEnRef.h"
+#include "core/KEnRef.h"
 #include <iostream>//FIXME for testing only
 //#include <utility>
 

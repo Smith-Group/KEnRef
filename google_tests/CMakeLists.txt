@@ -29,12 +29,9 @@ FetchContent_MakeAvailable(google_tests)
 add_subdirectory(lib/google_tests-src)
 
 message(STATUS "gtest_SOURCE_DIR is: ${gtest_SOURCE_DIR}")
-include_directories(${gtest_SOURCE_DIR}/include ${gtest_SOURCE_DIR})
-
-include_directories(
-        "${EIGEN3_INCLUDE_DIR}"
-        )
 # Now simply link against gtest or gtest_main as needed. Eg
 add_executable(Google_tests_exe testKabsch.cpp testKEnRef.cpp testIoUtils.cpp)
 target_link_libraries(Google_tests_exe gtest gtest_main kenref Eigen3::Eigen)
 ##add_test(NAME Google_tests COMMAND example)
+
+target_include_directories(Google_tests_exe PRIVATE ${gtest_SOURCE_DIR}/include ${gtest_SOURCE_DIR})

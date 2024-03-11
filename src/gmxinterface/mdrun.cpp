@@ -68,7 +68,7 @@
 #include "gromacs/utility/physicalnodecommunicator.h"
 
 #include "mdrun/mdrun_main.h"
-#include "KEnRefMDModule.h"
+#include "gmxinterface/KEnRefMDModule.h"
 namespace gmx
 {
 

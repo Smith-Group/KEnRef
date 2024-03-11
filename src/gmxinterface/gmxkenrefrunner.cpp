@@ -5,7 +5,7 @@
  *      Author: amr
  */
 
-#include "gmxkenrefrunner.h"
+#include "gmxinterface/gmxkenrefrunner.h"
 
 GmxKEnRefRunner::GmxKEnRefRunner() = default;
 GmxKEnRefRunner::~GmxKEnRefRunner() = default;

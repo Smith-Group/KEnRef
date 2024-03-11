@@ -18,10 +18,10 @@
 #include "gromacs/domdec/domdec_struct.h"
 #include "gromacs/domdec/ga2la.h"
 #include "gromacs/mdlib/gmx_omp_nthreads.h"
-#include "../core/KEnRef.h"
-#include "../core/kabsch.h"
-#include "KEnRefForceProvider.h"
-#include "KEnRefMDModule.h"
+#include "core/KEnRef.h"
+#include "core/kabsch.h"
+#include "gmxinterface/KEnRefForceProvider.h"
+#include "gmxinterface/KEnRefMDModule.h"
 
 #include <utility>
 #include<unistd.h>

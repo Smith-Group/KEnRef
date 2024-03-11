@@ -7,8 +7,8 @@
 #include <iostream>
 #include "gromacs/mdrunutility/mdmodulesnotifiers.h"
 #include "gromacs/topology/topology.h"
-#include "../gmxinterface/gmxkenrefinitializer.h"
-#include "KEnRefMDModule.h"
+#include "gmxinterface/gmxkenrefinitializer.h"
+#include "gmxinterface/KEnRefMDModule.h"
 
 
 KEnRefMDModule::KEnRefMDModule() {

@@ -3,7 +3,7 @@
 #include <fstream>
 #include <string>
 #include <system_error>
-#include "IoUtils.h"
+#include "core/IoUtils.h"
 
 template<typename T>
 std::vector<std::vector<T>> IoUtils::read_uniform_table_of(std::istream &ins) {

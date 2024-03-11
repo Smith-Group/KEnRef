@@ -4,7 +4,7 @@
 #include <fstream>
 #include "gtest/gtest.h"
 #include <vector>
-#include "IoUtils.h"
+#include "core/IoUtils.h"
 
 TEST(IoUtilsTestSuite, TestGetAtomNameMappingFromPdb){
     static const char *const ATOMNAME_MAPPING_FILENAME = "../../res/cleanstart/6v5d_step0_for_atomname_mapping.pdb";

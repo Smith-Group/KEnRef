@@ -13,7 +13,7 @@
 #include <gromacs/mdtypes/forceoutput.h>
 #include <gromacs/mdrun/simulationcontext.h>
 #include <gromacs/selection/selection.h>
-#include "../core/KEnRef.h"
+#include "core/KEnRef.h"
 
 
 class KEnRefForceProvider: public gmx::IForceProvider {

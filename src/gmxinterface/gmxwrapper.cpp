@@ -13,13 +13,13 @@
 #include "mdrun/mdrun_main.h"
 #include "gromacs/commandline/cmdlinemodule.h"
 #include "gromacs/commandline/cmdlinemodulemanager.h"
-#include "../gmxinterface/gmxwrapper.h"
-#include "../gmxinterface/gmxkenrefrunner.h"
-#include "../gmxinterface/KEnRefMDModule.h"
-#include "../core/IoUtils.h"
+#include "gmxinterface/gmxwrapper.h"
+#include "gmxinterface/gmxkenrefrunner.h"
+#include "gmxinterface/KEnRefMDModule.h"
+#include "core/IoUtils.h"
 // Remember to put all local imports (especially those which reference Eigen) after
 // all Gromacs imports; to avoid compiler error "reference to 'real' is ambiguous"
-#include "../core/ensembleutils.h"
+#include "core/ensembleutils.h"
 
 
 GMXWrapper::GMXWrapper() = default;

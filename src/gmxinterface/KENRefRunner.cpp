@@ -5,7 +5,7 @@
  *      Author: amr
  */
 
-#include "../core/kenrefrunner.h"
+#include "core/kenrefrunner.h"
 
 
 KEnRefRunner::KEnRefRunner() = default;

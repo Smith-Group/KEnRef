@@ -32,8 +32,7 @@ if (Eigen3_FOUND)
 endif ()
 
 
-find_package(GROMACS NAMES gromacs_mpi)
-#find_package(GROMACS)
+find_package(GROMACS NAMES gromacs_mpi gromacs)
 
 # find and use OpenMP
 find_package(OpenMP REQUIRED)
@@ -44,8 +43,36 @@ if (OPENMP_FOUND)
 endif ()
 
 
+FILE(GLOB project_sources
+		src/core/IoUtils.cpp
+		src/core/KEnRef.cpp
+		src/core/kenrefinitializer.cpp
+		src/gmxinterface/gmxkenrefinitializer.cpp
+		src/gmxinterface/gmxkenrefrunner.cpp
+		src/gmxinterface/gmxwrapper.cpp
+		src/gmxinterface/KEnRefForceProvider.cpp
+		src/gmxinterface/KEnRefMDModule.cpp
+		src/gmxinterface/KENRefRunner.cpp
+		src/gmxinterface/mdrun.cpp
+	)
 
-include_directories(config core gmxinterface)
+FILE(GLOB project_includes
+		config/KEnRefConfig.h
+		core/ensembleutils.h
+		core/IoUtils.h
+		core/kabsch.h
+		core/KEnRef.h
+		core/kenreffinalizer.h
+		core/kenrefinitializer.h
+		core/kenrefrunner.h
+		gmxinterface/gmxkenrefinitializer.h
+		gmxinterface/gmxkenrefrunner.h
+		gmxinterface/gmxwrapper.h
+		gmxinterface/KEnRefForceProvider.h
+		gmxinterface/KEnRefMDModule.h
+	)
+
+include_directories(include)
 include_directories("${GROMACS_INSTALL_DIR}/include"
         "${GROMACS_BUILD_DIR}/src/include/"
         "${GROMACS_SRC_DIR}/src/gromacs/gmxlib"
@@ -58,56 +85,8 @@ include_directories("${GROMACS_INSTALL_DIR}/include"
 		"${EIGEN3_INCLUDE_DIR}"
         )
 
-add_library(kenref
-		config/KEnRefConfig.h
-		core/ensembleutils.h
-		core/IoUtils.cpp
-		core/IoUtils.h
-		core/kabsch.h
-		core/KEnRef.cpp
-		core/KEnRef.h
-		core/kenreffinalizer.h
-		core/kenrefinitializer.cpp
-		core/kenrefinitializer.h
-		core/kenrefrunner.h
-		gmxinterface/gmxkenrefinitializer.cpp
-		gmxinterface/gmxkenrefinitializer.h
-		gmxinterface/gmxkenrefrunner.cpp
-		gmxinterface/gmxkenrefrunner.h
-		gmxinterface/gmxwrapper.cpp
-		gmxinterface/gmxwrapper.h
-		gmxinterface/KEnRefForceProvider.cpp
-		gmxinterface/KEnRefForceProvider.h
-		gmxinterface/KEnRefMDModule.cpp
-		gmxinterface/KEnRefMDModule.h
-		gmxinterface/KENRefRunner.cpp
-		gmxinterface/mdrun.cpp)
-
-
-add_executable(KEnRef
-        config/KEnRefConfig.h
-        core/ensembleutils.h
-        core/IoUtils.cpp
-        core/IoUtils.h
-        core/kabsch.h
-        core/KEnRef.cpp
-        core/KEnRef.h
-        core/kenreffinalizer.h
-        core/kenrefinitializer.cpp
-        core/kenrefinitializer.h
-        core/kenrefrunner.h
-        gmxinterface/gmxkenrefinitializer.cpp
-        gmxinterface/gmxkenrefinitializer.h
-        gmxinterface/gmxkenrefrunner.cpp
-        gmxinterface/gmxkenrefrunner.h
-        gmxinterface/gmxwrapper.cpp
-        gmxinterface/gmxwrapper.h
-        gmxinterface/KEnRefForceProvider.cpp
-        gmxinterface/KEnRefForceProvider.h
-        gmxinterface/KEnRefMDModule.cpp
-        gmxinterface/KEnRefMDModule.h
-        gmxinterface/KENRefRunner.cpp
-        gmxinterface/mdrun.cpp)
+add_library(kenref ${project_sources})
+add_executable(KEnRef ${project_sources})
 
 target_link_libraries(KEnRef PRIVATE MPI::MPI_CXX Eigen3::Eigen
 #        Eigen3::unsupported #TODO restore it later

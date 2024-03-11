@@ -5,7 +5,7 @@
  *      Author: amr
  */
 
-#include "gmxkenrefinitializer.h"
+#include "gmxinterface/gmxkenrefinitializer.h"
 #include "gromacs/topology/index.h"
 
 GmxKEnRefInitializer::GmxKEnRefInitializer() = default;
