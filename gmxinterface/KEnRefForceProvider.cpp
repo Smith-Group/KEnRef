@@ -438,6 +438,13 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
         std::cout << "No KENREF_N identified. Will use default value of " << this->n_ << std::endl;
     }
 
+    if (std::is_same<KEnRef_Real_t, float>())
+        std::cout << "KEnRef_Real_t type is: FLOAT" << '\n';
+    else if (std::is_same<KEnRef_Real_t, double>())
+        std::cout << "KEnRef_Real_t type is: DOUBLE" << '\n';
+    else
+        std::cout << "KEnRef_Real_t type is: UNKNOWN" << '\n';
+
 #if VERBOSE
     for (const auto& [name, globalId] : atomName_to_atomGlobalId_map){
             std::cout << "[" << name << "]\t:" << globalId << std::endl;
