@@ -22,58 +22,32 @@ set(Eigen3_DIR /smithlab/opt/eigen/3.4.0/share/eigen3/cmake) #:/smithlab/opt/eig
 #add_compile_options(-DDOUBLE)
 
 find_package(MPI REQUIRED)
-#find_package(Eigen3 REQUIRED)
+
 find_package (Eigen3 3.4 REQUIRED)
 if (Eigen3_FOUND)
 	message("Eigen3 FOUND")
 	message(STATUS "EIGEN3_INCLUDE_DIR is: ${EIGEN3_INCLUDE_DIR}")
 	message(STATUS "EIGEN3_INCLUDE_DIRS is: ${EIGEN3_INCLUDE_DIRS}")
-	message(STATUS "EIGEN3_LIBRARIES is: ${EIGEN3_LIBRARIES}")
 endif ()
 
+find_package(GROMACS NAMES gromacs_mpi gromacs REQUIRED)
+if (GROMACS_FOUND)
+	message("GROMACS FOUND")
+endif ()
 
-find_package(GROMACS NAMES gromacs_mpi gromacs)
-
-# find and use OpenMP
-find_package(OpenMP REQUIRED)
+find_package(OpenMP)
 if (OPENMP_FOUND)
 	message("OPENMP FOUND")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 endif ()
 
-
-FILE(GLOB project_sources
-		src/core/IoUtils.cpp
-		src/core/KEnRef.cpp
-		src/core/kenrefinitializer.cpp
-		src/gmxinterface/gmxkenrefinitializer.cpp
-		src/gmxinterface/gmxkenrefrunner.cpp
-		src/gmxinterface/gmxwrapper.cpp
-		src/gmxinterface/KEnRefForceProvider.cpp
-		src/gmxinterface/KEnRefMDModule.cpp
-		src/gmxinterface/KENRefRunner.cpp
-		src/gmxinterface/mdrun.cpp
-	)
-
-FILE(GLOB project_includes
-		config/KEnRefConfig.h
-		core/ensembleutils.h
-		core/IoUtils.h
-		core/kabsch.h
-		core/KEnRef.h
-		core/kenreffinalizer.h
-		core/kenrefinitializer.h
-		core/kenrefrunner.h
-		gmxinterface/gmxkenrefinitializer.h
-		gmxinterface/gmxkenrefrunner.h
-		gmxinterface/gmxwrapper.h
-		gmxinterface/KEnRefForceProvider.h
-		gmxinterface/KEnRefMDModule.h
-	)
+FILE(GLOB core_sources "src/core/*.cpp")
+FILE(GLOB gmxinterface_sources "src/gmxinterface/*.cpp")
 
 include_directories(include)
-include_directories("${GROMACS_INSTALL_DIR}/include"
+include_directories(
+		"${GROMACS_INSTALL_DIR}/include"
         "${GROMACS_BUILD_DIR}/src/include/"
         "${GROMACS_SRC_DIR}/src/gromacs/gmxlib"
         "${GROMACS_SRC_DIR}/src/gromacs/mdtypes"
@@ -82,18 +56,19 @@ include_directories("${GROMACS_INSTALL_DIR}/include"
         "${GROMACS_SRC_DIR}/src"
         "${GROMACS_SRC_DIR}/src/include"
         "${GROMACS_SRC_DIR}/src/gromacs/math/include"
-		"${EIGEN3_INCLUDE_DIR}"
-        )
+)
+include_directories("${EIGEN3_INCLUDE_DIR}")
 
-add_library(kenref ${project_sources})
-add_executable(KEnRef ${project_sources})
+#TODO Change the targets into FENREF::CORE and KENREF::GMXINTERFACE (and rearrange sources)
+add_library(KENREF_CORE STATIC ${core_sources})
+add_library(KENREF_GMXINTERFACE STATIC ${gmxinterface_sources})
+add_executable(KEnRef "src/gmxinterface/gmxwrapper.cpp")
 
-target_link_libraries(KEnRef PRIVATE MPI::MPI_CXX Eigen3::Eigen
-#        Eigen3::unsupported #TODO restore it later
-	${GROMACS_INSTALL_DIR}/lib64/libgromacs_mpi.so)
-target_link_libraries(kenref PRIVATE MPI::MPI_CXX Eigen3::Eigen
-#        Eigen3::unsupported #TODO restore it later
-	${GROMACS_INSTALL_DIR}/lib64/libgromacs_mpi.so)
+target_link_libraries(KENREF_CORE PUBLIC MPI::MPI_CXX Eigen3::Eigen Gromacs::libgromacs
+		#        Eigen3::unsupported # may need to restore it later
+)
+target_link_libraries(KENREF_GMXINTERFACE PUBLIC KENREF_CORE)
+target_link_libraries(KEnRef PRIVATE KENREF_CORE KENREF_GMXINTERFACE)
 ###########################################
 ## Add gtest
 add_subdirectory(google_tests)
