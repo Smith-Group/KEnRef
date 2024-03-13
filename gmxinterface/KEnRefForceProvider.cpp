@@ -8,15 +8,21 @@
 #include <cmath>
 #include <memory>
 #include <Eigen/Core>
-#include "KEnRef.h"
-#include "gromacs/pbcutil/pbc.h"
+
 #include "gromacs/mdtypes/commrec.h"
+//#include "gmxapi/mpi/gmxapi_mpi.h"
+#include "mpi.h"
+
+#include "gromacs/pbcutil/pbc.h"
 #include "gromacs/gmxlib/network.h"
-#include "KEnRefForceProvider.h"
-#include "KEnRefMDModule.h"
-#include "../core/kabsch.h"
 #include "gromacs/domdec/domdec_struct.h"
 #include "gromacs/domdec/ga2la.h"
+#include "gromacs/mdlib/gmx_omp_nthreads.h"
+#include "../core/KEnRef.h"
+#include "../core/kabsch.h"
+#include "KEnRefForceProvider.h"
+#include "KEnRefMDModule.h"
+
 #include <utility>
 #include<unistd.h>
 
