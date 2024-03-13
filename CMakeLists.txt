@@ -10,10 +10,12 @@ message(STATUS "the build type is: ${build_type}")
 set(SUFFIX_MPI _mpi)
 set(GROMACS_SRC_DIR /home/amr/CLionProjects/gromacs)
 set(GROMACS_BUILD_DIR /home/amr/CLionProjects/gromacs/cmake-build-${build_type})
-#set(GROMACS_INSTALL_DIR /smithlab/opt/gromacs-dev/${build_type})
-#set(GROMACS_DIR /smithlab/opt/gromacs-dev/${build_type}) #set by me then changed/masked (?) by CMake
-set(GROMACS_INSTALL_DIR /usr/local/gromacs/${build_type})
-set(GROMACS_DIR /usr/local/gromacs/${build_type}/share/cmake/gromacs${SUFFIX_MPI}) #set by me then changed/masked (?) by CMake
+
+set(GROMACS_INSTALL_DIR /smithlab/opt/gromacs-dev1/${build_type})
+set(GROMACS_DIR /smithlab/opt/gromacs-dev1/${build_type}/share/cmake/gromacs${SUFFIX_MPI}) #where libgromacs*.cmake are located
+#set(GROMACS_INSTALL_DIR /usr/local/gromacs/${build_type})
+#set(GROMACS_DIR /usr/local/gromacs/${build_type}/share/cmake/gromacs${SUFFIX_MPI}) #where libgromacs*.cmake are located
+
 #set(CMAKE_MODULE_PATH /usr/local/gromacs-dev/share/gromacs/template/cmake:$CMAKE_MODULE_PATH)
 set(Eigen3_DIR /smithlab/opt/eigen/3.4.0/share/eigen3/cmake) #:/smithlab/opt/eigen/3.4.0/include/eigen3/unsupported
 ## comment the next line to make it float. Uncomment to make it double.
