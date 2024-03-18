@@ -8,13 +8,10 @@ message(STATUS "the build type is: ${build_type}")
 #TODO rearrange setting *_DIR variables after reading https://cmake.org/cmake/help/latest/command/find_package.html [then delete this line :)]
 ##change these if needed
 set(SUFFIX_MPI _mpi)
-set(GROMACS_SRC_DIR /home/amr/CLionProjects/gromacs)
-set(GROMACS_BUILD_DIR /home/amr/CLionProjects/gromacs/cmake-build-${build_type})
-
-set(GROMACS_INSTALL_DIR /smithlab/opt/gromacs-dev1/${build_type})
-set(GROMACS_DIR /smithlab/opt/gromacs-dev1/${build_type}/share/cmake/gromacs${SUFFIX_MPI}) #where libgromacs*.cmake are located
-#set(GROMACS_INSTALL_DIR /usr/local/gromacs/${build_type})
-#set(GROMACS_DIR /usr/local/gromacs/${build_type}/share/cmake/gromacs${SUFFIX_MPI}) #where libgromacs*.cmake are located
+set(GROMACS_SRC_DIR /home/amr/git/gromacs)
+set(GROMACS_BUILD_DIR /home/amr/git/gromacs/cmake-build-${build_type})
+set(GROMACS_INSTALL_DIR /smithlab/opt/gromacs-dev/2023/latest/${build_type})
+set(GROMACS_DIR ${GROMACS_INSTALL_DIR}/share/cmake/gromacs${SUFFIX_MPI}) #where libgromacs*.cmake are located
 
 #set(CMAKE_MODULE_PATH /usr/local/gromacs-dev/share/gromacs/template/cmake:$CMAKE_MODULE_PATH)
 set(Eigen3_DIR /smithlab/opt/eigen/3.4.0/share/eigen3/cmake) #:/smithlab/opt/eigen/3.4.0/include/eigen3/unsupported
@@ -33,6 +30,8 @@ endif ()
 find_package(GROMACS NAMES gromacs_mpi gromacs REQUIRED)
 if (GROMACS_FOUND)
 	message("GROMACS FOUND")
+	message(STATUS "GROMACS_DIR folder is: ${GROMACS_DIR}")
+	message(STATUS "GROMACS_CONFIG file is: ${GROMACS_CONFIG}")
 endif ()
 
 find_package(OpenMP)
@@ -47,9 +46,9 @@ FILE(GLOB gmxinterface_sources "src/gmxinterface/*.cpp")
 
 include_directories(include)
 include_directories(
-		"${GROMACS_INSTALL_DIR}/include"
-        "${GROMACS_BUILD_DIR}/src/include/"
-        "${GROMACS_SRC_DIR}/src/gromacs/gmxlib"
+#		"${GROMACS_INSTALL_DIR}/include"  # Not neeed here anymore, but needed for libgromacs
+        "${GROMACS_BUILD_DIR}/src/include/"  #  Needed for "config.h"
+#        "${GROMACS_SRC_DIR}/src/gromacs/gmxlib"
         "${GROMACS_SRC_DIR}/src/gromacs/mdtypes"
         "${GROMACS_SRC_DIR}/src/gromacs/utility/include"
         "${GROMACS_SRC_DIR}/src/programs"
