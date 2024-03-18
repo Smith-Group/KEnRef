@@ -63,10 +63,10 @@ add_library(KENREF_CORE STATIC ${core_sources})
 add_library(KENREF_GMXINTERFACE STATIC ${gmxinterface_sources})
 add_executable(KEnRef "src/gmxinterface/gmxwrapper.cpp")
 
-target_link_libraries(KENREF_CORE PUBLIC MPI::MPI_CXX Eigen3::Eigen Gromacs::libgromacs
+target_link_libraries(KENREF_CORE PUBLIC MPI::MPI_CXX Eigen3::Eigen
 		#        Eigen3::unsupported # may need to restore it later
 )
-target_link_libraries(KENREF_GMXINTERFACE PUBLIC KENREF_CORE)
+target_link_libraries(KENREF_GMXINTERFACE PUBLIC KENREF_CORE Gromacs::libgromacs)
 target_link_libraries(KEnRef PRIVATE KENREF_CORE KENREF_GMXINTERFACE)
 ###########################################
 ## Add gtest
