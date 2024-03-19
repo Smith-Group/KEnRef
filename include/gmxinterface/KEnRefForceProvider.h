@@ -13,6 +13,7 @@
 #include <gromacs/mdtypes/forceoutput.h>
 #include <gromacs/mdrun/simulationcontext.h>
 #include <gromacs/selection/selection.h>
+#include <chrono>
 #include "core/KEnRef.h"
 
 
@@ -38,6 +39,7 @@ class KEnRefForceProvider: public gmx::IForceProvider {
 	std::shared_ptr<std::vector<int>> sub0Id_to_global1Id_; //Global ID is ONE based, subId is a small subset and is ZERO based
 	std::shared_ptr<std::vector<int>> global1Id_to_sub0Id_; //Global ID is ONE based, subId is a small subset and is ZERO based
 	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t>> allSimulationsSubAtomsX_;
+    long long calculateForces_time = 0;
 
 public:
 	KEnRefForceProvider();

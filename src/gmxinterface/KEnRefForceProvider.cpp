@@ -46,6 +46,7 @@ void KEnRefForceProvider::setGuideAtom0Indices(std::shared_ptr<std::vector<int> 
 
 void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forceProviderInput,
                                           gmx::ForceProviderOutput *forceProviderOutput) {
+    auto begin = std::chrono::high_resolution_clock::now();
     std::cout << "calculateForces() called" << std::endl;
     const auto homenr = forceProviderInput.homenr_; // total number of atoms in the system (or domain dec ?)
     GMX_ASSERT(homenr >= 0, "number of home atoms must be non-negative.");
@@ -375,6 +376,13 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     }
     /////////////////// End print angle between vectors //////////////////////////////////////
 
+    auto end = std::chrono::high_resolution_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin);
+    this->calculateForces_time += elapsed.count();
+    if (!(step % 10) && simulationIndex == 0)
+        printf("This iteration (%ld): %.3f seconds. All walltime %.3f seconds\n", step, elapsed.count() * 1e-9, calculateForces_time * 1e-9);
+
+
 //    std::cout << "final force values of simulation # " << simulationIndex << std::endl;
 //    for(int i = 0; i < globalAtomIdFlags_->size() / 10; i++){
 //    	std::cout << ((*globalAtomIdFlags_).at(i) ? "*" : " ") << "\t" << force[i][0] << "\t" << force[i][1] << "\t" << force[i][2] << ((*globalAtomIdFlags_).at(i) ? "\t*" : "") << std::endl;
@@ -414,6 +422,7 @@ CoordsMatrixType<KEnRef_Real_t> KEnRefForceProvider::getGuideAtomsX(const gmx::A
 }
 
 void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulations) {
+    auto begin = std::chrono::high_resolution_clock::now();
     this->atomName_to_atomGlobalId_map_ = std::make_shared<std::map<std::string, int>>(
             IoUtils::getAtomNameMappingFromPdb(KEnRefMDModule::ATOMNAME_MAPPING_FILENAME));
     GMX_ASSERT(!atomName_to_atomGlobalId_map_->empty(), "No atom mapping found");
@@ -565,6 +574,11 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
 #if VERBOSE
     auto allSimulationsSubAtomsX = *this->allSimulationsSubAtomsX_; std::cout << "allSimulationsSubAtomsX_ shape is (" << allSimulationsSubAtomsX.rows() << ", " << allSimulationsSubAtomsX.cols() << ")" << std::endl;
 #endif
+
+    auto end = std::chrono::high_resolution_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin);
+    this->calculateForces_time -= elapsed.count(); //Exclude THIS method from wall time calculation
+
 }
 
 #undef VERBOSE
