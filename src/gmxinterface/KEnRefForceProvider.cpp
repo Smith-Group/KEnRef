@@ -462,6 +462,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
         std::cout << "No KENREF_MAX_ATOMPAIRS_TO_READ identified. Will use default value of " << maxAtomPairsToRead << std::endl;
     }
 
+    //TODO: Print the type name directly
     if (std::is_same<KEnRef_Real_t, float>())
         std::cout << "KEnRef_Real_t type is: FLOAT" << '\n';
     else if (std::is_same<KEnRef_Real_t, double>())
@@ -532,7 +533,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
 //2) fill in the subAtomsFilter
 //3) do a quick sanity scan on the availability of all atomname atomID maping
     int tempI;
-    for(auto [a1, a2]: *this->atomName_pairs_){
+    for(const auto& [a1, a2]: *this->atomName_pairs_){
 #if VERBOSE
 std::cout << "[" << a1 << "]\t" << atomName_to_atomGlobalId_map.at(a1) << "\t";
 std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::endl;
@@ -566,9 +567,9 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
 
     this->atomName_to_atomSub0Id_map_ = std::make_shared<std::map<std::string, int>>();
     auto& atomName_to_atomSub0Id_map = *this->atomName_to_atomSub0Id_map_;
-    for(auto [name, globalId]: atomName_to_atomGlobalId_map){
+    for (const auto &[name, globalId]: atomName_to_atomGlobalId_map)
         atomName_to_atomSub0Id_map[name] = global1Id_to_sub0Id[globalId];
-    }
+
 #if VERBOSE
     for(const auto& [name, subId]: atomName_to_atomSub0Id_map){
             std::cout << "[" << name << "]\t:" << subId << std::endl;
