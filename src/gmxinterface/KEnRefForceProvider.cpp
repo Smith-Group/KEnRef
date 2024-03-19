@@ -453,6 +453,15 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
         std::cout << "No KENREF_N identified. Will use default value of " << this->n_ << std::endl;
     }
 
+    int maxAtomPairsToRead = -1;
+    if (const char *maxAtomPairsToRead_str = std::getenv("KENREF_MAX_ATOMPAIRS_TO_READ")) {
+        std::stringstream sstream(maxAtomPairsToRead_str);
+        sstream >> maxAtomPairsToRead;
+        std::cout << "KENREF_MAX_ATOMPAIRS_TO_READ is: " << maxAtomPairsToRead << '\n';
+    } else {
+        std::cout << "No KENREF_MAX_ATOMPAIRS_TO_READ identified. Will use default value of " << maxAtomPairsToRead << std::endl;
+    }
+
     if (std::is_same<KEnRef_Real_t, float>())
         std::cout << "KEnRef_Real_t type is: FLOAT" << '\n';
     else if (std::is_same<KEnRef_Real_t, double>())
@@ -470,8 +479,8 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
 //        }
 #endif
     this->experimentalData_table_ = std::make_shared<std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>>
-    (IoUtils::readTable(KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME));
-    GMX_ASSERT(experimentalData_table_ && !std::get<1>(*experimentalData_table_).empty(), "No simulated data found");
+    (IoUtils::readTable(KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME, true, maxAtomPairsToRead));
+    GMX_ASSERT(experimentalData_table_ && !(maxAtomPairsToRead && std::get<1>(*experimentalData_table_).empty()), "No simulated data found");
 #if VERBOSE
     const auto& [table_header, table_data] = *experimentalData_table_;
         IoUtils::printVector(table_header);

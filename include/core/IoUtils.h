@@ -27,7 +27,7 @@ public:
 	read_uniform_table_of(std::istream &ins);
 
 	static std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>
-	readTable(const std::string& fileName, bool has_header=true);
+	readTable(const std::string& fileName, bool has_header=true, int max_rows=-1);
 
     static std::map<std::string, std::string>
     readParams(const std::string& fileName);

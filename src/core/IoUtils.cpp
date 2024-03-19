@@ -21,7 +21,7 @@ std::vector<std::vector<T>> IoUtils::read_uniform_table_of(std::istream &ins) {
 }
 
 //caution: this method does not handle the case when there is a comma inside a string
-std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>> IoUtils::readTable(const std::string& fileName, bool has_header){
+std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>> IoUtils::readTable(const std::string& fileName, bool has_header, int max_rows){
 	std::vector<std::string> header{};
 	std::vector<std::vector<std::string>> data{};
 	bool header_consumed = false;
@@ -32,7 +32,9 @@ std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>> IoUt
         std::cerr << "Error opening file: " << fileName << std::endl;
         return {header, data};
     }
-	while(instream.peek() != EOF){
+    int counter = 0;
+    //TODO create a unit test to validate the effect when max_rows is 0, -1, or a positive int
+	while(instream.peek() != EOF && max_rows == -1 || counter < max_rows){
 		std::getline(instream, line);
 		auto tokens = split(line, ",\\s*");
 		for(size_t i = 0; i < tokens.size(); ++i){ // NOLINT(modernize-loop-convert)
@@ -46,6 +48,7 @@ std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>> IoUt
 		}else{
 			data.emplace_back(tokens);
 //			for(std::string value: data.back()){std::cout << value << '\t';} std::cout << std::endl;
+			counter++;
 		}
 	}
 
