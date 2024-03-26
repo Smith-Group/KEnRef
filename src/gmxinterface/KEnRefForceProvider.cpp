@@ -237,6 +237,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
                                                              simulated_grouping_list, g0,
                                                              this->k_, this->n_, true,
                                                              gmx_omp_nthreads_get(ModuleMultiThread::Default));
+        std::cout << "Step: " << step << " Energy: " << energy << std::endl;
 #if VERBOSE
         std::cout << "energy = " << energy << ", allDerivatives_vector:" << std::endl;
         for (int i = 0; i < allDerivatives_vector.size(); i++) {
@@ -276,7 +277,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
 
     KEnRef<KEnRef_Real_t>::saturate(derivatives_rectified, simulationIndex, energy, this->maxForceSquared_,
-                                    gmx_omp_nthreads_get(ModuleMultiThread::Default));
+                                    gmx_omp_nthreads_get(ModuleMultiThread::Default), sub0Id_to_global1Id);
 
     //////////////////////////////////////////////////////////////////////////////////////////////////
     std::cout << "computeVirial_ = " << std::boolalpha << forceProviderOutput->forceWithVirial_.computeVirial_ <<

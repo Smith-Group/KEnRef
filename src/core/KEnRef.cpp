@@ -10,7 +10,8 @@
 #include <memory>
 #include <Eigen/Dense>
 #include "core/KEnRef.h"
-//#include <iostream>//FIXME for testing only
+#include <iostream>//FIXME for testing only
+#include <cmath>
 //#include <utility>
 
 template<typename KEnRef_Real>
@@ -497,24 +498,46 @@ KEnRef<KEnRef_Real>::coord_array_to_g(
 template<typename KEnRef_Real>
 void
 KEnRef<KEnRef_Real>::saturate(CoordsMatrixType<KEnRef_Real> &derivatives_rectified, int simulationIndex,
-                              KEnRef_Real energy, KEnRef_Real thresholdSquared, int numOmpThreads) {
-
-
-//#pragma omp parallel for num_threads(numOmpThreads) default(shared)
+                              KEnRef_Real energy, KEnRef_Real thresholdSquared, int numOmpThreads,
+                              const std::optional<std::vector<int>> &sub0Id_to_global1Id) {
+    std::shared_ptr<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 8>> atomsToReport = nullptr;
     constexpr bool KEnRefReal_less_than_double = sizeof(KEnRef_Real) < sizeof(double);
     int index = 0;
+//#pragma omp parallel for num_threads(numOmpThreads) default(shared)
     for (int i = 0; i < derivatives_rectified.rows(); i++) {
         if (KEnRefReal_less_than_double && (derivatives_rectified.row(i).array().abs() > 1e15).any()){
             auto scaleDownDouble = derivatives_rectified.row(i).template cast<double>().squaredNorm() / thresholdSquared;
             if (scaleDownDouble > 1.0) {
+                if (! atomsToReport){
+                    atomsToReport = std::make_shared<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 8>>(derivatives_rectified.rows(), 8);
+                }
+                auto row = atomsToReport.get()->row(index++);
+                row(0) = sub0Id_to_global1Id ? sub0Id_to_global1Id->at(i) : -1;
+                row.middleCols(1, 3) = derivatives_rectified.row(i);
+                row(4) = std::sqrt(scaleDownDouble);
+
                 derivatives_rectified.row(i) /= static_cast<KEnRef_Real>(std::sqrt(scaleDownDouble));
+                row.middleCols(5, 3) = derivatives_rectified.row(i);
             }
         }else{
             auto scaleDown = derivatives_rectified.row(i).squaredNorm() / thresholdSquared;
             if (scaleDown > 1.0) {
+                if (! atomsToReport){
+                    atomsToReport = std::make_shared<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 8>>(derivatives_rectified.rows(), 8);
+                }
+                auto row = atomsToReport.get()->row(index++);
+                row(0) = sub0Id_to_global1Id ? sub0Id_to_global1Id->at(i) : -1;
+                row.middleCols(1, 3) = derivatives_rectified.row(i);
+                row(4) = std::sqrt(scaleDown);
+
                 derivatives_rectified.row(i) /= std::sqrt(scaleDown);
+                row.middleCols(5, 3) = derivatives_rectified.row(i);
             }
         }
+    }
+    if (atomsToReport){
+        std::cout << "->Number of atoms above threshold: " << index << std::endl <<
+                  atomsToReport.get()->topRows(index) << std::endl;
     }
 }
 

@@ -14,6 +14,7 @@
 #include <tuple>
 
 #include <Eigen/Dense>
+#include <optional>
 // #include "../config/KEnRefConfig.h"
 
 #ifdef DOUBLE
@@ -158,7 +159,8 @@ public:
 	static Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>
 	vectorOfVectors_to_Matrix(std::vector<Eigen::VectorX<KEnRef_Real>> g_vect/*, int numOmpThreads = 0*/);
     static void saturate(CoordsMatrixType<KEnRef_Real> &derivatives_rectified, int simulationIndex,
-                         KEnRef_Real energy, KEnRef_Real thresholdSquared, int numOmpThreads = 0);
+                         KEnRef_Real energy, KEnRef_Real thresholdSquared, int numOmpThreads = 0,
+                         const std::optional<std::vector<int>> &sub0Id_to_global1Id = std::nullopt);
 };
 
 #endif /* KENREF_H_ */
