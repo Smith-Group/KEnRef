@@ -3,7 +3,7 @@ project(Google_tests)
 
 include(FetchContent)
 message(STATUS "CMAKE_HOME_DIRECTORY is: ${CMAKE_HOME_DIRECTORY}")
-set(FETCHCONTENT_BASE_DIR ${CMAKE_HOME_DIRECTORY}/google_tests/lib)
+set(FETCHCONTENT_BASE_DIR ${CMAKE_HOME_DIRECTORY}/cmake-build-${build_type}/google_tests/lib)
 FetchContent_Declare(
         google_tests
         # Specify the commit you depend on and update it regularly.
