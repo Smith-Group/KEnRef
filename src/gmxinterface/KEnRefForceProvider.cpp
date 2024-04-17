@@ -44,6 +44,10 @@ void KEnRefForceProvider::setGuideAtom0Indices(std::shared_ptr<std::vector<int> 
     this->guideAtom0Indices_ = std::move(targetAtoms0Indices);
 }
 
+void KEnRefForceProvider::setGuideAtomsReferenceCoords(std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> &guideAtomsReferenceCoords) {
+    this->guideAtomsReferenceCoords_ = std::move(guideAtomsReferenceCoords);
+}
+
 void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forceProviderInput,
                                           gmx::ForceProviderOutput *forceProviderOutput) {
     auto begin = std::chrono::high_resolution_clock::now();
@@ -157,39 +161,19 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
     // Copy all subAtomsXAfterFitting into its corresponding section of allSimulationsSubAtomsX (after fitting)
 
-    if(isMultiSimulation){
-        long guideAtom0IndicesSize = static_cast<long>(guideAtom0Indices.size()); //int or long?
-        Eigen::MatrixX3<KEnRef_Real_t> subAtomsXAfterFitting; // TODO check whether this is the right format or we should use CoordsMatrixType<KEnRef_Real_t> (i.e. row major)
-        CoordsMatrixType<KEnRef_Real_t> guideAtomsX_ZEROIndexed = getGuideAtomsX(x, cr, guideAtom0Indices);
-        KEnRef_Real_t *guideAtomsX_ZEROIndexed_buffer = guideAtomsX_ZEROIndexed.data();
+    // ================= fit all models to reference ====================
+    long guideAtom0IndicesSize = static_cast<long>(guideAtom0Indices.size()); //int or long?
+    Eigen::MatrixX3<KEnRef_Real_t> subAtomsXAfterFitting; // TODO check whether this is the right format or we should use CoordsMatrixType<KEnRef_Real_t> (i.e. row major)
+    CoordsMatrixType<KEnRef_Real_t> guideAtomsX_ZEROIndexed = getGuideAtomsX(x, cr, guideAtom0Indices);
 
+//    I don't think this line is important. Only for easy printing
+//    gmx_barrier(mainRanksComm);
 
-//        //For testing only
-//        CoordsMapType tempMap = CoordsMapType(guideAtomsX_buffer, 5, 3); //guideAtomIndicesSize, 3);
-//        std::cout << "from simulation ((" << simulationIndex << ")) before bCast" << std::endl << tempMap << std::endl;
+//    //For testing only
+//    CoordsMapType tempMatrix1 = CoordsMapType(guideAtomsX_buffer, 5, 3); //guideAtomIndicesSize, 3);
+//    std::cout << "from simulation ((" << simulationIndex << ")) after bCast" << std::endl << tempMatrix1 << std::endl;
 
-        // Broadcast targetAtomsPositions of model 0
-        KEnRef_Real_t* guideAtoms_model0_X_buffer;
-        if(simulationIndex == 0){
-            guideAtoms_model0_X_buffer = guideAtomsX_ZEROIndexed_buffer;
-        }else{
-            guideAtoms_model0_X_buffer = new KEnRef_Real_t [guideAtom0IndicesSize * 3];
-        }
-
-        //Broadcast guideAtomsX from rank 0 to all other ranks
-        gmx_bcast(guideAtom0IndicesSize * 3 * sizeof(KEnRef_Real_t), guideAtoms_model0_X_buffer, mainRanksComm); //FIXME INSPECT HERE
-//        I don't think this line is important. Only for easy printing
-//        gmx_barrier(mainRanksComm);
-
-        CoordsMapType<KEnRef_Real_t> model0guideAtomsX = CoordsMapType<KEnRef_Real_t>(guideAtoms_model0_X_buffer, guideAtom0IndicesSize, 3);
-
-//        //For testing only
-//        CoordsMapType tempMatrix1 = CoordsMapType(guideAtomsX_buffer, 5, 3); //guideAtomIndicesSize, 3);
-//        std::cout << "from simulation ((" << simulationIndex << ")) after bCast" << std::endl << tempMatrix1 << std::endl;
-
-        affine = (simulationIndex == 0 ?
-                  Eigen::Transform<KEnRef_Real_t, 3, Eigen::Affine>::Identity() :
-                  Kabsch<KEnRef_Real_t>::Find3DAffineTransform(guideAtomsX_ZEROIndexed, model0guideAtomsX));
+    affine = Kabsch<KEnRef_Real_t>::Find3DAffineTransform(guideAtomsX_ZEROIndexed, *this->guideAtomsReferenceCoords_);
 #if VERBOSE
         std::cout << "Affine Matrix" << std::endl << affine.matrix() << std::endl;
 #endif
@@ -197,12 +181,8 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         subAtomsXAfterFitting = (subAtomsX.cast<KEnRef_Real_t>().rowwise().homogeneous() *
                                  affine.matrix().transpose()).leftCols(3).cast<KEnRef_Real_t>();
 
-        if(simulationIndex != 0){
-            //no need for the buffer anymore, delete it.
-            delete guideAtoms_model0_X_buffer; //TODO rewrite the model0guideAtomsX and guideAtoms_model0_X_buffer to avoid memory allocation, delete and reallocation
-        }
-
-        // Gather allSimulationsSubAtomsX to rank 0
+    // Gather allSimulationsSubAtomsX to rank 0 (in allSimulationsSubAtomsX)
+    if(isMultiSimulation){
         MPI_Gather(subAtomsXAfterFitting.data(), static_cast<int>(subAtomsXAfterFitting.size()), ((std::is_same<KEnRef_Real_t, float>()) ? MPI_FLOAT : MPI_DOUBLE),
                    allSimulationsSubAtomsX.data(), static_cast<int>(subAtomsXAfterFitting.size()), ((std::is_same<KEnRef_Real_t, float>()) ? MPI_FLOAT : MPI_DOUBLE), 0,
                    mainRanksComm);
@@ -211,6 +191,8 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     }else{
         allSimulationsSubAtomsX = subAtomsX; //TODO This is copy. You can later use the same memory
     }
+    // ================= end of fit all models to reference ====================
+
 #if VERBOSE
     if(simulationIndex == 0){
         std::cout << "allSimulationsSubAtomsX shape is (" << allSimulationsSubAtomsX.rows() << ", " << allSimulationsSubAtomsX.cols() << ")" << std::endl;
@@ -262,11 +244,10 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     }
 
     //Rectify derivatives
-    if(simulationIndex == 0) {
-        if (isMultiSimulation) { //if master rank in a multisimulation
-            // Scatter them, then Transform them back
-            CoordsMapType<KEnRef_Real_t> derivatives_map(nullptr, 0, 3);
-            KEnRef_Real_t derivatives_buffer[subAtomsX.size()], allDerivatives_buffer[subAtomsX.size() * numSimulations];// TODO try to avoid repeated memory allocation
+    // Scatter them, then Transform them back
+    CoordsMapType<KEnRef_Real_t> derivatives_map(nullptr, 0, 3);
+    auto allDerivatives_buffer = this->allDerivatives_buffer_.get();
+    auto derivatives_buffer = this->derivatives_buffer_.get();
 
     //I will use the slow method of copying data now, as it is less error-prone. TODO change it.
     for (int i = 0; i < allDerivatives.size(); ++i) {
@@ -274,20 +255,21 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         std::copy(matrix.data(), matrix.data() + subAtomsX.size(), &allDerivatives_buffer[i * subAtomsX.size()]);
     }
 
-            // Distribute all derivatives
-            MPI_Scatter(allDerivatives_buffer, static_cast<int>(subAtomsX.size()), ((std::is_same<KEnRef_Real_t, float>()) ? MPI_FLOAT : MPI_DOUBLE),
-                        derivatives_buffer, static_cast<int>(subAtomsX.size()), ((std::is_same<KEnRef_Real_t, float>()) ? MPI_FLOAT : MPI_DOUBLE), 0, mainRanksComm);
-            //once you have the derivatives, retrieve them from the buffer
-            new(&derivatives_map) CoordsMapType<KEnRef_Real_t>(derivatives_buffer, subAtomsX.rows(), 3);
-
-            // Transform them back
-            derivatives_rectified = (derivatives_map.cast<KEnRef_Real_t>().rowwise().homogeneous() *
-                                     affine.inverse().matrix().transpose()).leftCols(3).cast<KEnRef_Real_t>();
-//		std::cout << "derivatives_rectified # " << simulationIndex << " shape (" << derivatives_rectified.rows() << " x " << derivatives_rectified.cols() << ")" << std::endl << derivatives_rectified << std::endl;
-        } else { //if a single simulation
-            derivatives_rectified = allDerivatives[0].cast<KEnRef_Real_t>();
-        }
+    // Distribute all derivatives
+    if(isMultiSimulation){
+        MPI_Scatter(allDerivatives_buffer, static_cast<int>(subAtomsX.size()), ((std::is_same<KEnRef_Real_t, float>()) ? MPI_FLOAT : MPI_DOUBLE),
+                    derivatives_buffer, static_cast<int>(subAtomsX.size()), ((std::is_same<KEnRef_Real_t, float>()) ? MPI_FLOAT : MPI_DOUBLE), 0, mainRanksComm);
+    } else { //if a single simulation
+        //TODO Also, try using the smae memory instead of copying `derivatives_buffer_` back and forth
+        std::copy(allDerivatives_buffer, allDerivatives_buffer+subAtomsX.size(), derivatives_buffer);
     }
+    //once you have the derivatives, retrieve them from the buffer
+    new(&derivatives_map) CoordsMapType<KEnRef_Real_t>(derivatives_buffer, subAtomsX.rows(), 3);
+
+    // Transform them back
+    derivatives_rectified = (derivatives_map.cast<KEnRef_Real_t>().rowwise().homogeneous() *
+                             affine.inverse().matrix().transpose()).leftCols(3).cast<KEnRef_Real_t>();
+//	std::cout << "derivatives_rectified # " << simulationIndex << " shape (" << derivatives_rectified.rows() << " x " << derivatives_rectified.cols() << ")" << std::endl << derivatives_rectified << std::endl;
 
     KEnRef<KEnRef_Real_t>::saturate(derivatives_rectified, simulationIndex, energy, this->maxForceSquared_, gmx_omp_nthreads_get(ModuleMultiThread::Default));
 

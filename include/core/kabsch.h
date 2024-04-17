@@ -21,7 +21,7 @@ class Kabsch{
     //TODO you can check here https://eigen.tuxfamily.org/dox/group__TutorialLinearAlgebra.html
     //TODO and https://eigen.tuxfamily.org/dox/group__TutorialGeometry.html
 public:
-    static Eigen::Transform<precision,3,Eigen::Affine> Find3DAffineTransform(const Eigen::MatrixX3<precision>& p, const Eigen::MatrixX3<precision>& q) {
+    static Eigen::Transform<precision,3,Eigen::Affine> Find3DAffineTransform(const CoordsMatrixType<precision>& p, const CoordsMatrixType<precision>& q) {
 
         // Default output
 		Eigen::Transform<precision,3,Eigen::Affine> A;

@@ -29,6 +29,7 @@ class KEnRefForceProvider: public gmx::IForceProvider {
     KEnRef_Real_t n_ = 0.25;
     bool paramsInitialized = false;
     std::shared_ptr<std::vector<int> const> guideAtom0Indices_; //ZERO indexed
+    std::shared_ptr<CoordsMatrixType<KEnRef_Real_t> const> guideAtomsReferenceCoords_; //ZERO indexed
 	std::shared_ptr<std::map<std::string, int> const> atomName_to_atomGlobalId_map_; //TODO later you may remove this and keep atomName_to_atomSubId_map_, or update it and delete atomName_to_atomSubId_map_
 	std::shared_ptr<std::map<std::string, int>> atomName_to_atomSub0Id_map_; //atomName is normalized string. SubId is a small subset and is ZERO based
 	std::shared_ptr<std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>> experimentalData_table_ = nullptr; //TODO remove this pointer when it is no longer needed
@@ -53,6 +54,7 @@ public:
     void calculateForces(const gmx::ForceProviderInput& forceProviderInput, gmx::ForceProviderOutput* forceProviderOutput) override;
     virtual void setSimulationContext(gmx::SimulationContext* simulationContext);
     virtual void setGuideAtom0Indices(std::shared_ptr<std::vector<int> const> targetAtoms0Indices);
+    virtual void setGuideAtomsReferenceCoords(std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>>& guideAtomsReferenceCoords);
     void fillParamsStep0(size_t homenr, int numSimulations);
     static CoordsMatrixType<KEnRef_Real_t>
     getGuideAtomsX(const gmx::ArrayRef<const gmx::RVec> &x, const t_commrec& cr, const std::vector<int> &guideAtom0Indices) ;

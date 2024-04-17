@@ -94,6 +94,7 @@ class KEnRefMDModule final: public gmx::IMDModule {
     std::shared_ptr<KEnRefForceProvider> forceProvider_;
     gmx::SimulationContext* simulationContext_ = nullptr;
     std::shared_ptr<std::vector<int> const> guideAtoms0Indexed; //ZERO indexed
+    std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> guideAtomsReferenceCoords;
 
     static void readParams(const char *kenref_params) {
         const std::map<std::string, std::string> &params = IoUtils::readParams(kenref_params);
@@ -101,10 +102,19 @@ class KEnRefMDModule final: public gmx::IMDModule {
         KEnRefMDModule::INDEX_FILE_LOCATION = params.at("INDEX_FILE_LOCATION");
         KEnRefMDModule::ATOMNAME_MAPPING_FILENAME = params.at("ATOMNAME_MAPPING_FILENAME");
         KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME = params.at("EXPERIMENTAL_DATA_FILENAME");
+        auto refFileLocation = params.find("REFERENCE_FILENAME");
+        if (refFileLocation == params.end()){ //NOT Found
+            KEnRefMDModule::REFERENCE_FILENAME = ATOMNAME_MAPPING_FILENAME;
+            std::cout << "REFERENCE_FILENAME not found, using ATOMNAME_MAPPING_FILENAME (" << ATOMNAME_MAPPING_FILENAME << ")" << std::endl;
+        }else{ //Found
+            KEnRefMDModule::REFERENCE_FILENAME = refFileLocation->second;
+            std::cout << "REFERENCE_FILENAME found, (" << REFERENCE_FILENAME << ")" << std::endl;
+        }
     }
 public:
     inline static std::string GUIDE_C_ALPHA; // = "guideC-alpha";
     inline static std::string INDEX_FILE_LOCATION; // = "../../res/cleanstart/KEnRefAtomIndex.ndx";
+    inline static std::string REFERENCE_FILENAME; // = "../../res/cleanstart/6v5d_step0_for_atomname_mapping.pdb";
     inline static std::string ATOMNAME_MAPPING_FILENAME; // = "../../res/cleanstart/6v5d_step0_for_atomname_mapping.pdb";
     inline static std::string EXPERIMENTAL_DATA_FILENAME; // = "../../res/cleanstart/singleton_data_step0_model01.csv";
 

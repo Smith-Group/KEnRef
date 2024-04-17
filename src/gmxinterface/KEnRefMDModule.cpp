@@ -25,6 +25,17 @@ KEnRefMDModule::KEnRefMDModule() {
 	std::vector<int>const& indices = GmxKEnRefInitializer::loadGmxIndexGroup(KEnRefMDModule::GUIDE_C_ALPHA, KEnRefMDModule::INDEX_FILE_LOCATION);
 	this->guideAtoms0Indexed = std::make_shared<std::vector<int> const>(indices);
     IoUtils::printVector(indices);
+
+    auto allAtomReferenceCoords = IoUtils::getAtomMappingFromPdb<int, Eigen::RowVector3<KEnRef_Real_t>>(
+            REFERENCE_FILENAME,
+            IoUtils::fill_atomIndex1_to_coords_Map<KEnRef_Real_t>);
+    CoordsMatrixType<KEnRef_Real_t> guideAtomsReferenceCoords = CoordsMatrixType<KEnRef_Real_t>(guideAtoms0Indexed->size(), 3);
+    for (int index0 = 0; index0 < guideAtoms0Indexed->size(); ++index0) {
+        guideAtomsReferenceCoords(index0, Eigen::all) = allAtomReferenceCoords[guideAtoms0Indexed->at(index0) + 1];
+    }
+    std::cout << "Reference Atoms"<< std::endl << guideAtomsReferenceCoords << std::endl;
+    guideAtomsReferenceCoords *= 10;
+    this->guideAtomsReferenceCoords = std::make_shared<const CoordsMatrixType<KEnRef_Real_t >>(guideAtomsReferenceCoords);
 }
 
 KEnRefMDModule::~KEnRefMDModule() = default;
@@ -51,6 +62,7 @@ void KEnRefMDModule::initForceProviders(gmx::ForceProviders* forceProviders) {
 	forceProvider_ = std::make_shared<KEnRefForceProvider>();
 	forceProvider_->setSimulationContext(simulationContext_);
     forceProvider_->setGuideAtom0Indices(this->guideAtoms0Indexed);
+    forceProvider_->setGuideAtomsReferenceCoords(this->guideAtomsReferenceCoords);
 	forceProviders->addForceProvider(forceProvider_.get());
 }
 
