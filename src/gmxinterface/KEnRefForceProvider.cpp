@@ -175,18 +175,17 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
     affine = Kabsch<KEnRef_Real_t>::Find3DAffineTransform(guideAtomsX_ZEROIndexed, *this->guideAtomsReferenceCoords_);
 #if VERBOSE
-        std::cout << "Affine Matrix" << std::endl << affine.matrix() << std::endl;
+    std::cout << "Affine Matrix" << std::endl << affine.matrix() << std::endl;
 #endif
 
-        subAtomsXAfterFitting = (subAtomsX.cast<KEnRef_Real_t>().rowwise().homogeneous() *
-                                 affine.matrix().transpose()).leftCols(3).cast<KEnRef_Real_t>();
+    subAtomsXAfterFitting = (subAtomsX.cast<KEnRef_Real_t>().rowwise().homogeneous() * affine.matrix().transpose()).leftCols(3).cast<KEnRef_Real_t>();
 
     // Gather allSimulationsSubAtomsX to rank 0 (in allSimulationsSubAtomsX)
     if(isMultiSimulation){
         MPI_Gather(subAtomsXAfterFitting.data(), static_cast<int>(subAtomsXAfterFitting.size()), ((std::is_same<KEnRef_Real_t, float>()) ? MPI_FLOAT : MPI_DOUBLE),
                    allSimulationsSubAtomsX.data(), static_cast<int>(subAtomsXAfterFitting.size()), ((std::is_same<KEnRef_Real_t, float>()) ? MPI_FLOAT : MPI_DOUBLE), 0,
                    mainRanksComm);
-        //I don't think this line is important. Only for easy printing
+//I don't think this line is important. Only for easy printing
 //        gmx_barrier(mainRanksComm);
     }else{
         allSimulationsSubAtomsX = subAtomsX; //TODO This is copy. You can later use the same memory

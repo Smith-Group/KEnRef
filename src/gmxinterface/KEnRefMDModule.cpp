@@ -40,7 +40,7 @@ KEnRefMDModule::KEnRefMDModule() {
 
 KEnRefMDModule::~KEnRefMDModule() = default;
 KEnRefMDModule::KEnRefMDModule(const KEnRefMDModule &other) = default;
-KEnRefMDModule::KEnRefMDModule(KEnRefMDModule &&other)  noexcept = default;
+KEnRefMDModule::KEnRefMDModule(KEnRefMDModule &&other) noexcept = default;
 KEnRefMDModule& KEnRefMDModule::operator=(const KEnRefMDModule &other) = default;
 KEnRefMDModule& KEnRefMDModule::operator=(KEnRefMDModule &&other) noexcept = default;
 

@@ -23,39 +23,39 @@ class IoUtils final {
 private:
 
 public:
-    IoUtils()=delete;
+    IoUtils() = delete;
     template<typename T>
-	static std::vector<std::vector<T>>
-	read_uniform_table_of(std::istream &ins);
+    static std::vector<std::vector<T>>
+    read_uniform_table_of(std::istream &ins);
 
-	static std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>
-	readTable(const std::string& fileName, bool has_header=true, int max_rows=-1);
+    static std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>
+    readTable(const std::string &fileName, bool has_header = true, int max_rows = -1);
 
     static std::map<std::string, std::string>
-    readParams(const std::string& fileName);
+    readParams(const std::string &fileName);
 
     static std::map<std::string, std::string>
     readParams(std::istream &paramsFileStream);
 
-	static std::string
-	strip_enclosing_quotoes(const std::string& str, char delim = '\"');
+    static std::string
+    strip_enclosing_quotoes(const std::string &str, char delim = '\"');
 
-	static std::tuple<
-		std::vector<std::string>,
-		std::vector<std::string>,
-		std::vector<int>>
-	read_noe_table(std::istream &instream, bool has_header=true);
+    static std::tuple<
+            std::vector<std::string>,
+            std::vector<std::string>,
+            std::vector<int>>
+    read_noe_table(std::istream &instream, bool has_header = true);
 
-	std::vector<std::string>
-	static split(const std::string& str, const std::string& delim = "\\s+");
+    std::vector<std::string>
+    static split(const std::string &str, const std::string &delim = "\\s+");
 
-	static std::map<std::string, std::vector<std::string>>
-	read_noe_groups(std::istream &ins);
-	static std::vector<int> getGmxNdxGroup(const std::string& filename, const std::string& groupName);
-	static std::map<std::string, std::vector<int>> getAllGmxNdxGroups(const std::string& filename);
+    static std::map<std::string, std::vector<std::string>>
+    read_noe_groups(std::istream &ins);
+    static std::vector<int> getGmxNdxGroup(const std::string &filename, const std::string &groupName);
+    static std::map<std::string, std::vector<int>> getAllGmxNdxGroups(const std::string &filename);
 
-	template<typename TYPE>
-	static void printVector(const std::vector<TYPE>& vec);
+    template<typename TYPE>
+    static void printVector(const std::vector<TYPE> &vec);
 
     template<typename retMapKey, typename retMapValue>
     static std::map<retMapKey, retMapValue>
@@ -116,11 +116,11 @@ public:
     inline const static std::regex HG13_ILE = std::regex("HG13.ILE");
 
     inline const static std::regex UNPREPARED_NAMES_MASK = std::regex("(HA3.GLY)|"
-                                                                 "(HB3.(PHE|LEU|SER|ASP|ASN|TYR|HIS))|"
-                                                                 "((HB3|HG3).(MET|GLN|GLU))|"
-                                                                 "((HB3|HG3|HD3).(ARG|PRO))|"
-                                                                 "((HB3|HG3|HD3|HE3).(LYS))|"
-                                                                 "(HG13.ILE)");
+                                                                      "(HB3.(PHE|LEU|SER|ASP|ASN|TYR|HIS))|"
+                                                                      "((HB3|HG3).(MET|GLN|GLU))|"
+                                                                      "((HB3|HG3|HD3).(ARG|PRO))|"
+                                                                      "((HB3|HG3|HD3|HE3).(LYS))|"
+                                                                      "(HG13.ILE)");
 
     //This method removes AltLoc and ChainID and keeps only the last one of each
     static void fill_atomId_to_index_Map(std::map<std::string, int> &ret, const std::smatch &sm);
@@ -128,5 +128,4 @@ public:
     template<typename KEnRef_Real>
     static void fill_atomIndex1_to_coords_Map(std::map<int, Eigen::RowVector3<KEnRef_Real>> &ret, const std::smatch &sm);
 };
-
 #endif /* IOUTILS_H_ */
