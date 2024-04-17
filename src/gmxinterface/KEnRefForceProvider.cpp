@@ -268,11 +268,11 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
             CoordsMapType<KEnRef_Real_t> derivatives_map(nullptr, 0, 3);
             KEnRef_Real_t derivatives_buffer[subAtomsX.size()], allDerivatives_buffer[subAtomsX.size() * numSimulations];// TODO try to avoid repeated memory allocation
 
-            //I will use the slow method of copying data now, as it is less error-prone. TODO change it.
-            for (int i = 0; i < allDerivatives.size(); ++i) {
-                auto matrix = allDerivatives[i];
-                std::copy(matrix.data(), matrix.data() + subAtomsX.size(), &allDerivatives_buffer[i * subAtomsX.size()]);
-            }
+    //I will use the slow method of copying data now, as it is less error-prone. TODO change it.
+    for (int i = 0; i < allDerivatives.size(); ++i) {
+        auto matrix = allDerivatives[i];
+        std::copy(matrix.data(), matrix.data() + subAtomsX.size(), &allDerivatives_buffer[i * subAtomsX.size()]);
+    }
 
             // Distribute all derivatives
             MPI_Scatter(allDerivatives_buffer, static_cast<int>(subAtomsX.size()), ((std::is_same<KEnRef_Real_t, float>()) ? MPI_FLOAT : MPI_DOUBLE),
@@ -584,6 +584,10 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
 #if VERBOSE
     auto allSimulationsSubAtomsX = *this->allSimulationsSubAtomsX_; std::cout << "allSimulationsSubAtomsX_ shape is (" << allSimulationsSubAtomsX.rows() << ", " << allSimulationsSubAtomsX.cols() << ")" << std::endl;
 #endif
+
+    this->allDerivatives_buffer_ = std::shared_ptr<KEnRef_Real_t[]>(new KEnRef_Real_t[this->subAtomsX_->size() * numSimulations]);
+    this->derivatives_buffer_ = std::shared_ptr<KEnRef_Real_t[]>(new KEnRef_Real_t[this->subAtomsX_->size()]);
+
 
     auto end = std::chrono::high_resolution_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin);

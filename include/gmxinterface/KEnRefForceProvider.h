@@ -38,7 +38,9 @@ class KEnRefForceProvider: public gmx::IForceProvider {
 	std::shared_ptr<std::vector<bool>> globalAtomIdFlags_; //ONE based
 	std::shared_ptr<std::vector<int>> sub0Id_to_global1Id_; //Global ID is ONE based, subId is a small subset and is ZERO based
 	std::shared_ptr<std::vector<int>> global1Id_to_sub0Id_; //Global ID is ONE based, subId is a small subset and is ZERO based
-	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t>> allSimulationsSubAtomsX_;
+	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t>> allSimulationsSubAtomsX_; //allocated once, used every step
+    std::shared_ptr<KEnRef_Real_t[]> allDerivatives_buffer_;
+    std::shared_ptr<KEnRef_Real_t[]> derivatives_buffer_;
     long long calculateForces_time = 0;
 
 public:
