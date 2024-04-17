@@ -3,6 +3,7 @@
 #include <fstream>
 #include <string>
 #include <system_error>
+#include <Eigen/Core>
 #include "core/IoUtils.h"
 
 template<typename T>
@@ -306,37 +307,53 @@ std::string& IoUtils::normalizeName(std::string &atomId, bool lowerNameRanks) {
 	return atomId;
 }
 
-std::map<std::string, int>
-IoUtils::getAtomNameMappingFromPdb(const std::string& pdbFilename){
-	std::map<std::string, int> ret = {};
+std::regex atomRecordTemplate {"^((ATOM  )|(HETATM))([0-9 ]{5}) (.{15})   ([0-9 .-]{8})([0-9 .-]{8})([0-9 .-]{8}).+$" };
 
-//    std::filesystem::path pdbFilePath(pdbFilename);
-//    std::ifstream pdbFileStream;
-//    try {
-//        pdbFileStream = std::ifstream (pdbFilename);
-//    } catch (std::filesystem::filesystem_error& e) {
-//        throw e;
-//    }
+template<typename retMapKey, typename retMapValue>
+std::map<retMapKey, retMapValue>
+IoUtils::getAtomMappingFromPdb(const std::string &pdbFilename, std::function<void(std::map<retMapKey, retMapValue> &ret, const std::smatch &sm)> mappingFunc){
+    std::map<retMapKey, retMapValue> ret = {};
+
     std::ifstream pdbFileStream(pdbFilename); //no need to try and catch here.
 
     std::string line;
-    std::regex atomRecordTemplate {"^((ATOM  )|(HETATM))([0-9 ]{5}) (.{15}).+$" };
     std::smatch sm;
-    int index;
     while (std::getline(pdbFileStream, line)) {
         if (line.empty()) continue;
         if(std::regex_match(line, sm, atomRecordTemplate)){
-        	std::string atomId = sm[5];
-			normalizeName(atomId, false);
-        	std::istringstream iss(sm[4]);
-        	iss >> index;
-        	ret[atomId] = index;
+//            fill_atomId_to_index_Map(ret, sm);
+            mappingFunc(ret, sm);
         }
     }
     pdbFileStream.close();
     std::cerr << "number of items in the map = " << ret.size() << std::endl;
     return ret; //std::move(&ret);
 }
+
+void IoUtils::fill_atomId_to_index_Map(std::map<std::string, int> &ret, const std::smatch &sm){
+    int atomIndex;
+    std::string atomId = sm[5];
+    normalizeName(atomId, false);
+    std::istringstream iss(sm[4]);
+    iss >> atomIndex;
+    ret[atomId] = atomIndex;
+}
+
+template<typename KEnRef_Real>
+void IoUtils::fill_atomIndex1_to_coords_Map(std::map<int, Eigen::RowVector3<KEnRef_Real>> &ret, const std::smatch &sm){
+    int atomIndex1;
+    KEnRef_Real x, y, z;
+    std::istringstream iss1(sm[4]);
+    iss1 >> atomIndex1;
+    std::istringstream issX(sm[6]);
+    issX >> x;
+    std::istringstream issY(sm[7]);
+    issY >> y;
+    std::istringstream issZ(sm[8]);
+    issZ >> z;
+    ret[atomIndex1] = std::move(Eigen::RowVector3<KEnRef_Real>(x, y, z));
+}
+
 
 std::map<std::string, std::string> IoUtils::readParams(const std::string &fileName) {
     std::ifstream paramsFileStream(fileName);
@@ -374,3 +391,9 @@ template void IoUtils::printVector(const std::vector<int> &vec);
 template void IoUtils::printVector(const std::vector<float> &vec);
 template void IoUtils::printVector(const std::vector<double> &vec);
 template void IoUtils::printVector(const std::vector<std::string> &vec);
+
+template std::map<std::string, int> IoUtils::getAtomMappingFromPdb(const std::string& pdbFilename, std::function<void(std::map<std::string, int> &, const std::smatch &)> mappingFunc);
+template void IoUtils::fill_atomIndex1_to_coords_Map<float>(std::map<int, Eigen::RowVector3<float>> &ret, const std::smatch &sm);
+template void IoUtils::fill_atomIndex1_to_coords_Map<double>(std::map<int, Eigen::RowVector3<double>> &ret, const std::smatch &sm);
+template std::map<int, Eigen::RowVector3<float>> IoUtils::getAtomMappingFromPdb<int, Eigen::RowVector3<float>>(const std::string& pdbFilename, std::function<void(std::map<int, Eigen::RowVector3<float>> &, const std::smatch &)> mappingFunc);
+template std::map<int, Eigen::RowVector3<double>> IoUtils::getAtomMappingFromPdb<int, Eigen::RowVector3<double>>(const std::string& pdbFilename, std::function<void(std::map<int, Eigen::RowVector3<double>> &, const std::smatch &)> mappingFunc);

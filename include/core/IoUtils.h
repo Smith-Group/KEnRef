@@ -14,6 +14,8 @@
 #include <sstream>
 #include <string>
 #include <map>
+#include <functional>
+#include <Eigen/Core>
 
 #include "../config/KEnRefConfig.h"
 
@@ -55,10 +57,12 @@ public:
 	template<typename TYPE>
 	static void printVector(const std::vector<TYPE>& vec);
 
-	static std::map<std::string, int>
-	getAtomNameMappingFromPdb(const std::string& filename); //This method removes AltLoc and ChainID and keeps only the last one of each
-	static std::string& normalizeName(std::string &atomId, bool lowerNameRanks=true);
-    static bool isNotPrepared(const std::string& atomName);
+    template<typename retMapKey, typename retMapValue>
+    static std::map<retMapKey, retMapValue>
+    getAtomMappingFromPdb(const std::string &pdbFilename, std::function<void(std::map<retMapKey, retMapValue> &ret, const std::smatch &sm)> mappingFunc);
+    static std::string &normalizeName(std::string &atomId, bool lowerNameRanks = true);
+
+    static bool isNotPrepared(const std::string &atomName);
 
     inline const static std::regex HB2_MET = std::regex("HB2.MET");
     inline const static std::regex HB3_MET = std::regex("HB3.MET");
@@ -118,6 +122,11 @@ public:
                                                                  "((HB3|HG3|HD3|HE3).(LYS))|"
                                                                  "(HG13.ILE)");
 
+    //This method removes AltLoc and ChainID and keeps only the last one of each
+    static void fill_atomId_to_index_Map(std::map<std::string, int> &ret, const std::smatch &sm);
+
+    template<typename KEnRef_Real>
+    static void fill_atomIndex1_to_coords_Map(std::map<int, Eigen::RowVector3<KEnRef_Real>> &ret, const std::smatch &sm);
 };
 
 #endif /* IOUTILS_H_ */

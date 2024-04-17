@@ -9,7 +9,7 @@
 TEST(IoUtilsTestSuite, TestGetAtomNameMappingFromPdb){
     static const char *const ATOMNAME_MAPPING_FILENAME = "../../res/cleanstart/6v5d_step0_for_atomname_mapping.pdb";
     std::cout << std::filesystem::current_path() << std::endl;
-    std::map<std::string, int> atomNameMapping = IoUtils::getAtomNameMappingFromPdb(ATOMNAME_MAPPING_FILENAME);
+    std::map<std::string, int> atomNameMapping = IoUtils::getAtomMappingFromPdb<std::string, int>(ATOMNAME_MAPPING_FILENAME, IoUtils::fill_atomId_to_index_Map);
     EXPECT_TRUE(!atomNameMapping.empty());
     EXPECT_EQ(atomNameMapping.size(), 25951); // was 1231 before adding solvent
     EXPECT_EQ(atomNameMapping[" HA  MET     1 "], 6);

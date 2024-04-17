@@ -424,7 +424,8 @@ CoordsMatrixType<KEnRef_Real_t> KEnRefForceProvider::getGuideAtomsX(const gmx::A
 void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulations) {
     auto begin = std::chrono::high_resolution_clock::now();
     this->atomName_to_atomGlobalId_map_ = std::make_shared<std::map<std::string, int>>(
-            IoUtils::getAtomNameMappingFromPdb(KEnRefMDModule::ATOMNAME_MAPPING_FILENAME));
+            IoUtils::getAtomMappingFromPdb<std::string, int>(KEnRefMDModule::ATOMNAME_MAPPING_FILENAME,
+                                                             IoUtils::fill_atomId_to_index_Map));
     GMX_ASSERT(!atomName_to_atomGlobalId_map_->empty(), "No atom mapping found");
     auto& atomName_to_atomGlobalId_map = *this->atomName_to_atomGlobalId_map_;
 
