@@ -24,7 +24,7 @@ KEnRef<KEnRef_Real>::~KEnRef() = default;
 
 template<typename KEnRef_Real>
 std::tuple<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15>>
-KEnRef<KEnRef_Real>::r_array_to_d_array(const Eigen::MatrixX3<KEnRef_Real> &Nxyz, bool gradient, int numOmpThreads) {
+KEnRef<KEnRef_Real>::r_array_to_d_array(const CoordsMatrixType<KEnRef_Real> &Nxyz, bool gradient, int numOmpThreads) {
 //	std::cout << "r_array_to_d_array(Nxyz) called" << std::endl;
     auto N = Nxyz.rows();
 
@@ -120,7 +120,7 @@ KEnRef<KEnRef_Real>::r_array_to_d_array(const Eigen::MatrixX3<KEnRef_Real> &Nxyz
 //	std::tuple<Eigen::MatrixXf, Eigen::MatrixXf> KEnRef::r_array_to_d_array(const Eigen::MatrixX3f& Nxyz, bool gradient){
 template<typename KEnRef_Real>
 std::tuple<std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>>, std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15>>>
-KEnRef<KEnRef_Real>::r_array_to_d_array(const std::vector<Eigen::MatrixX3<KEnRef_Real>> &models_Nxyz, bool gradient, int numOmpThreads) {
+KEnRef<KEnRef_Real>::r_array_to_d_array(const std::vector<CoordsMatrixType<KEnRef_Real>> &models_Nxyz, bool gradient, int numOmpThreads) {
 //	std::cout << "r_array_to_d_array(models_Nxyz) called" << std::endl;
     std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>> ret1;
     std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15>> ret2;
@@ -339,12 +339,12 @@ KEnRef<KEnRef_Real>::vectorOfVectors_to_Matrix(std::vector<Eigen::VectorX<KEnRef
 }
 
 template<typename KEnRef_Real>
-std::vector<Eigen::MatrixX3<KEnRef_Real>>
-KEnRef<KEnRef_Real>::coord_array_to_r_array( //TODO shall we change the return type to CoordsMatrixType ?
-        const std::vector<Eigen::MatrixX3<KEnRef_Real>> &coord_array,
+std::vector<CoordsMatrixType<KEnRef_Real>>
+KEnRef<KEnRef_Real>::coord_array_to_r_array(
+        const std::vector<CoordsMatrixType<KEnRef_Real>> &coord_array,
         const std::vector<std::tuple<int, int>> &atomId_pairs, int numOmpThreads) {
 //	std::cout << "coord_array_to_r_array() called" << std::endl;
-    std::vector<Eigen::MatrixX3<KEnRef_Real>> ret(coord_array.size());
+    std::vector<CoordsMatrixType<KEnRef_Real>> ret(coord_array.size());
 //    #pragma omp parallel for collapse(2) num_threads(numOmpThreads)
     for (int model_no = 0; model_no < coord_array.size(); ++model_no) {
         ret.at(model_no) = {atomId_pairs.size(), 3};
@@ -360,7 +360,7 @@ KEnRef<KEnRef_Real>::coord_array_to_r_array( //TODO shall we change the return t
 template<typename KEnRef_Real>
 std::tuple<KEnRef_Real, std::vector<CoordsMatrixType<KEnRef_Real>>>
 KEnRef<KEnRef_Real>::coord_array_to_energy(
-        const std::vector<Eigen::MatrixX3<KEnRef_Real>>& coord_array,    //Every vector item is an Nx3 Matrix representing atom coordinates of a model.
+        const std::vector<CoordsMatrixType<KEnRef_Real>>& coord_array,    //Every vector item is an Nx3 Matrix representing atom coordinates of a model.
         const std::vector<std::tuple<std::string, std::string>>& atomName_pairs,    // Matrix with each row having the names of an atom pair (related to first dimension in `coord_array` matrices)
         const std::vector<std::vector<std::vector<int>>>& grouping_list,    // list of lists of integer vectors giving groupings of models to average interaction tensors
         const Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>& g0,
@@ -391,7 +391,7 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
 template<typename KEnRef_Real>
 std::tuple<KEnRef_Real, std::vector<CoordsMatrixType<KEnRef_Real>>>
 KEnRef<KEnRef_Real>::coord_array_to_energy(
-        std::vector<Eigen::MatrixX3<KEnRef_Real>> coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
+        std::vector<CoordsMatrixType<KEnRef_Real>> coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
 		std::vector<std::tuple<int, int>> atomId_pairs, 	// Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
 		const std::vector<std::vector<std::vector<int>>>& grouping_list,	// list of lists of integer vectors giving groupings of models to average interaction tensors
 		const Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> &g0, KEnRef_Real k, KEnRef_Real n, bool gradient, int numOmpThreads)
@@ -509,7 +509,7 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
 template<typename KEnRef_Real>
 Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>
 KEnRef<KEnRef_Real>::coord_array_to_g(
-		const std::vector<Eigen::MatrixX3<KEnRef_Real>>& coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
+		const std::vector<CoordsMatrixType<KEnRef_Real>>& coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
 		const std::vector<std::tuple<int, int>>& atomId_pairs, 	// Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
 		const std::vector<std::vector<std::vector<int>>>& grouping_list,  // list of lists of integer vectors giving groupings of models to average interaction tensors
         int numOmpThreads)

@@ -163,7 +163,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
     // ================= fit all models to reference ====================
     long guideAtom0IndicesSize = static_cast<long>(guideAtom0Indices.size()); //int or long?
-    Eigen::MatrixX3<KEnRef_Real_t> subAtomsXAfterFitting; // TODO check whether this is the right format or we should use CoordsMatrixType<KEnRef_Real_t> (i.e. row major)
+    CoordsMatrixType<KEnRef_Real_t> subAtomsXAfterFitting;
     CoordsMatrixType<KEnRef_Real_t> guideAtomsX_ZEROIndexed = getGuideAtomsX(x, cr, guideAtom0Indices);
 
 //    I don't think this line is important. Only for easy printing
@@ -188,7 +188,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 //I don't think this line is important. Only for easy printing
 //        gmx_barrier(mainRanksComm);
     }else{
-        allSimulationsSubAtomsX = subAtomsX; //TODO This is copy. You can later use the same memory
+        // NOthing. They are one and the same already
     }
     // ================= end of fit all models to reference ====================
 
@@ -209,58 +209,57 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 #endif
 
     KEnRef_Real_t energy = 0;
-    std::vector<CoordsMatrixType<KEnRef_Real_t>> allDerivatives;
+    std::vector<CoordsMatrixType<KEnRef_Real_t>> allDerivatives_vector;
     CoordsMatrixType<KEnRef_Real_t> derivatives_rectified;
 
     //in the master rank
     if (!isMultiSimulation || simulationIndex == 0) {
 //        KEnRef_Real_t energy;
-//        std::vector<CoordsMatrixType<KEnRef_Real_t>> allDerivatives;
+//        std::vector<CoordsMatrixType<KEnRef_Real_t>> allDerivatives_vector;
 
         //collect all matrices of all replica into a vector of atom coordinates.
-        std::vector<Eigen::MatrixX3<KEnRef_Real_t>> allSimulationsSubAtomsX_vector;
+        std::vector<CoordsMatrixType<KEnRef_Real_t>> allSimulationsSubAtomsX_vector;
         allSimulationsSubAtomsX_vector.reserve(numSimulations);
         for (int i = 0; i < numSimulations; i++) {
-            //TODO Review and Simplify this
-            CoordsMatrixType<KEnRef_Real_t> temp1Matrix = CoordsMapType<KEnRef_Real_t>(
-                    &allSimulationsSubAtomsX.data()[i * subAtomsX.size()], subAtomsX.rows(), 3);
-            const CoordsMatrixType<KEnRef_Real_t> &temp2Matrix = temp1Matrix;
-            allSimulationsSubAtomsX_vector.emplace_back(temp2Matrix);
+            //TODO Review (and Simplify?)
+//            CoordsMatrixType<KEnRef_Real_t> tempMatrix = CoordsMapType<KEnRef_Real_t>(
+//                    &allSimulationsSubAtomsX.data()[i * subAtomsX.size()], subAtomsX.rows(), 3);
+//            allSimulationsSubAtomsX_vector.emplace_back(std::move(tempMatrix));
+            allSimulationsSubAtomsX_vector.emplace_back(std::move(CoordsMapType<KEnRef_Real_t>(&allSimulationsSubAtomsX.data()[i * subAtomsX.size()], subAtomsX.rows(), 3)));
         }
 
         //do force calculations
-        std::tie(energy, allDerivatives) =
+        std::tie(energy, allDerivatives_vector) =
                 KEnRef<KEnRef_Real_t>::coord_array_to_energy(allSimulationsSubAtomsX_vector, atomName_pairs,
                                                              simulated_grouping_list, g0, atomName_to_atomSub0Id_map,
                                                              this->k_, this->n_, true, gmx_omp_nthreads_get(ModuleMultiThread::Default));
 #if VERBOSE
-        std::cout << "energy = " << energy << ", allDerivatives:" << std::endl;
-        for (int i = 0; i < allDerivatives.size(); i++) {
-            std::cout << "model " << i << " shape (" << allDerivatives[i].rows() << " x " << allDerivatives[i].cols()
-                      << ")" << std::endl << allDerivatives[i] << std::endl;
+        std::cout << "energy = " << energy << ", allDerivatives_vector:" << std::endl;
+        for (int i = 0; i < allDerivatives_vector.size(); i++) {
+            std::cout << "model " << i << " shape (" << allDerivatives_vector[i].rows() << " x " << allDerivatives_vector[i].cols()
+                      << ")" << std::endl << allDerivatives_vector[i] << std::endl;
         }
 #endif
     }
 
-    //Rectify derivatives
-    // Scatter them, then Transform them back
+    //Rectify derivatives: Scatter them, then Transform them back
     CoordsMapType<KEnRef_Real_t> derivatives_map(nullptr, 0, 3);
     auto allDerivatives_buffer = this->allDerivatives_buffer_.get();
     auto derivatives_buffer = this->derivatives_buffer_.get();
-
-    //I will use the slow method of copying data now, as it is less error-prone. TODO change it.
-    for (int i = 0; i < allDerivatives.size(); ++i) {
-        auto matrix = allDerivatives[i];
-        std::copy(matrix.data(), matrix.data() + subAtomsX.size(), &allDerivatives_buffer[i * subAtomsX.size()]);
+    // First, prepare the buffer
+    if (simulationIndex == 0) { //whether master rank or single simulation
+        //I will use the slow method of copying data now, as it is less error-prone. TODO To change it, we need first to make sure the function returns the date contagiously.
+        for (int i = 0; i < allDerivatives_vector.size(); ++i) {
+            auto& matrix = allDerivatives_vector[i];
+            std::copy(matrix.data(), matrix.data() + subAtomsX.size(), &allDerivatives_buffer[i * subAtomsX.size()]);
+        }
     }
-
-    // Distribute all derivatives
+    // Use it to distribute all derivatives
     if(isMultiSimulation){
         MPI_Scatter(allDerivatives_buffer, static_cast<int>(subAtomsX.size()), ((std::is_same<KEnRef_Real_t, float>()) ? MPI_FLOAT : MPI_DOUBLE),
                     derivatives_buffer, static_cast<int>(subAtomsX.size()), ((std::is_same<KEnRef_Real_t, float>()) ? MPI_FLOAT : MPI_DOUBLE), 0, mainRanksComm);
     } else { //if a single simulation
-        //TODO Also, try using the smae memory instead of copying `derivatives_buffer_` back and forth
-        std::copy(allDerivatives_buffer, allDerivatives_buffer+subAtomsX.size(), derivatives_buffer);
+        //Do nothing. allDerivatives_buffer and derivatives_buffer are already the same.
     }
     //once you have the derivatives, retrieve them from the buffer
     new(&derivatives_map) CoordsMapType<KEnRef_Real_t>(derivatives_buffer, subAtomsX.rows(), 3);
@@ -404,6 +403,7 @@ CoordsMatrixType<KEnRef_Real_t> KEnRefForceProvider::getGuideAtomsX(const gmx::A
 
 void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulations) {
     auto begin = std::chrono::high_resolution_clock::now();
+    bool isMultiSimulation = this->simulationContext_->multiSimulation_ != nullptr;
     this->atomName_to_atomGlobalId_map_ = std::make_shared<std::map<std::string, int>>(
             IoUtils::getAtomMappingFromPdb<std::string, int>(KEnRefMDModule::ATOMNAME_MAPPING_FILENAME,
                                                              IoUtils::fill_atomId_to_index_Map));
@@ -562,14 +562,13 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
 #if VERBOSE
     auto subAtomsX = *this->subAtomsX_; std::cout << "subAtomsX_ shape is (" << subAtomsX.rows() << ", " << subAtomsX.cols() << ")" << std::endl;
 #endif
-    this->allSimulationsSubAtomsX_ = std::make_shared<CoordsMatrixType<KEnRef_Real_t>>(numSimulations * this->subAtomsX_->rows(), 3);
+    this->allSimulationsSubAtomsX_ = isMultiSimulation ? std::make_shared<CoordsMatrixType<KEnRef_Real_t>>(numSimulations * this->subAtomsX_->rows(), 3) : this->subAtomsX_;
 #if VERBOSE
     auto allSimulationsSubAtomsX = *this->allSimulationsSubAtomsX_; std::cout << "allSimulationsSubAtomsX_ shape is (" << allSimulationsSubAtomsX.rows() << ", " << allSimulationsSubAtomsX.cols() << ")" << std::endl;
 #endif
 
     this->allDerivatives_buffer_ = std::shared_ptr<KEnRef_Real_t[]>(new KEnRef_Real_t[this->subAtomsX_->size() * numSimulations]);
-    this->derivatives_buffer_ = std::shared_ptr<KEnRef_Real_t[]>(new KEnRef_Real_t[this->subAtomsX_->size()]);
-
+    this->derivatives_buffer_ = isMultiSimulation ? std::shared_ptr<KEnRef_Real_t[]>(new KEnRef_Real_t[this->subAtomsX_->size()]) : this->allDerivatives_buffer_;
 
     auto end = std::chrono::high_resolution_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin);

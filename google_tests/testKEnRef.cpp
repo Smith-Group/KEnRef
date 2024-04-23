@@ -160,21 +160,21 @@ TEST(KEnRefTestSuite, testSaturate) {
 }
 
 TEST(KEnRefTestSuite, restOfTestsToWrite){
-    Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, 3> model1(5, 3);
+    CoordsMatrixType<KEnRef_Real_t> model1(5, 3);
     model1 <<
            32.708, 53.484, 20.701,
             32.284, 52.123, 22.636,
             31.277, 51.654, 21.284,
             31.852, 49.646, 22.312,
             32.854, 49.716, 20.812;
-    Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, 3> model2(5, 3);
+    CoordsMatrixType<KEnRef_Real_t> model2(5, 3);
     model2 <<
            32.733, 52.960, 22.152,
             33.130, 51.220, 23.736,
             31.878, 50.694, 22.613,
             33.471, 49.251, 21.415,
             34.819, 49.854, 22.481;
-    std::vector<Eigen::Matrix<KEnRef_Real_t , Eigen::Dynamic, 3>> eros3_sub_coord{model1, model2};
+    std::vector<CoordsMatrixType<KEnRef_Real_t>> eros3_sub_coord{model1, model2};
     std::vector<std::tuple<int, int>> eros3_sub_atom_idPairs{{0, 1}, {0, 2}, {0, 3}, {0, 4}};
     std::vector<std::vector<std::vector<int>>> eros3_grouping_list {{{0}, {1}}, {{0, 1}}};
 
@@ -219,7 +219,7 @@ TEST(KEnRefTestSuite, restOfTestsToWrite){
     auto eros3_sub_g = KEnRef<KEnRef_Real_t>::coord_array_to_g(eros3_sub_coord, eros3_sub_atom_idPairs, eros3_grouping_list);
     std::cout << "eros3_sub_g" << std::endl << eros3_sub_g << std::endl;
 
-    std::vector<Eigen::MatrixX3<KEnRef_Real_t>> m1_twice = {eros3_sub_coord[0], eros3_sub_coord[0]};
+    std::vector<CoordsMatrixType<KEnRef_Real_t>> m1_twice = {eros3_sub_coord[0], eros3_sub_coord[0]};
     //get g values using M1 twice
     auto eros3_sub_1_g = KEnRef<KEnRef_Real_t>::coord_array_to_g(m1_twice, eros3_sub_atom_idPairs, eros3_grouping_list);
     std::cout << "eros3_sub_1_g" << std::endl << eros3_sub_1_g << std::endl;

@@ -47,13 +47,13 @@ public:
     //                                                      x1d4,x2d4,x3d4,
     //                                                      x1d5,x2d5,x3d5>)
 	static std::tuple<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15>>
-	r_array_to_d_array(const Eigen::MatrixX3<KEnRef_Real> &Nxyz, bool gradient=false, int numOmpThreads = 0);
+	r_array_to_d_array(const CoordsMatrixType<KEnRef_Real> &Nxyz, bool gradient=false, int numOmpThreads = 0);
 
 	//return tuple where item0 is dipole-dipole interaction tensors (model<pairs, 5_tensor_elements>)
 	//item1 is derivatives (It is a vector of 2D Matrix (models<pairId, (5_tensor_elements * XYZ)>).
 	static std::tuple<std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>>, std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15>>>
 	r_array_to_d_array(
-			const std::vector<Eigen::MatrixX3<KEnRef_Real>>& models_Nxyz,	//model<pairID, XYZ>
+			const std::vector<CoordsMatrixType<KEnRef_Real>>& models_Nxyz,	//model<pairID, XYZ>
 			bool gradient=false, int numOmpThreads = 0
 			);
 
@@ -78,15 +78,15 @@ public:
 	//!\param atom_pairs matrix with each row having the names or indices of an atom pair (first dimension in `coord_array` Matrices)
 	//!\return a vector of Matrces (models<pairIndex, xyz>) with internuclear vectors.
 	//Atom pair names in R code follow the format `resSeq:Atom-resSeq:Atom` (not implemented here).
-	static std::vector<Eigen::MatrixX3<KEnRef_Real>>
+	static std::vector<CoordsMatrixType<KEnRef_Real>>
 	coord_array_to_r_array(
-            const std::vector<Eigen::MatrixX3<KEnRef_Real>> &coord_array,
+            const std::vector<CoordsMatrixType<KEnRef_Real>> &coord_array,
             const std::vector<std::tuple<int, int>> &atomId_pairs,  int numOmpThreads = 0
 			);
 
 	static std::tuple<KEnRef_Real, std::vector<CoordsMatrixType<KEnRef_Real>>>
 	coord_array_to_energy(
-			const std::vector<Eigen::MatrixX3<KEnRef_Real>>& coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
+			const std::vector<CoordsMatrixType<KEnRef_Real>>& coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
 			const std::vector<std::tuple<std::string, std::string>>& atomName_pairs, 	// Matrix with each row having the names of an atom pair (related to first dimension in `coord_array` matrices)
 			const std::vector<std::vector<std::vector<int>>>& grouping_list,	// list of lists of integer vectors giving groupings of models to average interaction tensors
 			const Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>& g0, //target group norm squared values
@@ -98,7 +98,7 @@ public:
 
 	static std::tuple<KEnRef_Real, std::vector<CoordsMatrixType<KEnRef_Real>>>
 	coord_array_to_energy(
-            std::vector<Eigen::MatrixX3<KEnRef_Real>> coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
+            std::vector<CoordsMatrixType<KEnRef_Real>> coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
 			std::vector<std::tuple<int, int>> atomId_pairs, 	// Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
 			const std::vector<std::vector<std::vector<int>>>& grouping_list,	// list of lists of integer vectors giving groupings of models to average interaction tensors
 			const Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> &g0, //target group norm squared values
@@ -109,7 +109,7 @@ public:
 
 	static Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>
 	coord_array_to_g(
-			const std::vector<Eigen::MatrixX3<KEnRef_Real>>& coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
+			const std::vector<CoordsMatrixType<KEnRef_Real>>& coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
 			const std::vector<std::tuple<int, int>>& atomId_pairs, 	// Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
 			const std::vector<std::vector<std::vector<int>>>& grouping_list,	// list of lists of integer vectors giving groupings of models to average interaction tensors
             int numOmpThreads = 0
