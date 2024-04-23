@@ -329,7 +329,7 @@ KEnRef<KEnRef_Real>::g_to_energy(
 
 template<typename KEnRef_Real>
 Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>
-KEnRef<KEnRef_Real>::vectorOfVectors_to_Matrix(std::vector<Eigen::VectorX<KEnRef_Real>> g_vect, int numOmpThreads) {
+KEnRef<KEnRef_Real>::vectorOfVectors_to_Matrix(std::vector<Eigen::VectorX<KEnRef_Real>> g_vect/*, int numOmpThreads*/) {
     Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> g_mat(g_vect[0].rows(), g_vect.size());
 #pragma omp parallel for num_threads(numOmpThreads)
     for (int i = 0; i < g_vect.size(); ++i) {
@@ -416,7 +416,7 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
 //		}
 //	}
 
-	auto g_matrix = vectorOfVectors_to_Matrix(g_list, numOmpThreads);
+	auto g_matrix = vectorOfVectors_to_Matrix(g_list/*, numOmpThreads*/);
 
 	// calculate energies from the norm squared values
     Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> energy_matrix;
@@ -525,7 +525,7 @@ KEnRef<KEnRef_Real>::coord_array_to_g(
 	//		g_list <- lapply(grouping_list, function(grouping) d_array_to_g(d_array, grouping, gradient=FALSE))
 	auto [g_list, ignore] = d_arrays_to_g(d_arrays, grouping_list, numOmpThreads);
 
-	return vectorOfVectors_to_Matrix(g_list, numOmpThreads);
+	return vectorOfVectors_to_Matrix(g_list/*, numOmpThreads*/);
 }
 
 //TODO Shall we move it (with its test of course) to GMXKenRefForceProvider?
