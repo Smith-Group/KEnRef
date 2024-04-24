@@ -357,6 +357,20 @@ KEnRef<KEnRef_Real>::coord_array_to_r_array(
 }
 
 
+template <typename KEnRef_Real>
+std::shared_ptr<std::vector<std::tuple<int, int>>>
+KEnRef<KEnRef_Real>::atomNamePairs_2_atomIdPairs(const std::vector<std::tuple<std::string, std::string> > &atomName_pairs, std::map<std::string, int> &atomNames_2_atomIds) {
+    auto atomId_pairs = std::make_shared<std::vector<std::tuple<int, int>>>(atomName_pairs.size());
+    // Fill the vector using atomNames_2_atomIds
+#pragma omp parallel for num_threads(numOmpThreads)
+    for (int i = 0; i < atomName_pairs.size(); ++i) {
+        auto [left, right] = atomName_pairs.at(i);
+        // I use at() instead of operator[] to force an exception to be thrown
+        atomId_pairs->at(i) = { atomNames_2_atomIds.at(left), atomNames_2_atomIds.at(right) };
+    }
+    return atomId_pairs;
+}
+
 template<typename KEnRef_Real>
 std::tuple<KEnRef_Real, std::vector<CoordsMatrixType<KEnRef_Real>>>
 KEnRef<KEnRef_Real>::coord_array_to_energy(
@@ -368,14 +382,7 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
         KEnRef_Real k,
         KEnRef_Real n, bool gradient, int numOmpThreads) {
 //	std::cout << "coord_array_to_energy(atomName_pairs_) called" << std::endl;
-    std::vector<std::tuple<int, int>> atomId_pairs(atomName_pairs.size());
-    // Fill the vector using atomNames_2_atomIds
-#pragma omp parallel for num_threads(numOmpThreads)
-    for (int i = 0; i < atomName_pairs.size(); ++i) {
-        auto [left, right] = atomName_pairs.at(i);
-        // I use at() instead of operator[] to force an exception to be thrown
-        atomId_pairs.at(i) = { atomNames_2_atomIds.at(left), atomNames_2_atomIds.at(right) };
-    }
+    const auto& atomId_pairs = atomNamePairs_2_atomIdPairs(atomName_pairs, atomNames_2_atomIds);
 //    std::tuple<KEnRef_Real, std::vector<CoordsMatrixType>> temp = KEnRef::coord_array_to_energy(coord_array, atomId_pairs, grouping_list, g0, k, gradient);
 //    std::vector<CoordsMatrixType> &derivatives = std::get<1>(temp);
 //    for (int i = 0; i < derivatives.size(); ++i) {
@@ -385,14 +392,14 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
 //                matrix(j, l) = static_cast<KEnRef_Real>(i * 10000 + j * 10 + l);
 //    }
 //    return temp;
-    return KEnRef::coord_array_to_energy(coord_array, atomId_pairs, grouping_list, g0, k, n, gradient, numOmpThreads);
+    return KEnRef::coord_array_to_energy(coord_array, *atomId_pairs, grouping_list, g0, k, n, gradient, numOmpThreads);
 }
 
 template<typename KEnRef_Real>
 std::tuple<KEnRef_Real, std::vector<CoordsMatrixType<KEnRef_Real>>>
 KEnRef<KEnRef_Real>::coord_array_to_energy(
-        std::vector<CoordsMatrixType<KEnRef_Real>> coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
-		std::vector<std::tuple<int, int>> atomId_pairs, 	// Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
+        const std::vector<CoordsMatrixType<KEnRef_Real>>& coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
+		const std::vector<std::tuple<int, int>>& atomId_pairs, 	// Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
 		const std::vector<std::vector<std::vector<int>>>& grouping_list,	// list of lists of integer vectors giving groupings of models to average interaction tensors
 		const Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> &g0, KEnRef_Real k, KEnRef_Real n, bool gradient, int numOmpThreads)
 {

@@ -228,10 +228,11 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
             allSimulationsSubAtomsX_vector.emplace_back(std::move(CoordsMapType<KEnRef_Real_t>(&allSimulationsSubAtomsX.data()[i * subAtomsX.size()], subAtomsX.rows(), 3)));
         }
 
+        auto& atomId_pairs = *this->atomId_pairs_;
         //do force calculations
         std::tie(energy, allDerivatives_vector) =
-                KEnRef<KEnRef_Real_t>::coord_array_to_energy(allSimulationsSubAtomsX_vector, atomName_pairs,
-                                                             simulated_grouping_list, g0, atomName_to_atomSub0Id_map,
+                KEnRef<KEnRef_Real_t>::coord_array_to_energy(allSimulationsSubAtomsX_vector, atomId_pairs,
+                                                             simulated_grouping_list, g0,
                                                              this->k_, this->n_, true, gmx_omp_nthreads_get(ModuleMultiThread::Default));
 #if VERBOSE
         std::cout << "energy = " << energy << ", allDerivatives_vector:" << std::endl;
@@ -551,6 +552,7 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
     auto& atomName_to_atomSub0Id_map = *this->atomName_to_atomSub0Id_map_;
     for (const auto &[name, globalId]: atomName_to_atomGlobalId_map)
         atomName_to_atomSub0Id_map[name] = global1Id_to_sub0Id[globalId];
+    this->atomId_pairs_ = KEnRef<KEnRef_Real_t>::atomNamePairs_2_atomIdPairs(*atomName_pairs_, atomName_to_atomSub0Id_map);
 
 #if VERBOSE
     for(const auto& [name, subId]: atomName_to_atomSub0Id_map){
