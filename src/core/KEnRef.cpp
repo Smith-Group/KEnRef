@@ -10,7 +10,7 @@
 #include <memory>
 #include <Eigen/Dense>
 #include "core/KEnRef.h"
-#include <iostream>//FIXME for testing only
+//#include <iostream>//FIXME for testing only
 //#include <utility>
 
 template<typename KEnRef_Real>
@@ -40,7 +40,7 @@ KEnRef<KEnRef_Real>::r_array_to_d_array(const CoordsMatrixType<KEnRef_Real> &Nxy
         xy, xz, yz, x2_minusy2,
         x2_y2_z2_p52, x2_y2_z2_p72,
 //		sqrt3_x2_y2_z2_p52, sqrt3_x2_y2_z2_p72,
-        half_minusx2_minusy2__z2,
+        half_minusx2_minusy2__z2, // NOLINT(*-reserved-identifier)
         sqrt3_over_x2_y2_z2_p52, neg5_over_x2_y2_z2_p72, neg5sqrt3_over_x2_y2_z2_p72, neg5sqrt3_over_2_x2_y2_z2_p72
     };
 

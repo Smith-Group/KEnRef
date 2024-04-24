@@ -5,6 +5,7 @@
  */
 
 #include <iostream>
+#include <typeinfo>
 #include <cmath>
 #include <memory>
 #include <Eigen/Core>
@@ -31,7 +32,7 @@
 
 KEnRefForceProvider::KEnRefForceProvider() = default;
 KEnRefForceProvider::~KEnRefForceProvider() = default;
-KEnRefForceProvider::KEnRefForceProvider(KEnRefForceProvider &&other) noexcept = default;
+// KEnRefForceProvider::KEnRefForceProvider(KEnRefForceProvider &&other) noexcept = default;
 KEnRefForceProvider::KEnRefForceProvider(const KEnRefForceProvider &other) = default;
 KEnRefForceProvider& KEnRefForceProvider::operator=(const KEnRefForceProvider &other) = default;
 KEnRefForceProvider& KEnRefForceProvider::operator=(KEnRefForceProvider &&other) noexcept = default;
@@ -139,7 +140,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         if (std::is_same<KEnRef_Real_t, real>()) {
             auto subAtomsX_buffer = subAtomsX.data();
             const auto rvec = atom_x.as_vec();
-            std::copy(rvec, rvec + 3, &subAtomsX_buffer[i * 3]);
+            std::copy_n(rvec, 3, &subAtomsX_buffer[i * 3]);
         } else {
             for (int j = 0; j < 3; ++j) {
                 subAtomsX(i, j) = static_cast<KEnRef_Real_t>(atom_x[j]);
@@ -162,7 +163,6 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     // Copy all subAtomsXAfterFitting into its corresponding section of allSimulationsSubAtomsX (after fitting)
 
     // ================= fit all models to reference ====================
-    long guideAtom0IndicesSize = static_cast<long>(guideAtom0Indices.size()); //int or long?
     CoordsMatrixType<KEnRef_Real_t> subAtomsXAfterFitting;
     CoordsMatrixType<KEnRef_Real_t> guideAtomsX_ZEROIndexed = getGuideAtomsX(x, cr, guideAtom0Indices);
 
@@ -252,7 +252,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         //I will use the slow method of copying data now, as it is less error-prone. TODO To change it, we need first to make sure the function returns the date contagiously.
         for (int i = 0; i < allDerivatives_vector.size(); ++i) {
             auto& matrix = allDerivatives_vector[i];
-            std::copy(matrix.data(), matrix.data() + subAtomsX.size(), &allDerivatives_buffer[i * subAtomsX.size()]);
+            std::copy_n(matrix.data(), subAtomsX.size(), &allDerivatives_buffer[i * subAtomsX.size()]);
         }
     }
     // Use it to distribute all derivatives
@@ -317,11 +317,11 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
     /////////////////// print angle between vectors //////////////////////////////////////
     if (derivatives_rectified.rows() == 2){
-        bool found0 = false, found180 = false; KEnRef_Real_t targetLength = 7.0;
         Eigen::RowVector3<KEnRef_Real_t> vec1 = subAtomsX.row(1) - subAtomsX.row(0);
         KEnRef_Real_t norm1 = vec1.norm();
         std::cout << "Step\t" << step << "\tDist\t" << norm1 << "\tEnergy\t" << energy << std::endl;
 #if VALIDATE_VECTORS
+        bool found0 = false, found180 = false; KEnRef_Real_t targetLength = 7.0;
         for (int i = 0; i < derivatives_rectified.rows(); i++) {
             Eigen::RowVector3<KEnRef_Real_t> vec2 = derivatives_rectified.row(i);
             KEnRef_Real_t v1DotV2 = vec1.dot(vec2);
@@ -387,7 +387,7 @@ CoordsMatrixType<KEnRef_Real_t> KEnRefForceProvider::getGuideAtomsX(const gmx::A
         const gmx::RVec atom_x = x[*piLocal];
 
         auto rvec = atom_x.as_vec();
-        std::copy(rvec, rvec + 3, &guideAtomsX_ZEROIndexed_buffer[i * 3]);
+        std::copy_n(rvec, 3, &guideAtomsX_ZEROIndexed_buffer[i * 3]);
 //		// for test only
 //		for(auto j = 0; j < 3; j++){
 //			guideAtomsX_buffer[i * 3 + j] = (isMultiSimulation? 100000 * simulationIndex : 0) + 100 * i + j;
@@ -445,13 +445,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
         std::cout << "No KENREF_MAX_ATOMPAIRS_TO_READ identified. Will use default value of " << maxAtomPairsToRead << std::endl;
     }
 
-    //TODO: Print the type name directly
-    if (std::is_same<KEnRef_Real_t, float>())
-        std::cout << "KEnRef_Real_t type is: FLOAT" << '\n';
-    else if (std::is_same<KEnRef_Real_t, double>())
-        std::cout << "KEnRef_Real_t type is: DOUBLE" << '\n';
-    else
-        std::cout << "KEnRef_Real_t type is: UNKNOWN" << '\n';
+    std::cout << "KEnRef_Real_t type is: " << typeid(KEnRef_Real_t).name() << '\n';
 
 #if VERBOSE
     for (const auto& [name, globalId] : atomName_to_atomGlobalId_map){

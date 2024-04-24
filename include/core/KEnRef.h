@@ -14,7 +14,7 @@
 #include <tuple>
 
 #include <Eigen/Dense>
-#include "../config/KEnRefConfig.h"
+// #include "../config/KEnRefConfig.h"
 
 #ifdef DOUBLE
 typedef double KEnRef_Real_t;
@@ -29,10 +29,10 @@ template<typename KEnRef_Real>
 using CoordsMapTypeConst = Eigen::Map<const CoordsMatrixType<KEnRef_Real>>;   // a read-only map
 
 template<typename KEnRef_Real>
-class KEnRef{
+class KEnRef final {
 public:
 	KEnRef();
-	virtual ~KEnRef();
+    ~KEnRef();
 //	KEnRef(const KEnRef &other);
 //  KEnRef(KEnRef &&other) noexcept ;
 //	KEnRef& operator=(const KEnRef &other);
@@ -75,7 +75,8 @@ public:
 
 	//Calculate internuclear vectors from atomic coordinates
 	//!\param coord_array vector of Nx3 Matrix (models<atoms, xyz>) with atomic coordinates
-	//!\param atom_pairs matrix with each row having the names or indices of an atom pair (first dimension in `coord_array` Matrices)
+	//!\param atomId_pairs matrix with each row having the indices of an atom pair (first dimension in `coord_array` Matrices)
+	//!\param numOmpThreads number of available MpenMP threads
 	//!\return a vector of Matrces (models<pairIndex, xyz>) with internuclear vectors.
 	//Atom pair names in R code follow the format `resSeq:Atom-resSeq:Atom` (not implemented here).
 	static std::vector<CoordsMatrixType<KEnRef_Real>>
