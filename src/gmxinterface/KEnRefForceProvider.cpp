@@ -115,11 +115,11 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     }
 
     std::vector<int> const &guideAtom0Indices = *this->guideAtom0Indices_; //ZERO indexed
-    auto &atomName_to_atomSub0Id_map = *this->atomName_to_atomSub0Id_map_;
-    auto &sub0Id_to_global1Id = *this->sub0Id_to_global1Id_;
-    auto experimentalData_table = *this->experimentalData_table_;
-    auto atomName_pairs = *this->atomName_pairs_;
-    auto g0 = *this->g0_;
+    const auto &atomName_to_atomSub0Id_map = *this->atomName_to_atomSub0Id_map_;
+    const auto &sub0Id_to_global1Id = *this->sub0Id_to_global1Id_;
+    const auto &experimentalData_table = *this->experimentalData_table_;
+    const auto &atomName_pairs = *this->atomName_pairs_;
+    const auto &g0 = *this->g0_;
     CoordsMatrixType<KEnRef_Real_t> &subAtomsX = *this->subAtomsX_;
     CoordsMatrixType<KEnRef_Real_t> &allSimulationsSubAtomsX = *this->allSimulationsSubAtomsX_;
     //setting the coordinate values to ZERO (or ONE) is dangerous because it causes Invalid floating point operation
@@ -172,7 +172,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
     // ================= fit all models to reference ====================
     CoordsMatrixType<KEnRef_Real_t> subAtomsXAfterFitting;
-    CoordsMatrixType<KEnRef_Real_t> guideAtomsX_ZEROIndexed = getGuideAtomsX(x, cr, guideAtom0Indices);
+    const CoordsMatrixType<KEnRef_Real_t> &guideAtomsX_ZEROIndexed = getGuideAtomsX(x, cr, guideAtom0Indices);
 
     //    I don't think this line is important. Only for easy printing
     //    gmx_barrier(mainRanksComm);
@@ -241,7 +241,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
                                              3)));
         }
 
-        auto &atomId_pairs = *this->atomId_pairs_;
+        const auto &atomId_pairs = *this->atomId_pairs_;
         //do force calculations
         std::tie(energy, allDerivatives_vector) =
                 KEnRef<KEnRef_Real_t>::coord_array_to_energy(allSimulationsSubAtomsX_vector, atomId_pairs,
@@ -265,7 +265,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     if (simulationIndex == 0) { //whether master rank or single simulation
         //I will use the slow method of copying data now, as it is less error-prone. TODO To change it, we need first to make sure the function returns the date contagiously.
         for (int i = 0; i < allDerivatives_vector.size(); ++i) {
-            auto &matrix = allDerivatives_vector[i];
+            const auto &matrix = allDerivatives_vector[i];
             std::copy_n(matrix.data(), subAtomsX.size(), &allDerivatives_buffer[i * subAtomsX.size()]);
         }
     }

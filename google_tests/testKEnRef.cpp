@@ -201,7 +201,7 @@ TEST(KEnRefTestSuite, restOfTestsToWrite){
         std::cout << "Calculating eros3_sub g" << gg+1 << std::endl;
         auto [eros3_sub_g_list, eros3_sub_g_list_grad] = KEnRef<KEnRef_Real_t>::d_array_to_g(eros3_sub_d_array,
                                                                                              eros3_grouping_list[gg],
-                                                                                             true, 0); //TODO d_arrays_to_g ???
+                                                                                             true, 0); //TODO d_array_to_g_multiple_groupings ???
         std::cout << "eros3_sub_g_list" << std::endl << eros3_sub_g_list << std::endl;
         std::cout << "eros3_sub_g_list_grad" << std::endl;
         for(const auto& matrix: eros3_sub_g_list_grad){

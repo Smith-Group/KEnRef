@@ -57,17 +57,27 @@ public:
 			bool gradient=false, int numOmpThreads = 0
 			);
 
-	// Calculate group norm squared from dipole-dipole interaction tensors, and optionally their gradients in the 5 tensor dimensions.
+
+    /** Calculate group norm squared from dipole-dipole interaction tensors, and optionally their gradients in the 5 tensor dimensions.
+	 *
+	 * @param  d_arrays vector (models<pairId, interaction tensor_elements>) with interaction tensors
+	 * @param  grouping groupings of models to average interaction tensors (per dipole-dipole interaction pair), i.e. outer list for pairId and inner list for modelId
+	 * @param  gradient whether to calculate & return the derivates
+	 * @param  numOmpThreads number of OpenMP threads
+	 * @return tuple containing
+	 *			1) vector of norm squared for each atom pair,
+	 *			2) derivates in a vector of Matrix (models<pairId, derivates of interaction tensor_elements>) or empty vector
+	 */
 	static std::tuple<Eigen::VectorX<KEnRef_Real>, std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>>>
 	d_array_to_g(
-			const std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>> &d_arrays, //vector (models<pairId, tensor_elements>) with interaction tensors
-			const std::vector<std::vector<int>> &grouping, //groupings of models to average interaction tensors
+			const std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>> &d_arrays,
+			const std::vector<std::vector<int>> &grouping,
 			bool gradient = false, int numOmpThreads = 0
 			);
 
 	// Calculate group norm squared from dipole-dipole interaction tensors
 	static std::tuple<std::vector<Eigen::VectorX<KEnRef_Real>>, std::vector<std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>>>>
-	d_arrays_to_g(
+	d_array_to_g_multiple_groupings(
 			const std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>>& d_array, //vector (models<pairId, tensor_elements>) with interaction tensors
 			const std::vector<std::vector<std::vector<int>>>& groupings, //groupings of models to average interaction tensors
 			bool gradient=false, int numOmpThreads = 0
