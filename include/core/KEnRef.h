@@ -31,6 +31,7 @@ using CoordsMapTypeConst = Eigen::Map<const CoordsMatrixType<KEnRef_Real>>;   //
 template<typename KEnRef_Real>
 class KEnRef final {
 public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 	KEnRef();
     ~KEnRef();
 //	KEnRef(const KEnRef &other);

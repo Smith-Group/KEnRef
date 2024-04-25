@@ -45,6 +45,8 @@ class KEnRefForceProvider : public gmx::IForceProvider {
 	long long calculateForces_time = 0;
 
 public:
+	EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
 	KEnRefForceProvider();
 
 	virtual ~KEnRefForceProvider();
