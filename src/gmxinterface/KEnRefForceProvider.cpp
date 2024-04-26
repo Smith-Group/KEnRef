@@ -115,10 +115,10 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     }
 
     std::vector<int> const &guideAtom0Indices = *this->guideAtom0Indices_; //ZERO indexed
-    const auto &atomName_to_atomSub0Id_map = *this->atomName_to_atomSub0Id_map_;
+    // const auto &atomName_to_atomSub0Id_map = *this->atomName_to_atomSub0Id_map_;
     const auto &sub0Id_to_global1Id = *this->sub0Id_to_global1Id_;
-    const auto &experimentalData_table = *this->experimentalData_table_;
-    const auto &atomName_pairs = *this->atomName_pairs_;
+    // const auto &experimentalData_table = *this->experimentalData_table_;
+    // const auto &atomName_pairs = *this->atomName_pairs_;
     const auto &g0 = *this->g0_;
     CoordsMatrixType<KEnRef_Real_t> &subAtomsX = *this->subAtomsX_;
     CoordsMatrixType<KEnRef_Real_t> &allSimulationsSubAtomsX = *this->allSimulationsSubAtomsX_;
@@ -145,7 +145,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 #if VERBOSE
         std::cout << sub0Id_to_global1Id[i] << "\t" << *piGlobal << "\t" << *piLocal << "\t x: " << atom_x[0] << ", " << atom_x[1] << ", " << atom_x[2] << std::endl;
 #endif
-        if (std::is_same<KEnRef_Real_t, real>()) {
+        if constexpr (std::is_same_v<KEnRef_Real_t, real>) {
             auto subAtomsX_buffer = subAtomsX.data();
             const auto rvec = atom_x.as_vec();
             std::copy_n(rvec, 3, &subAtomsX_buffer[i * 3]);
@@ -166,8 +166,6 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     }
     // pbc_dx(pbc, *box_const, atom_x, atoms_nopbc[*pii]); //TODO restore atom coordinates without the PBC
 
-    Eigen::Transform<KEnRef_Real_t, 3, Eigen::Affine> affine;
-
     // Copy all subAtomsXAfterFitting into its corresponding section of allSimulationsSubAtomsX (after fitting)
 
     // ================= fit all models to reference ====================
@@ -181,7 +179,8 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     //    CoordsMapType tempMatrix1 = CoordsMapType(guideAtomsX_buffer, 5, 3); //guideAtomIndicesSize, 3);
     //    std::cout << "from simulation ((" << simulationIndex << ")) after bCast" << std::endl << tempMatrix1 << std::endl;
 
-    affine = Kabsch<KEnRef_Real_t>::Find3DAffineTransform(guideAtomsX_ZEROIndexed, *this->guideAtomsReferenceCoords_);
+    const auto &affine = Kabsch<KEnRef_Real_t>::Find3DAffineTransform(
+        guideAtomsX_ZEROIndexed, *this->guideAtomsReferenceCoords_);
 #if VERBOSE
     std::cout << "Affine Matrix" << std::endl << affine.matrix() << std::endl;
 #endif
@@ -221,7 +220,6 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
     KEnRef_Real_t energy = 0;
     std::vector<CoordsMatrixType<KEnRef_Real_t> > allDerivatives_vector;
-    CoordsMatrixType<KEnRef_Real_t> derivatives_rectified;
 
     //in the master rank
     if (!isMultiSimulation || simulationIndex == 0) {
@@ -280,8 +278,9 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     new(&derivatives_map) CoordsMapType<KEnRef_Real_t>(derivatives_buffer, subAtomsX.rows(), 3);
 
     // Transform them back
-    derivatives_rectified = (derivatives_map.cast<KEnRef_Real_t>().rowwise().homogeneous() *
-                             affine.inverse().matrix().transpose()).leftCols(3).cast<KEnRef_Real_t>();
+    CoordsMatrixType<KEnRef_Real_t> derivatives_rectified = (
+        derivatives_map.cast<KEnRef_Real_t>().rowwise().homogeneous() *
+        affine.inverse().matrix().transpose()).leftCols(3).cast<KEnRef_Real_t>();
     //	std::cout << "derivatives_rectified # " << simulationIndex << " shape (" << derivatives_rectified.rows() << " x " << derivatives_rectified.cols() << ")" << std::endl << derivatives_rectified << std::endl;
 
     KEnRef<KEnRef_Real_t>::saturate(derivatives_rectified, simulationIndex, energy, this->maxForceSquared_,
@@ -381,8 +380,8 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin);
     this->calculateForces_time += elapsed.count();
     if (!(step % 10) && simulationIndex == 0)
-        printf("This iteration (%ld): %.3f seconds. All walltime %.3f seconds\n", step, elapsed.count() * 1e-9,
-               calculateForces_time * 1e-9);
+        printf("This iteration (%ld): %.3f seconds. All walltime %.3f seconds\n", step, static_cast<double>(elapsed.count()) * 1e-9,
+               static_cast<double>(calculateForces_time) * 1e-9);
 
 
     //    std::cout << "final force values of simulation # " << simulationIndex << std::endl;

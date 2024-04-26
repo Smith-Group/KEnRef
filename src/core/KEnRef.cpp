@@ -187,11 +187,10 @@ KEnRef<KEnRef_Real>::d_array_to_g(
     }
 
     //for every grouping block
-    for (int i = 0; i < grouping.size(); ++i) {
+    for (const auto & currentGrouping : grouping) {
         //create a new empty d_matrix (filled with 0) to carry "average dipole interaction tensor" every group
         Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> d_matrix = Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>::Zero(num_pairIds, 5);
 
-        const std::vector<int>& currentGrouping = grouping[i];
         const auto currentGroupSize = currentGrouping.size();
         const auto CURRENT_GROUP_SIZE_real = static_cast<KEnRef_Real_t>(currentGroupSize);
         const auto currentGroupSize_OVER_num_models_real = CURRENT_GROUP_SIZE_real / num_models;
