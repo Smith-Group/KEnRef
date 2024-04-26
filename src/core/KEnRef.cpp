@@ -381,14 +381,10 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
     const auto& r_arrays = coord_array_to_r_array(coord_array, atomId_pairs, numOmpThreads);
 
     // calculate dipole-dipole interaction tensors [and their derivates]
-    std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > d_arrays;
-    std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15> > d_arrays_grad;
-    std::tie(d_arrays, d_arrays_grad) = r_array_to_d_array(r_arrays, gradient, numOmpThreads);
+    const auto &[d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, gradient, numOmpThreads);
 
     // calculate norm squared for different groupings of dipole-dipole interaction tensors
-    std::vector<Eigen::VectorX<KEnRef_Real> > g_list;
-    std::vector<std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > > g_list_grad;
-    std::tie(g_list, g_list_grad) = d_array_to_g_multiple_groupings(d_arrays, grouping_list, gradient, numOmpThreads);
+    const auto &[g_list, g_list_grad] = d_array_to_g_multiple_groupings(d_arrays, grouping_list, gradient, numOmpThreads);
     //	for(int i = 0; i < g_list_grad.size(); i++){
     //		auto g_list_grad_i = g_list_grad[i];
     //		for (int j = 0; j < g_list_grad_i.size(); j++){
@@ -400,10 +396,8 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
     const auto& g_matrix = vectorOfVectors_to_Matrix(g_list/*, numOmpThreads*/);
 
     // calculate energies from the norm squared values
-    Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> energy_matrix;
-    Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> energy_matrix_grad;
-    //    std::tie(energy_matrix, energy_matrix_grad) = g_to_energy_uncorrected(g_matrix, g0, k, gradient, numOmpThreads /*, KEnRef::SQRT_ABS_POWER_N*/);
-    std::tie(energy_matrix, energy_matrix_grad) = g_to_energy(g_matrix, g0, k, n, gradient,
+    //const auto &[energy_matrix, energy_matrix_grad] = g_to_energy_uncorrected(g_matrix, g0, k, gradient, numOmpThreads /*, KEnRef::SQRT_ABS_POWER_N*/);
+    const auto &[energy_matrix, energy_matrix_grad] = g_to_energy(g_matrix, g0, k, n, gradient,
                                                               numOmpThreads /*, KEnRef::SQRT_ABS_POWER_N*/);
     //	std::cout << "energy_matrix" << std::endl << energy_matrix << std::endl;
     //	std::cout << "energy_matrix_grad" << std::endl << energy_matrix_grad << std::endl;
@@ -414,27 +408,21 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
 
     //Add derivatives using the chain rule: de/dr = de/dd  * dd/dr = de/dg * dg/dd * dd/dr
     if (gradient) {
-        auto num_pairs = atomId_pairs.size();
-        auto num_models = coord_array.size();
-        auto num_atoms = coord_array[0].rows();
+        const auto num_pairs = atomId_pairs.size();
+        const auto num_models = coord_array.size();
+        const auto num_atoms = coord_array[0].rows();
         // First calculate de/dd = de/dg * dg/dd for all individual interaction tensor components
-        std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> > d_energy_d_d_array(num_models); //<num_models(num_pairs, 5)>
+        std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> > d_energy_d_d_vector(num_models); //<num_models(num_pairs, 5)>
 #pragma omp parallel for num_threads(numOmpThreads)
         for (int i = 0; i < num_models; i++)
-            d_energy_d_d_array.at(i) = std::move(
+            d_energy_d_d_vector.at(i) = std::move(
                 Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>::Zero(static_cast<int>(num_pairs), 5));
 
         // TODO I commented this line until I am sure of its efficacy
         //#pragma omp parallel for collapse(2) num_threads(numOmpThreads)
-        for (int i = 0; i < g_list.size(); i++) {
-            //for each grouping
-            auto e_matrix_grad_replicated = energy_matrix_grad.col(i).rowwise().template replicate<5>().array();
-            auto g_list_grad_group_i = g_list_grad[i]; //<num_models>(num_pairs x 5)
-            //			std::cout << "d_energy_d_d_array" << " after iteration " << i << std::endl;
-            for (int j = 0; j < g_list_grad_group_i.size(); j++) {
-                //(num_pairs x 5)
-                d_energy_d_d_array[j].array() += (e_matrix_grad_replicated * g_list_grad_group_i[j].array());
-                //				std::cout << d_energy_d_d_array[j] << std::endl;
+        for (int i = 0; i < g_list.size(); i++) { //for each grouping
+            for (int j = 0; j < g_list_grad[i].size(); j++) {
+                d_energy_d_d_vector[j].array() += (energy_matrix_grad.col(i).rowwise().template replicate<5>().array() * g_list_grad[i][j].array());
             }
         }
 
@@ -444,24 +432,21 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
         for (int i = 0; i < num_models; i++) {
             //			std::cout << "d_energy_d_d_array[i].replicate(3,1).reshaped(num_pairs, 15)" << std::endl << d_energy_d_d_array[i].replicate(3,1).reshaped(num_pairs, 15) << std::endl;
             //			std::cout << "d_arrays_grad[i]" << std::endl << d_arrays_grad[i] << std::endl;
-            d_energy_d_r_array_all.at(i) = d_arrays_grad[i].array() * d_energy_d_d_array[i].replicate(3, 1).
+            d_energy_d_r_array_all.at(i) = d_arrays_grad[i].array() * d_energy_d_d_vector[i].replicate(3, 1).
                                            reshaped(num_pairs, 15).array();
             //			std::cout << "d_energy_d_d_array_all[" << i <<"]" << std::endl << d_energy_d_r_array_all[i] <<std::endl;
         }
 
-        // sum the individual interaction tensor component derivatives associated with x, y, and z
+        // sum the individual interaction tensor component derivatives associated with x, y, and z  // TODO Optimize it
         std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 3> > d_energy_d_r_array(num_models);
         // TODO What is the problem in the next pragma OMP line?
         //#pragma omp parallel for collapse(2) num_threads(numOmpThreads)
         for (int i = 0; i < num_models; i++) {
-            d_energy_d_r_array.at(i) = {num_pairs, 3};
-            //			auto temp_array = d_energy_d_r_array[i];
-            Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> temp;
-            //			std::cout << "d_energy_d_r_array" << std::endl;
+            d_energy_d_r_array.at(i) = std::move(Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 3>{num_pairs, 3});
             // TODO What is the problem in the next pragma OMP line?
-            //#pragma omp parallel for num_threads(numOmpThreads)
+#pragma omp parallel for num_threads(numOmpThreads)
             for (int j = 0; j < 3; j++) {
-                temp = d_energy_d_r_array_all[i](Eigen::all, Eigen::seq(j, Eigen::fix<15>, Eigen::fix<3>));
+                Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> temp = d_energy_d_r_array_all[i](Eigen::all, Eigen::seq(j, Eigen::fix<15>, Eigen::fix<3>));
                 d_energy_d_r_array[i].col(j) = temp.rowwise().sum();
             }
             //			std::cout << d_energy_d_r_array[i] << std::endl;
@@ -473,7 +458,7 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
             gradients.at(i) = CoordsMatrixType<KEnRef_Real>::Zero(num_atoms, 3);
         }
         // propagate the internuclear vector derivatives back onto the atomic coordinates
-        //#pragma omp parallel for collapse(2) num_threads(numOmpThreads)
+//#pragma omp parallel for collapse(2) num_threads(numOmpThreads)
         for (int p = 0; p < num_pairs; ++p) {
             // seq_len(dim(d_energy_d_r_array)[1])
             for (int m = 0; m < num_models; m++) {

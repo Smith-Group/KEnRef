@@ -171,7 +171,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     // Copy all subAtomsXAfterFitting into its corresponding section of allSimulationsSubAtomsX (after fitting)
 
     // ================= fit all models to reference ====================
-    CoordsMatrixType<KEnRef_Real_t> subAtomsXAfterFitting;
+    CoordsMatrixType<KEnRef_Real_t> subAtomsXAfterFitting; // needs to be a Matrix to access its buffer using .data()
     const CoordsMatrixType<KEnRef_Real_t> &guideAtomsX_ZEROIndexed = getGuideAtomsX(x, cr, guideAtom0Indices);
 
     //    I don't think this line is important. Only for easy printing
@@ -337,7 +337,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
     /////////////////// print angle between vectors //////////////////////////////////////
     if (derivatives_rectified.rows() == 2) {
-        Eigen::RowVector3<KEnRef_Real_t> vec1 = subAtomsX.row(1) - subAtomsX.row(0);
+        const auto &vec1 = subAtomsX.row(1) - subAtomsX.row(0);
         KEnRef_Real_t norm1 = vec1.norm();
         std::cout << "Step\t" << step << "\tDist\t" << norm1 << "\tEnergy\t" << energy << std::endl;
 #if VALIDATE_VECTORS
