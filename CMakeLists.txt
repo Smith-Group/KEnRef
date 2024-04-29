@@ -13,6 +13,14 @@ set(GROMACS_BUILD_DIR /home/amr/git/gromacs/cmake-build-${build_type})
 set(GROMACS_INSTALL_DIR /smithlab/opt/gromacs-dev/2023/latest/${build_type})
 set(GROMACS_DIR ${GROMACS_INSTALL_DIR}/share/cmake/gromacs${SUFFIX_MPI}) #where libgromacs*.cmake are located
 
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+	string(FIND ${GROMACS_INSTALL_DIR} "gromacs-dev" replaceable)
+	if (replaceable GREATER_EQUAL -1)
+		string(REPLACE "gromacs-dev" "kenref-dev" proposed_path ${GROMACS_INSTALL_DIR})
+		set(CMAKE_INSTALL_PREFIX ${proposed_path} CACHE PATH "root directory to install KEnRef (default is a tree parallel to GROMACS_INSTALL_DIR)" FORCE)
+	endif ()
+endif()
+
 #set(CMAKE_MODULE_PATH /usr/local/gromacs-dev/share/gromacs/template/cmake:$CMAKE_MODULE_PATH)
 set(Eigen3_DIR /smithlab/opt/eigen/3.4.0/share/eigen3/cmake) #:/smithlab/opt/eigen/3.4.0/include/eigen3/unsupported
 ## comment the next line to make it float. Uncomment to make it double.
@@ -68,6 +76,9 @@ target_link_libraries(KENREF_CORE PUBLIC MPI::MPI_CXX Eigen3::Eigen
 )
 target_link_libraries(KENREF_GMXINTERFACE PUBLIC KENREF_CORE Gromacs::libgromacs)
 target_link_libraries(KEnRef PRIVATE KENREF_CORE KENREF_GMXINTERFACE)
+
+install(TARGETS KEnRef DESTINATION bin)
+install(TARGETS KENREF_CORE KENREF_GMXINTERFACE DESTINATION lib)
 ###########################################
 ## Add gtest
 add_subdirectory(google_tests)
