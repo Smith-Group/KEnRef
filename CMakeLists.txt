@@ -5,12 +5,18 @@ set(CMAKE_CXX_STANDARD 17)
 string(TOLOWER ${CMAKE_BUILD_TYPE} build_type)
 message(STATUS "the build type is: ${build_type}")
 
+if (NOT DEFINED ACCEL)
+	set(ACCEL "AVX2_256")
+	message(STATUS "ACCEL variable not defined. Setting it to ${ACCEL}")
+else ()
+	message(STATUS "ACCEL variable is: ${ACCEL}")
+endif ()
 #TODO rearrange setting *_DIR variables after reading https://cmake.org/cmake/help/latest/command/find_package.html [then delete this line :)]
 ##change these if needed
 set(SUFFIX_MPI _mpi)
 set(GROMACS_SRC_DIR /home/amr/git/gromacs)
-set(GROMACS_BUILD_DIR /home/amr/git/gromacs/cmake-build-${build_type})
-set(GROMACS_INSTALL_DIR /smithlab/opt/gromacs-dev/2023/latest/${build_type})
+set(GROMACS_BUILD_DIR /home/amr/git/gromacs/cmake-build-${build_type}/mpi)
+set(GROMACS_INSTALL_DIR /smithlab/opt/gromacs-dev/2023/2023.4/${build_type}/${ACCEL})
 set(GROMACS_DIR ${GROMACS_INSTALL_DIR}/share/cmake/gromacs${SUFFIX_MPI}) #where libgromacs*.cmake are located
 
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
