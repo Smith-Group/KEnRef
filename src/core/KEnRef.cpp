@@ -146,7 +146,7 @@ KEnRef<KEnRef_Real>::d_array_to_g_multiple_groupings(
     const std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > &d_array,
     //vector (models<pairId, tensor_elements>) with interaction tensors
     const std::vector<std::vector<std::vector<int> > > &groupings,
-    //groupings of models to average interaction tensors (per dipole dipole interaction pair), i.e. outer list for pairId and inner list for modelId
+    //groupings of models to average interaction tensors (per dipole-dipole interaction pair), i.e. outer list for pairId and inner list for modelId
     bool gradient, int numOmpThreads) {
     //	std::cout << "d_array_to_g_multiple_groupings() called" << std::endl;
     std::vector<Eigen::VectorX<KEnRef_Real> > ret1;
@@ -322,7 +322,7 @@ KEnRef<KEnRef_Real>::coord_array_to_r_array(
     const std::vector<std::tuple<int, int> > &atomId_pairs, int numOmpThreads) {
     //	std::cout << "coord_array_to_r_array() called" << std::endl;
     std::vector<CoordsMatrixType<KEnRef_Real> > ret(coord_array.size());
-    // TODO What is the problem in the next pragma OMP line? I will temporarlily use a single for loop optimization in the inner loop.
+    // TODO What is the problem in the next pragma OMP line? I will temporarily use a single for loop optimization in the inner loop.
     //#pragma omp parallel for collapse(2) num_threads(numOmpThreads)
     for (int model_no = 0; model_no < coord_array.size(); ++model_no) {
         ret.at(model_no) = {atomId_pairs.size(), 3};
@@ -357,7 +357,7 @@ KEnRef<KEnRef_Real>::atomNamePairs_2_atomIdPairs(
 template<typename KEnRef_Real>
 std::tuple<KEnRef_Real, std::vector<CoordsMatrixType<KEnRef_Real> > >
 KEnRef<KEnRef_Real>::coord_array_to_energy(
-    const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array, //Every vector item is an Nx3 Matrix representing atom coordinates of a model.
+    const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array, //Every vector item is a Nx3 Matrix representing atom coordinates of a model.
     const std::vector<std::tuple<std::string, std::string> > &atomName_pairs, // Matrix with each row having the names of an atom pair (related to first dimension in `coord_array` matrices)
     const std::vector<std::vector<std::vector<int> > > &grouping_list, // list of lists of integer vectors giving groupings of models to average interaction tensors
     const Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> &g0,
@@ -371,7 +371,7 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
 template<typename KEnRef_Real>
 std::tuple<KEnRef_Real, std::vector<CoordsMatrixType<KEnRef_Real> > >
 KEnRef<KEnRef_Real>::coord_array_to_energy(
-    const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array, //Every vector item is an Nx3 Matrix representing atom coordinates of a model.
+    const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array, //Every vector item is a Nx3 Matrix representing atom coordinates of a model.
     const std::vector<std::tuple<int, int> > &atomId_pairs, // Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
     const std::vector<std::vector<std::vector<int> > > &grouping_list, // list of lists of integer vectors giving groupings of models to average interaction tensors
     const Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> &g0, KEnRef_Real k, KEnRef_Real n, bool gradient,
@@ -379,7 +379,7 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
     // calculate inter nuclear vectors
     const auto& r_arrays = coord_array_to_r_array(coord_array, atomId_pairs, numOmpThreads);
 
-    // calculate dipole-dipole interaction tensors [and their derivates]
+    // calculate dipole-dipole interaction tensors [and their derivatives]
     const auto &[d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, gradient, numOmpThreads);
 
     // calculate norm squared for different groupings of dipole-dipole interaction tensors
@@ -483,7 +483,7 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
 template<typename KEnRef_Real>
 Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>
 KEnRef<KEnRef_Real>::coord_array_to_g(
-    const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array, //Every vector item is an Nx3 Matrix representing atom coordinates of a model.
+    const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array, //Every vector item is a Nx3 Matrix representing atom coordinates of a model.
     const std::vector<std::tuple<int, int> > &atomId_pairs, // Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
     const std::vector<std::vector<std::vector<int> > > &grouping_list, // list of lists of integer vectors giving groupings of models to average interaction tensors
     int numOmpThreads) {
