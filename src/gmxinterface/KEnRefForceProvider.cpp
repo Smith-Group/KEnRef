@@ -277,11 +277,16 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     //once you have the derivatives, retrieve them from the buffer
     new(&derivatives_map) CoordsMapType<KEnRef_Real_t>(derivatives_buffer, subAtomsX.rows(), 3);
 
+//    std::cout << "derivatives_map.cast<KEnRef_Real_t>().rowwise().homogeneous() top 100 rows" << std::endl <<
+//              derivatives_map.cast<KEnRef_Real_t>().rowwise().homogeneous().topRows(100) << std::endl;
+
     // Transform them back
     CoordsMatrixType<KEnRef_Real_t> derivatives_rectified = (
         derivatives_map.cast<KEnRef_Real_t>().rowwise().homogeneous() *
         affine.inverse().matrix().transpose()).leftCols(3).cast<KEnRef_Real_t>();
-    //	std::cout << "derivatives_rectified # " << simulationIndex << " shape (" << derivatives_rectified.rows() << " x " << derivatives_rectified.cols() << ")" << std::endl << derivatives_rectified << std::endl;
+//    std::cout << "derivatives_rectified # " << simulationIndex << " shape (" << derivatives_rectified.rows() << " x "
+//              << derivatives_rectified.cols() << "). First 100 lines:" << std::endl
+//              << derivatives_rectified.topRows(100) << std::endl;
 
     KEnRef<KEnRef_Real_t>::saturate(derivatives_rectified, simulationIndex, energy, this->maxForceSquared_,
                                     gmx_omp_nthreads_get(ModuleMultiThread::Default));

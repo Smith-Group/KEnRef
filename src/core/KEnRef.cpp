@@ -298,8 +298,8 @@ KEnRef<KEnRef_Real>::g_to_energy(
             }*/
             break;
     }
-    //    std::cout << "g ret1 " << ret1 << std::endl;
-    //    std::cout << "g ret2 " << ret2 << std::endl;
+//        std::cout << "g ret1 " << std::endl << ret1 << std::endl;
+//        std::cout << "g ret2 " << std::endl << ret2 << std::endl;
     return {ret1, ret2};
 }
 
@@ -403,7 +403,7 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
 
     // return the sum of all the individual restraint energies
     KEnRef_Real sum = energy_matrix.sum();
-    //	std::cout << "energy_matrix sum" << std::endl << sum << std::endl;
+//    std::cout << "energy_matrix sum " << sum << std::endl;
 
     //Add derivatives using the chain rule: de/dr = de/dd  * dd/dr = de/dg * dg/dd * dd/dr
     if (gradient) {
@@ -448,7 +448,7 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
                 Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> temp = d_energy_d_r_array_all[i](Eigen::all, Eigen::seq(j, Eigen::fix<14>, Eigen::fix<3>));
                 d_energy_d_r_array[i].col(j) = temp.rowwise().sum();
             }
-            //			std::cout << d_energy_d_r_array[i] << std::endl;
+//            std::cout << "d_energy_d_r_array[" << i<< "]\n" << d_energy_d_r_array[i] << std::endl << std::endl;
         }
 
         std::vector<CoordsMatrixType<KEnRef_Real> > gradients(num_models);
@@ -468,11 +468,11 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
             }
         }
 
-        //		std::cout << "gradients" << std::endl;
-        //		for(int m = 0; m < num_models; m++){
-        //			std::cout << "model " << m << std::endl;
-        //			std::cout << gradients[m] << std::endl;
-        //		}
+//        std::cout << "gradients" << std::endl;
+//        for(int m = 0; m < num_models; m++){
+//            std::cout << "model " << m << " first 100 rows" << std::endl;
+//            std::cout << gradients[m].topRows(100) << std::endl;
+//        }
         return {sum, gradients};
     } else {
         return {sum, std::vector<CoordsMatrixType<KEnRef_Real> >{}};
