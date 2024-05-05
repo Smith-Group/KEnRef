@@ -16,7 +16,7 @@ endif ()
 set(SUFFIX_MPI _mpi)
 set(GROMACS_SRC_DIR /home/amr/git/gromacs)
 set(GROMACS_BUILD_DIR /home/amr/git/gromacs/cmake-build-${build_type}/mpi)
-set(GROMACS_INSTALL_DIR /smithlab/opt/gromacs-dev/2023/2023.4/${build_type}/${ACCEL})
+set(GROMACS_INSTALL_DIR /smithlab/opt/gromacs-dev/2023/2023.5/${build_type}/${ACCEL})
 set(GROMACS_DIR ${GROMACS_INSTALL_DIR}/share/cmake/gromacs${SUFFIX_MPI}) #where libgromacs*.cmake are located
 
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
