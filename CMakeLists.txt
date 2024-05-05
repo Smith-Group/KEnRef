@@ -41,6 +41,7 @@ if (Eigen3_FOUND)
 	message(STATUS "EIGEN3_INCLUDE_DIRS is: ${EIGEN3_INCLUDE_DIRS}")
 endif ()
 
+message(STATUS "Searching for Gromacs in ${GROMACS_DIR}")
 find_package(GROMACS NAMES gromacs_mpi gromacs REQUIRED)
 if (GROMACS_FOUND)
 	message("GROMACS FOUND")
