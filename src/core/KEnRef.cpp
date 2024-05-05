@@ -445,7 +445,7 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
             // TODO What is the problem in the next pragma OMP line?
 #pragma omp parallel for num_threads(numOmpThreads)
             for (int j = 0; j < 3; j++) {
-                Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> temp = d_energy_d_r_array_all[i](Eigen::all, Eigen::seq(j, Eigen::fix<15>, Eigen::fix<3>));
+                Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> temp = d_energy_d_r_array_all[i](Eigen::all, Eigen::seq(j, Eigen::fix<14>, Eigen::fix<3>));
                 d_energy_d_r_array[i].col(j) = temp.rowwise().sum();
             }
             //			std::cout << d_energy_d_r_array[i] << std::endl;
