@@ -426,27 +426,22 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
         }
 
         // Then calculate de/dr = de/dd  * dd/dr for each xyz component of the internuclear vectors
-        std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15> > d_energy_d_r_array_all(num_models); //TODO Optimize it out
-#pragma omp parallel for num_threads(numOmpThreads)
-        for (int i = 0; i < num_models; i++) {
-            //			std::cout << "d_energy_d_d_array[i].replicate(3,1).reshaped(num_pairs, 15)" << std::endl << d_energy_d_d_array[i].replicate(3,1).reshaped(num_pairs, 15) << std::endl;
-            //			std::cout << "d_arrays_grad[i]" << std::endl << d_arrays_grad[i] << std::endl;
-            d_energy_d_r_array_all.at(i) = d_arrays_grad[i].array() * d_energy_d_d_vector[i].template replicate<3, 1>().
-                                           reshaped(num_pairs, 15).array();
-            //			std::cout << "d_energy_d_d_array_all[" << i <<"]" << std::endl << d_energy_d_r_array_all[i] <<std::endl;
-        }
-
-        // sum the individual interaction tensor component derivatives associated with x, y, and z
         std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 3> > d_energy_d_r_array(num_models);
 #pragma omp parallel for num_threads(numOmpThreads)
         for (int i = 0; i < num_models; i++)
             d_energy_d_r_array.at(i) = std::move(Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 3>{num_pairs, 3});
+        // sum the individual interaction tensor component derivatives associated with x, y, and z
 #pragma omp parallel for collapse(3) num_threads(numOmpThreads)
         for (int i = 0; i < num_models; i++) {
-            for (int p = 0; p < num_pairs; ++p) {
-                for (int j = 0; j < 3; j++) {
-                    d_energy_d_r_array[i](p, j) = d_energy_d_r_array_all[i](p, Eigen::seq(j, Eigen::fix<14>, Eigen::fix<3>)).sum();
+            for (int j = 0; j < 3; j++) {
+                for (int p = 0; p < num_pairs; ++p) {
+                    d_energy_d_r_array[i](p, j) =
+                            (d_arrays_grad[i].row(p).array() *
+                            d_energy_d_d_vector[i].row(p).template replicate<3, 1>().reshaped(1, 15).array())
+                            (Eigen::seq(j, Eigen::fix<14>, Eigen::fix<3>)).sum();
                 }
+                //This line works, but it is slower than a loop one row at a time + OMP. You can delete it.
+                // d_energy_d_r_array[i].col(j) = (d_arrays_grad[i].array() * d_energy_d_d_vector[i].replicate(Eigen::fix<3>, num_pairs).reshaped(num_pairs, Eigen::fix<15>).array()) (Eigen::all, Eigen::seq(j, Eigen::fix<14>, Eigen::fix<3>)).rowwise().sum();
             }
             //std::cout << "d_energy_d_r_array[" << i<< "]\n" << d_energy_d_r_array[i] << std::endl << std::endl;
         }
