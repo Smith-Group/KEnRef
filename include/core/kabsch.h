@@ -33,21 +33,8 @@ public:
 		if (p.rows() != q.rows())
             throw std::runtime_error("Find3DAffineTransform(): input data mis-match");
 
-		// First find the scale, by finding the ratio of sums of some distances,
-		// then bring the datasets to the same scale.
-		precision dist_p = 0, dist_q = 0;
-		for (int row = 0; row < p.rows()-1; row++) {
-			dist_p  += (p.row(row+1) - p.row(row)).norm();
-			dist_q += (q.row(row+1) - q.row(row)).norm();
-		}
-		if (dist_p <= 0 || dist_q <= 0)
-			return A;
-
 		Eigen::MatrixX3<precision> p_temp = p.template cast <precision> ();
 		Eigen::MatrixX3<precision> q_temp = q.template cast <precision> ();
-
-		precision scale = dist_q/dist_p;
-		q_temp /= scale;
 
         // Find the centroids then shift to the origin
         Eigen::Vector3<precision> p_ctr = Eigen::Vector3<precision>::Zero();
@@ -90,8 +77,8 @@ public:
         Eigen::Matrix3<precision> R = svd.matrixV() * I * svd.matrixU().transpose();
 
         // The final transform
-        A.linear() = scale * R;
-        A.translation() = scale * (q_ctr - R * p_ctr);
+        A.linear() = R;
+        A.translation() = q_ctr - R * p_ctr;
         return A;
     }
 
@@ -108,38 +95,14 @@ public:
 
 };
 
-// A function to test Find3DAffineTransform()
-void TestFind3DAffineTransform(){
-
-  // Create datasets with known transform
-  Eigen::MatrixX3<double> in(100, 3), out(100, 3);
-  Eigen::Quaternion<double> Q(1, 3, 5, 2);
-  Q.normalize();
-  Eigen::Matrix3<double> R = Q.toRotationMatrix();
-  double scale = 2.0;
-  for (int col = 0; col < in.cols(); col++) {
-	  for (int row = 0; row < in.rows(); row++) {
-		  in(row, col) = log(2*col + 10.0)/sqrt(1.0*row+ 4.0) + sqrt(row*1.0)/(col + 1.0);
-	  }
-  }
-  Eigen::Vector3<double> S;
-  S << -5, 6, -27;
-  for (int row = 0; row < in.rows(); row++)
-    out.row(row) = scale*R*in.row(row).transpose() + S;
-
-  Eigen::Transform<double,3,Eigen::Affine> A = Kabsch<double>::Find3DAffineTransform(in, out);
-
-  // See if we got the transform we expected
-    if ((scale * R.cast<double>() - A.linear()).cwiseAbs().maxCoeff() > 1e-5 ||    //1e-13)  // (for double)
-        (S.cast<double>() - A.translation()).cwiseAbs().maxCoeff() > 1e-5) {    //1e-13)  // (for double)
-        throw std::runtime_error("Could not determine the affine transform accurately enough");
-    }
-}
 
 #undef VERBOSE
 
 
-template class Kabsch<float>;
-template class Kabsch<double>;
+template
+class Kabsch<float>;
+
+template
+class Kabsch<double>;
 
 #endif
