@@ -81,11 +81,23 @@ public:
 		I(2, 2) = d;
 		Eigen::Matrix3<precision> R = svd.matrixV() * I * svd.matrixU().transpose();
 
-		// The final transform
-		A.linear() = scale * R;
-		A.translation() = scale*(q_ctr - R*p_ctr);
-		return A;
-	}
+        // The final transform
+        A.linear() = scale * R;
+        A.translation() = scale * (q_ctr - R * p_ctr);
+        return A;
+    }
+
+    static CoordsMatrixType<precision>
+    applyTransform(Eigen::Transform<precision, 3, Eigen::Affine> affine, CoordsMatrixType<precision> coords) {
+        return (coords.rowwise().homogeneous() * affine.matrix().transpose()).leftCols(3).eval();
+    }
+
+    static CoordsMatrixType<precision>
+    applyInverseOfTransform(Eigen::Transform<precision, 3, Eigen::Affine> affine, CoordsMatrixType<precision> coords) {
+        return (coords.rowwise().homogeneous() * affine.inverse().matrix().transpose()).leftCols(3).eval();
+    }
+
+
 };
 
 // A function to test Find3DAffineTransform()

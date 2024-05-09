@@ -185,8 +185,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     std::cout << "Affine Matrix" << std::endl << affine.matrix() << std::endl;
 #endif
 
-    subAtomsXAfterFitting = (subAtomsX.cast<KEnRef_Real_t>().rowwise().homogeneous() * affine.matrix().transpose()).
-            leftCols(3).cast<KEnRef_Real_t>();
+    subAtomsXAfterFitting = Kabsch<KEnRef_Real_t>::applyTransform(affine, subAtomsX);
 
     // Gather allSimulationsSubAtomsX to rank 0 (in allSimulationsSubAtomsX)
     if (isMultiSimulation) {
@@ -281,9 +280,8 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 //              derivatives_map.cast<KEnRef_Real_t>().rowwise().homogeneous().topRows(100) << std::endl;
 
     // Transform them back
-    CoordsMatrixType<KEnRef_Real_t> derivatives_rectified = (
-        derivatives_map.cast<KEnRef_Real_t>().rowwise().homogeneous() *
-        affine.inverse().matrix().transpose()).leftCols(3).cast<KEnRef_Real_t>();
+    CoordsMatrixType<KEnRef_Real_t> derivatives_rectified = Kabsch<KEnRef_Real_t>::applyInverseOfTransform(affine, derivatives_map);
+
 //    std::cout << "derivatives_rectified # " << simulationIndex << " shape (" << derivatives_rectified.rows() << " x "
 //              << derivatives_rectified.cols() << "). First 100 lines:" << std::endl
 //              << derivatives_rectified.topRows(100) << std::endl;
