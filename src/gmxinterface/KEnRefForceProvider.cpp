@@ -52,6 +52,10 @@ void KEnRefForceProvider::setGuideAtom0Indices(std::shared_ptr<std::vector<int> 
 void KEnRefForceProvider::setGuideAtomsReferenceCoords(
     std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> &guideAtomsReferenceCoords) {
     this->guideAtomsReferenceCoords_ = std::move(guideAtomsReferenceCoords);
+    //move its Center of Mass (COM) to the origin for faster processing
+    this->guideAtomsReferenceCoords_ =
+            std::make_shared<const CoordsMatrixType<KEnRef_Real_t>>(
+                    Kabsch_Umeyama<KEnRef_Real_t>::translateCenterOfMassToOrigin(*this->guideAtomsReferenceCoords_));
 }
 
 void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forceProviderInput,
@@ -175,12 +179,8 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     //    I don't think this line is important. Only for easy printing
     //    gmx_barrier(mainRanksComm);
 
-    //    //For testing only
-    //    CoordsMapType tempMatrix1 = CoordsMapType(guideAtomsX_buffer, 5, 3); //guideAtomIndicesSize, 3);
-    //    std::cout << "from simulation ((" << simulationIndex << ")) after bCast" << std::endl << tempMatrix1 << std::endl;
-
     const auto &affine = Kabsch<KEnRef_Real_t>::Find3DAffineTransform(
-        guideAtomsX_ZEROIndexed, *this->guideAtomsReferenceCoords_);
+            guideAtomsX_ZEROIndexed, *this->guideAtomsReferenceCoords_, true);
 #if VERBOSE
     std::cout << "Affine Matrix" << std::endl << affine.matrix() << std::endl;
 #endif

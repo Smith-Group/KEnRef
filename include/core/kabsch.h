@@ -4,6 +4,8 @@
 #define KABSCH_H
 
 #include <Eigen/Geometry>
+#include <Eigen/Dense>
+#include <iostream>
 #include "core/KEnRef.h"
 
 #define VERBOSE false
@@ -39,21 +41,12 @@ public:
         // Find the centroids then shift to the origin
         Eigen::Vector3<precision> p_ctr = Eigen::Vector3<precision>::Zero();
         Eigen::Vector3<precision> q_ctr = Eigen::Vector3<precision>::Zero();
-        for (int row = 0; row < p_temp.rows(); row++) {
-            p_ctr += p_temp.row(row);
-        }
-        p_ctr /= p_temp.rows();
-        for (int row = 0; row < p_temp.rows(); row++) {
-            p_temp.row(row) -= p_ctr;
-        }
+        p_ctr = p_temp.colwise().mean();
+        p_temp = (p_temp.rowwise() - p_ctr.transpose()).eval();
         if (! secondAlreadyCentered){
-            for (int row = 0; row < p_temp.rows(); row++) {
-                q_ctr += q_temp.row(row);
-            }
-            q_ctr /= q_temp.rows();
-            for (int row = 0; row < p_temp.rows(); row++) {
-                q_temp.row(row) -= q_ctr;
-            }
+            //q_temp = translateCenterOfMassToOrigin(q_temp); //can't use it, coz it does not return the COM
+            q_ctr = q_temp.colwise().mean();
+            q_temp = (q_temp.rowwise() - q_ctr.transpose()).eval();
         }
 
 		// SVD
@@ -80,6 +73,28 @@ public:
         A.linear() = R;
         A.translation() = q_ctr - R * p_ctr;
         return A;
+    }
+
+    // Translate the center of mass of a 3D point cloud to the origin. This could save some processing time if you
+    // consistently fit some points (atoms) to the same reference structure everytime.
+    static inline CoordsMatrixType<precision> translateCenterOfMassToOrigin(const CoordsMatrixType<precision>& points) {
+        // Compute the center of mass
+        Eigen::RowVector3<precision> center_of_mass = points.colwise().mean();
+        // Translate the points so that the center of mass is at the origin
+        CoordsMatrixType<precision> translated_points = points.rowwise() - center_of_mass;
+        return translated_points;
+    }
+
+    static inline precision calculateVariance(const CoordsMatrixType<precision>& A) {
+        // Compute the centroid
+        Eigen::RowVector3<precision> centroid = A.colwise().mean();
+        // Compute the distances from the centroid
+        Eigen::VectorX<precision> distances = (A.rowwise() - centroid).rowwise().norm();
+        // Compute the mean of the distances
+        precision mean_distance = distances.mean();
+        // Compute the variance of the distances
+        precision variance = (distances.array() - mean_distance).square().mean();
+        return variance;
     }
 
     static CoordsMatrixType<precision>
