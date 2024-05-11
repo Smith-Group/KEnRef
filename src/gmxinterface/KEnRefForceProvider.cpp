@@ -11,7 +11,6 @@
 #include <Eigen/Core>
 
 #include "gromacs/mdtypes/commrec.h"
-//#include "gmxapi/mpi/gmxapi_mpi.h"
 #include "mpi.h"
 
 #include "gromacs/pbcutil/pbc.h"
@@ -146,6 +145,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         const int *piLocal = cr.dd->ga2la->findHome(*piGlobal);
         GMX_ASSERT(piLocal, "ERROR: Can't find local index of atom");
         const gmx::RVec atom_x = x[*piLocal];
+
 #if VERBOSE
         std::cout << sub0Id_to_global1Id[i] << "\t" << *piGlobal << "\t" << *piLocal << "\t x: " << atom_x[0] << ", " << atom_x[1] << ", " << atom_x[2] << std::endl;
 #endif
@@ -190,9 +190,9 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     // Gather allSimulationsSubAtomsX to rank 0 (in allSimulationsSubAtomsX)
     if (isMultiSimulation) {
         MPI_Gather(subAtomsXAfterFitting.data(), static_cast<int>(subAtomsXAfterFitting.size()),
-                   ((std::is_same<KEnRef_Real_t, float>()) ? MPI_FLOAT : MPI_DOUBLE),
+                   ((std::is_same_v<KEnRef_Real_t, float>) ? MPI_FLOAT : MPI_DOUBLE),
                    allSimulationsSubAtomsX.data(), static_cast<int>(subAtomsXAfterFitting.size()),
-                   ((std::is_same<KEnRef_Real_t, float>()) ? MPI_FLOAT : MPI_DOUBLE), 0,
+                   ((std::is_same_v<KEnRef_Real_t, float>) ? MPI_FLOAT : MPI_DOUBLE), 0,
                    mainRanksComm);
         //I don't think this line is important. Only for easy printing
         //        gmx_barrier(mainRanksComm);
@@ -273,11 +273,9 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     } else { //if a single simulation
         //Do nothing. allDerivatives_buffer and derivatives_buffer are already the same.
     }
+
     //once you have the derivatives, retrieve them from the buffer
     new(&derivatives_map) CoordsMapType<KEnRef_Real_t>(derivatives_buffer, subAtomsX.rows(), 3);
-
-//    std::cout << "derivatives_map.cast<KEnRef_Real_t>().rowwise().homogeneous() top 100 rows" << std::endl <<
-//              derivatives_map.cast<KEnRef_Real_t>().rowwise().homogeneous().topRows(100) << std::endl;
 
     // Transform them back
     CoordsMatrixType<KEnRef_Real_t> derivatives_rectified = Kabsch_Umeyama<KEnRef_Real_t>::applyInverseOfTransform(affine, derivatives_map);
@@ -383,7 +381,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin);
     this->calculateForces_time += elapsed.count();
     if (!(step % 10) && simulationIndex == 0)
-        printf("This iteration (%ld): %.3f seconds. All walltime %.3f seconds\n", step, static_cast<double>(elapsed.count()) * 1e-9,
+        printf("This iteration (%ld): %.5f seconds. All walltime %.3f seconds\n", step, static_cast<double>(elapsed.count()) * 1e-9,
                static_cast<double>(calculateForces_time) * 1e-9);
 
 
