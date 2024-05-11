@@ -17,8 +17,9 @@
 // original code obtained from
 // https://github.com/oleg-alexandrov/projects/blob/master/eigen/Kabsch.cpp
 // The input 3D points are stored as rows (every point in a row).
+//This is the latest modification https://zpl.fi/aligning-point-patterns-with-kabsch-umeyama-algorithm/
 template<typename precision>
-class Kabsch {
+class Kabsch_Umeyama {
     //TODO check whether there is an available implementation in Eigen.
     //TODO you can check here https://eigen.tuxfamily.org/dox/group__TutorialLinearAlgebra.html
     //TODO and https://eigen.tuxfamily.org/dox/group__TutorialGeometry.html
@@ -28,15 +29,15 @@ public:
                           bool secondAlreadyCentered = false) {
 
         // Default output
-		Eigen::Transform<precision,3,Eigen::Affine> A;
-		A.linear() = Eigen::Matrix3<precision>::Identity(3, 3);
-		A.translation() = Eigen::Vector3<precision>::Zero();
+        Eigen::Transform<precision, 3, Eigen::Affine> A;
+        A.linear() = Eigen::Matrix3<precision>::Identity(3, 3);
+        A.translation() = Eigen::Vector3<precision>::Zero();
 
-		if (p.rows() != q.rows())
+        if (p.rows() != q.rows())
             throw std::runtime_error("Find3DAffineTransform(): input data mis-match");
 
-		Eigen::MatrixX3<precision> p_temp = p.template cast <precision> ();
-		Eigen::MatrixX3<precision> q_temp = q.template cast <precision> ();
+        CoordsMatrixType<precision> p_temp = p.template cast<precision>();
+        CoordsMatrixType<precision> q_temp = q.template cast<precision>();
 
         // Find the centroids then shift to the origin
         Eigen::Vector3<precision> p_ctr = Eigen::Vector3<precision>::Zero();
@@ -49,18 +50,17 @@ public:
             q_temp = (q_temp.rowwise() - q_ctr.transpose()).eval();
         }
 
-		// SVD
-		//  Eigen::MatrixXf Cov = p_temp * q_temp.transpose();
-		Eigen::MatrixX<precision> Cov = p_temp.transpose() * q_temp; //FIXME I am not sure about this line
-		Eigen::JacobiSVD<Eigen::MatrixX<precision>> svd(Cov, Eigen::ComputeThinU | Eigen::ComputeThinV);
+        // SVD
+        Eigen::MatrixX<precision> Cov = p_temp.transpose() * q_temp;
+        Eigen::JacobiSVD<Eigen::MatrixX<precision>> svd(Cov, Eigen::ComputeThinU | Eigen::ComputeThinV);
 
 #if VERBOSE
-			std::cout << "Matrix U " << std::endl <<svd.matrixU() << std::endl << std::endl;
-			std::cout << "Matrix V " << std::endl << svd.matrixV() << std::endl << std::endl;
+        std::cout << "Matrix U " << std::endl <<svd.matrixU() << std::endl << std::endl;
+        std::cout << "Matrix V " << std::endl << svd.matrixV() << std::endl << std::endl;
 #endif
 
         // Find the rotation
-        precision d = (svd.matrixV() * svd.matrixU().transpose()).determinant();
+        precision d = svd.matrixV().transpose().determinant() * svd.matrixU().determinant();
         if (d > 0)
             d = 1.0;
         else
@@ -69,9 +69,19 @@ public:
         I(2, 2) = d;
         Eigen::Matrix3<precision> R = svd.matrixV() * I * svd.matrixU().transpose();
 
+        // Find the scale
+#if VERBOSE
+        std::cout << "(svd.singularValues().asDiagonal() * I).trace()" << std::endl << (svd.singularValues().asDiagonal() * I).trace() << std::endl;
+        std::cout << "(p_temp.transpose() * p_temp).trace()" << std::endl << (p_temp.transpose() * p_temp).trace() << std::endl;
+#endif
+//        precision scale = (svd.matrixV() * svd.singularValues().asDiagonal() * svd.matrixU().transpose()).trace() / (p_temp * p_temp.transpose()).trace();
+//        precision scale = calculateVariance(p_temp) / (svd.singularValues().asDiagonal() * I).trace();
+//        if(scale == 0) scale = 1;
+        precision scale = (svd.singularValues().asDiagonal() * I).trace() / (p_temp * p_temp.transpose()).trace();
+
         // The final transform
-        A.linear() = R;
-        A.translation() = q_ctr - R * p_ctr;
+        A.linear() = scale *  R;
+        A.translation() = q_ctr - scale * R * p_ctr;
         return A;
     }
 
@@ -115,9 +125,9 @@ public:
 
 
 template
-class Kabsch<float>;
+class Kabsch_Umeyama<float>;
 
 template
-class Kabsch<double>;
+class Kabsch_Umeyama<double>;
 
 #endif

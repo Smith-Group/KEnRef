@@ -140,7 +140,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 #endif
 
 
-    // Fill needed atoms of subAtomsX with atoms (in the original order). The rest were set to zero earlier
+    // Fill needed atoms of subAtomsX with atoms (in the original order).
     for (int i = 0; i < subAtomsX.rows(); i++) {
         const int *piGlobal = new int{sub0Id_to_global1Id[i] - 1};
         const int *piLocal = cr.dd->ga2la->findHome(*piGlobal);
@@ -179,13 +179,13 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     //    I don't think this line is important. Only for easy printing
     //    gmx_barrier(mainRanksComm);
 
-    const auto &affine = Kabsch<KEnRef_Real_t>::Find3DAffineTransform(
+    const auto &affine = Kabsch_Umeyama<KEnRef_Real_t>::Find3DAffineTransform(
             guideAtomsX_ZEROIndexed, *this->guideAtomsReferenceCoords_, true);
 #if VERBOSE
     std::cout << "Affine Matrix" << std::endl << affine.matrix() << std::endl;
 #endif
 
-    subAtomsXAfterFitting = Kabsch<KEnRef_Real_t>::applyTransform(affine, subAtomsX);
+    subAtomsXAfterFitting = Kabsch_Umeyama<KEnRef_Real_t>::applyTransform(affine, subAtomsX);
 
     // Gather allSimulationsSubAtomsX to rank 0 (in allSimulationsSubAtomsX)
     if (isMultiSimulation) {
@@ -280,7 +280,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 //              derivatives_map.cast<KEnRef_Real_t>().rowwise().homogeneous().topRows(100) << std::endl;
 
     // Transform them back
-    CoordsMatrixType<KEnRef_Real_t> derivatives_rectified = Kabsch<KEnRef_Real_t>::applyInverseOfTransform(affine, derivatives_map);
+    CoordsMatrixType<KEnRef_Real_t> derivatives_rectified = Kabsch_Umeyama<KEnRef_Real_t>::applyInverseOfTransform(affine, derivatives_map);
 
 //    std::cout << "derivatives_rectified # " << simulationIndex << " shape (" << derivatives_rectified.rows() << " x "
 //              << derivatives_rectified.cols() << "). First 100 lines:" << std::endl
