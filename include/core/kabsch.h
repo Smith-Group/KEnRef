@@ -25,8 +25,8 @@ class Kabsch_Umeyama {
     //TODO and https://eigen.tuxfamily.org/dox/group__TutorialGeometry.html
 public:
     static Eigen::Transform<precision, 3, Eigen::Affine>
-    Find3DAffineTransform(const CoordsMatrixType<precision> &p, const CoordsMatrixType<precision> &q,
-                          bool secondAlreadyCentered = false) {
+    find3DAffineTransform(const CoordsMatrixType<precision> &p, const CoordsMatrixType<precision> &q,
+                          bool secondAlreadyCentered = false, bool doScale = false) {
 
         // Default output
         Eigen::Transform<precision, 3, Eigen::Affine> A;
@@ -34,7 +34,7 @@ public:
         A.translation() = Eigen::Vector3<precision>::Zero();
 
         if (p.rows() != q.rows())
-            throw std::runtime_error("Find3DAffineTransform(): input data mis-match");
+            throw std::runtime_error("find3DAffineTransform(): input data mis-match");
 
         CoordsMatrixType<precision> p_temp = p.template cast<precision>();
         CoordsMatrixType<precision> q_temp = q.template cast<precision>();
@@ -77,7 +77,7 @@ public:
 //        precision scale = (svd.matrixV() * svd.singularValues().asDiagonal() * svd.matrixU().transpose()).trace() / (p_temp * p_temp.transpose()).trace();
 //        precision scale = calculateVariance(p_temp) / (svd.singularValues().asDiagonal() * I).trace();
 //        if(scale == 0) scale = 1;
-        precision scale = (svd.singularValues().asDiagonal() * I).trace() / (p_temp * p_temp.transpose()).trace();
+        precision scale = doScale ? (svd.singularValues().asDiagonal() * I).trace() / (p_temp * p_temp.transpose()).trace() : 1.;
 
         // The final transform
         A.linear() = scale *  R;

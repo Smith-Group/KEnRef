@@ -18,7 +18,7 @@ TEST(KabschTestSuite, TestTranslate) {
 
     query.rowwise() += Eigen::RowVector3<float>{0, 10000, 0};
 
-    auto A = Kabsch_Umeyama<float>::Find3DAffineTransform(ref, query);
+    auto A = Kabsch_Umeyama<float>::find3DAffineTransform(ref, query, false, true);
     std::cout << "Q\n" << query.matrix() << std::endl;
     std::cout << "R\n" << ref.matrix() << std::endl;
     std::cout << "A\n" << A.matrix() << std::endl;
@@ -34,7 +34,7 @@ TEST(KabschTestSuite, TestTranslate) {
     query = Kabsch_Umeyama<float>::applyTransform(A_applied, query);
     std::cout << "Query after translation\n" << query.matrix() << std::endl;
 
-    auto A_calculated = Kabsch_Umeyama<float>::Find3DAffineTransform(ref, query);
+    auto A_calculated = Kabsch_Umeyama<float>::find3DAffineTransform(ref, query, false, true);
     std::cout << "A_applied\n" << A_applied.matrix() << std::endl;
     std::cout << "A_calculated\n" << A_calculated.matrix() << std::endl;
     std::cout << "A_calculated.matrix().inverse()\n" << A_calculated.matrix().inverse() << std::endl;
@@ -69,7 +69,7 @@ TEST(KabschTestSuite, TestRotate) {
     query = Kabsch_Umeyama<float>::applyTransform(A_applied, query);
     std::cout << "Q after\n" << query.matrix() << std::endl;
 
-    auto A_predicted = Kabsch_Umeyama<float>::Find3DAffineTransform(ref, query);
+    auto A_predicted = Kabsch_Umeyama<float>::find3DAffineTransform(ref, query, false, true);
     std::cout << "A_applied\n" << A_applied.matrix() << std::endl;
 //    std::cout << "A_applied.matrix().inverse()\n" << A_applied.matrix().inverse() << std::endl;
     std::cout << "A_predicted\n" << A_predicted.matrix() << std::endl;
@@ -99,7 +99,7 @@ TEST(KabschTestSuite, TestScale) {
     query = Kabsch_Umeyama<float>::applyTransform(A_applied, query);
     std::cout << "Q after\n" << query.matrix() << std::endl;
 
-    auto A_predicted = Kabsch_Umeyama<float>::Find3DAffineTransform(ref, query);
+    auto A_predicted = Kabsch_Umeyama<float>::find3DAffineTransform(ref, query, false, true);
     std::cout << "A_applied\n" << A_applied.matrix() << std::endl;
     std::cout << "A_predicted\n" << A_predicted.matrix() << std::endl;
     std::cout << "difference\n" << (A_predicted.matrix() - A_applied.matrix()) << std::endl;
@@ -137,7 +137,7 @@ TEST(KabschTestSuite, TestComplexTransform){
     query = Kabsch_Umeyama<float>::applyTransform(A_applied, query);
     std::cout << "Q after\n" << query.matrix() << std::endl;
 
-    auto A_predicted = Kabsch_Umeyama<float>::Find3DAffineTransform(ref, query);
+    auto A_predicted = Kabsch_Umeyama<float>::find3DAffineTransform(ref, query, false, true);
     std::cout << "A_applied\n" << A_applied.matrix() << std::endl;
     std::cout << "A_predicted\n" << A_predicted.matrix() << std::endl;
     std::cout << "difference\n" << (A_predicted.matrix() - A_applied.matrix()) << std::endl;
@@ -209,7 +209,7 @@ TEST(KabschTestSuite, TestKabschRoundTrip) {
     query1 = Kabsch_Umeyama<float>::applyTransform(A_applied, query1);
     std::cout << "Q after going\n" << query1.matrix() << std::endl;
 
-    auto A_predicted = Kabsch_Umeyama<float>::Find3DAffineTransform(ref, query1);
+    auto A_predicted = Kabsch_Umeyama<float>::find3DAffineTransform(ref, query1, false, true);
     std::cout << "A_applied\n" << A_applied.matrix() << std::endl;
     std::cout << "A_predicted\n" << A_predicted.matrix() << std::endl;
 
@@ -246,13 +246,14 @@ TEST(KabschTestSuite, TestMaxError) {
     std::cout << "S\n" << S << std::endl;
     std::cout << "scale\n" << scale << std::endl;
     std::cout << "R\n" << R << std::endl;
-    Eigen::Transform<double, 3, Eigen::Affine> A_predicted_d = Kabsch_Umeyama<double>::Find3DAffineTransform(in, out);
+    Eigen::Transform<double, 3, Eigen::Affine> A_predicted_d = Kabsch_Umeyama<double>::find3DAffineTransform(in, out, false, true);
     std::cout << "A_predicted_d\n" << A_predicted_d.matrix() << std::endl;
     EXPECT_LE((scale * R.cast<double>() - A_predicted_d.linear()).cwiseAbs().maxCoeff(), 1e-13);
     EXPECT_LE((S.cast<double>() - A_predicted_d.translation()).cwiseAbs().maxCoeff(), 1e-13);
 
-    Eigen::Transform<float, 3, Eigen::Affine> A_f = Kabsch_Umeyama<float>::Find3DAffineTransform(in.cast<float>(),
-                                                                                                 out.cast<float>());
+    Eigen::Transform<float, 3, Eigen::Affine> A_f = Kabsch_Umeyama<float>::find3DAffineTransform(in.cast<float>(),
+                                                                                                 out.cast<float>(),
+                                                                                                 false, true);
     EXPECT_LE((static_cast<float>(scale) * R.cast<float>() - A_f.linear()).cwiseAbs().maxCoeff(), 1e-4);
     EXPECT_LE((S.cast<float>() - A_f.translation()).cwiseAbs().maxCoeff(), 1e-4);
 }
