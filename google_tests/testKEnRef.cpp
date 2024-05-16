@@ -2,25 +2,10 @@
 #include <Eigen/Core>
 #include <Eigen/src/Core/Matrix.h>
 #include <Eigen/src/Core/util/Constants.h>
+#include <fstream>
 #include "core/KEnRef.h"
-
-void EXPECT_MATRIX_NEAR(const Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, Eigen::Dynamic> &leftSide,
-                        const Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, Eigen::Dynamic> &rightSide,
-                        KEnRef_Real_t epsilon =
-#ifdef DOUBLE
-                                                1.0e-14
-#else
-                                                5.0e-6
-#endif
-                        ) {
-    EXPECT_EQ(leftSide.rows(), rightSide.rows());
-    EXPECT_EQ(leftSide.cols(), rightSide.cols());
-    for (auto i = 0; i < leftSide.rows(); i++) {
-        for (int j = 0; j < leftSide.cols(); ++j) {
-            EXPECT_NEAR(leftSide(i, j), rightSide(i, j), epsilon);
-        }
-    }
-}
+#include "core/IoUtils.h"
+#include "testHelper.h"
 
 Eigen::IOFormat fullPrecisionFmt(Eigen::FullPrecision);
 

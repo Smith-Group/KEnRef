@@ -1,6 +1,7 @@
 #include <Eigen/Geometry>
 #include <core/kabsch.h>
 #include "gtest/gtest.h"
+#include "testHelper.h"
 
 // Just some dummy tests
 TEST(KabschTestSuite, TestTranslate) {
