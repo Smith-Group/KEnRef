@@ -1,4 +1,3 @@
-#include <cstdio>
 #include <iostream>
 #include <filesystem>
 #include <fstream>
@@ -7,7 +6,7 @@
 #include "core/IoUtils.h"
 
 TEST(IoUtilsTestSuite, TestGetAtomNameMappingFromPdb){
-    static const char *const ATOMNAME_MAPPING_FILENAME = "../../res/cleanstart/6v5d_step0_for_atomname_mapping.pdb";
+    static const char *const ATOMNAME_MAPPING_FILENAME = "../../res/10nsstart+fitting/0ns.pdb";
     std::cout << std::filesystem::current_path() << std::endl;
     std::map<std::string, int> atomNameMapping = IoUtils::getAtomMappingFromPdb<std::string, int>(ATOMNAME_MAPPING_FILENAME, IoUtils::fill_atomId_to_index_Map);
     EXPECT_TRUE(!atomNameMapping.empty());
@@ -110,7 +109,7 @@ TEST(IoUtilsTestSuite, restOfTests){
 
     std::ifstream noe_groups_file("../../res/noe_groups.R");
     auto noe_groups = IoUtils::read_noe_groups(noe_groups_file);
-    for(auto [key, val] : noe_groups){
+    for(const auto& [key, val] : noe_groups){
         std::cout << "<" << key<< ">"  << " " << val.size() << ":";
         for(const auto& str: val){
             std::cout << " [" << str << ']';

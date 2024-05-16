@@ -11,8 +11,8 @@
 #define VERBOSE false
 
 // Given two sets of 3D points, find the rotation + translation + scale
-// which best transforms the first set to the second (i.e. if applied to the first will result in the second).
-//The first and second are also called in and out or before and after.
+// which best transforms the second set to the first (i.e. if applied to the second will result in the first).
+//The first and second are also called out and in or after and before.
 // Source: http://en.wikipedia.org/wiki/Kabsch_algorithm
 // original code obtained from
 // https://github.com/oleg-alexandrov/projects/blob/master/eigen/Kabsch.cpp
@@ -25,63 +25,69 @@ class Kabsch_Umeyama {
     //TODO and https://eigen.tuxfamily.org/dox/group__TutorialGeometry.html
 public:
     static Eigen::Transform<precision, 3, Eigen::Affine>
-    find3DAffineTransform(const CoordsMatrixType<precision> &p, const CoordsMatrixType<precision> &q,
-                          bool secondAlreadyCentered = false, bool doScale = false) {
+    find3DAffineTransform(const CoordsMatrixType<precision> &after, const CoordsMatrixType<precision> &before,
+                          bool afterAlreadyCentered = false, bool doTranslate=true, bool doScale = false) {
 
         // Default output
         Eigen::Transform<precision, 3, Eigen::Affine> A;
         A.linear() = Eigen::Matrix3<precision>::Identity(3, 3);
         A.translation() = Eigen::Vector3<precision>::Zero();
 
-        if (p.rows() != q.rows())
+        if (after.rows() != before.rows())
             throw std::runtime_error("find3DAffineTransform(): input data mis-match");
 
-        CoordsMatrixType<precision> p_temp = p.template cast<precision>();
-        CoordsMatrixType<precision> q_temp = q.template cast<precision>();
+        CoordsMatrixType<precision> after_temp = after.template cast<precision>();
+        CoordsMatrixType<precision> before_temp = before.template cast<precision>();
 
         // Find the centroids then shift to the origin
-        Eigen::Vector3<precision> p_ctr = Eigen::Vector3<precision>::Zero();
-        Eigen::Vector3<precision> q_ctr = Eigen::Vector3<precision>::Zero();
-        p_ctr = p_temp.colwise().mean();
-        p_temp = (p_temp.rowwise() - p_ctr.transpose()).eval();
-        if (! secondAlreadyCentered){
-            //q_temp = translateCenterOfMassToOrigin(q_temp); //can't use it, coz it does not return the COM
-            q_ctr = q_temp.colwise().mean();
-            q_temp = (q_temp.rowwise() - q_ctr.transpose()).eval();
+        Eigen::Vector3<precision> after_centroid = Eigen::Vector3<precision>::Zero();
+        Eigen::Vector3<precision> before_centroid = Eigen::Vector3<precision>::Zero();
+        if (! afterAlreadyCentered){
+            //p_temp = translateCenterOfMassToOrigin(p_temp); //can't use it yet, coz it does not return the COM (yet)
+            after_centroid = after_temp.colwise().mean();
+            after_temp = (after_temp.rowwise() - after_centroid.transpose()).eval();
         }
+        before_centroid = before_temp.colwise().mean();
+        before_temp = (before_temp.rowwise() - before_centroid.transpose()).eval();
 
         // SVD
-        Eigen::MatrixX<precision> Cov = p_temp.transpose() * q_temp;
+        Eigen::MatrixX<precision> Cov = after_temp.transpose() * before_temp;
         Eigen::JacobiSVD<Eigen::MatrixX<precision>> svd(Cov, Eigen::ComputeThinU | Eigen::ComputeThinV);
 
 #if VERBOSE
         std::cout << "Matrix U " << std::endl <<svd.matrixU() << std::endl << std::endl;
         std::cout << "Matrix V " << std::endl << svd.matrixV() << std::endl << std::endl;
 #endif
-
         // Find the rotation
-        precision d = svd.matrixV().transpose().determinant() * svd.matrixU().determinant();
-        if (d > 0)
-            d = 1.0;
-        else
-            d = -1.0;
+
+        // this implementaion should be also fine
+//        precision d = (svd.matrixV() * svd.matrixU().transpose()).determinant();
+//        d = (d > 0) ? 1.0 : -1.0; // improper implementation of sign()
+
+        //This is the Wikipedia implememtation
+        precision d = svd.matrixV().determinant() * svd.matrixU().determinant();
+        //TODO assert that d == 1 or -1
+
         Eigen::Matrix3<precision> I = Eigen::Matrix3<precision>::Identity(3, 3);
         I(2, 2) = d;
-        Eigen::Matrix3<precision> R = svd.matrixV() * I * svd.matrixU().transpose();
+        Eigen::Matrix3<precision> R = svd.matrixU() * I * svd.matrixV().transpose();
 
         // Find the scale
 #if VERBOSE
         std::cout << "(svd.singularValues().asDiagonal() * I).trace()" << std::endl << (svd.singularValues().asDiagonal() * I).trace() << std::endl;
-        std::cout << "(p_temp.transpose() * p_temp).trace()" << std::endl << (p_temp.transpose() * p_temp).trace() << std::endl;
+        std::cout << "(after_temp.transpose() * after_temp).trace()" << std::endl << (after_temp.transpose() * after_temp).trace() << std::endl;
+        std::cout << "calculateVariance(after_temp)" << std::endl << calculateVariance(after_temp) << std::endl;
+        std::cout << "(svd.singularValues().asDiagonal() * I).trace()" << std::endl << (svd.singularValues().asDiagonal() * I).trace() << std::endl;
 #endif
 //        precision scale = (svd.matrixV() * svd.singularValues().asDiagonal() * svd.matrixU().transpose()).trace() / (p_temp * p_temp.transpose()).trace();
 //        precision scale = calculateVariance(p_temp) / (svd.singularValues().asDiagonal() * I).trace();
 //        if(scale == 0) scale = 1;
-        precision scale = doScale ? (svd.singularValues().asDiagonal() * I).trace() / (p_temp * p_temp.transpose()).trace() : 1.;
+        precision scale = doScale ? (after_temp * after_temp.transpose()).trace() / (svd.singularValues().asDiagonal() * I).trace() : 1.;
 
         // The final transform
         A.linear() = scale *  R;
-        A.translation() = q_ctr - scale * R * p_ctr;
+        if (doTranslate)
+            A.translation() = after_centroid - scale * R * before_centroid;
         return A;
     }
 

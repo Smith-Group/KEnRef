@@ -32,7 +32,7 @@ TEST(KEnRefTestSuite, TestRArrayToDArray1) {
     std::cout << "toy_r_mat" << std::endl << toy_r_mat.format(fullPrecisionFmt) << std::endl;
     EXPECT_EQ(toy_r_mat, expected_toy_r_mat);
 
-    auto [toy_d_array, toy_d_array_grad] = KEnRef<KEnRef_Real_t>::r_array_to_d_array(toy_r_mat, true);
+    const auto& [toy_d_array, toy_d_array_grad] = KEnRef<KEnRef_Real_t>::r_array_to_d_array(toy_r_mat, true);
     Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, 5> expected_toy_d_array(4, 5);
     Eigen::Matrix<KEnRef_Real_t, 5, Eigen::Dynamic> temp(5, 4);
     temp <<
@@ -44,7 +44,7 @@ TEST(KEnRefTestSuite, TestRArrayToDArray1) {
     std::cout << "toy_d_array" << std::endl << toy_d_array << std::endl;
     std::cout << "toy_d_array" << std::endl << toy_d_array.format(fullPrecisionFmt) << std::endl;
     expected_toy_d_array = temp.transpose();
-    EXPECT_MATRIX_NEAR(toy_d_array, expected_toy_d_array);
+    TestHelper<KEnRef_Real_t>::EXPECT_MATRIX_NEAR(toy_d_array, expected_toy_d_array);
 
     std::cout << "toy_d_array_grad" << std::endl << toy_d_array_grad << std::endl;
     std::cout << "toy_d_array_grad" << std::endl << toy_d_array_grad.format(fullPrecisionFmt) << std::endl;
@@ -72,7 +72,7 @@ TEST(KEnRefTestSuite, TestRArrayToDArray1) {
             arr[idx++] = d + 5*xyz;
     expected_toy_d_array_grad = temp2.transpose()(Eigen::all, arr);
     std::cout << "expected_toy_d_array_grad" << std::endl << expected_toy_d_array_grad.format(fullPrecisionFmt) << std::endl;
-    EXPECT_MATRIX_NEAR(toy_d_array_grad, expected_toy_d_array_grad);
+    TestHelper<KEnRef_Real_t>::EXPECT_MATRIX_NEAR(toy_d_array_grad, expected_toy_d_array_grad);
 }
 
 TEST(KEnRefTestSuite, testDArrayToG){
@@ -136,15 +136,107 @@ TEST(KEnRefTestSuite, testSaturate) {
     testMatrix << 1000., 0., 0.;
     expectedMatrix << 1000., 0., 0.;
     KEnRef<KEnRef_Real_t>::saturate(testMatrix, 0, 0.0, 1000.0 * 1000.0, 0);
-    EXPECT_MATRIX_NEAR(testMatrix, expectedMatrix);
+    TestHelper<KEnRef_Real_t>::EXPECT_MATRIX_NEAR(testMatrix, expectedMatrix);
 
     testMatrix << 0., 10000., 0.;
     expectedMatrix << 0., 1000., 0.;
     KEnRef<KEnRef_Real_t>::saturate(testMatrix, 0, 0.0, 1000.0 * 1000.0, 0);
-    EXPECT_MATRIX_NEAR(testMatrix, expectedMatrix, 0.0001);
+    TestHelper<KEnRef_Real_t>::EXPECT_MATRIX_NEAR(testMatrix, expectedMatrix, .0001);
 }
 
-TEST(KEnRefTestSuite, restOfTestsToWrite){
+TEST(KEnRefTestSuite, TestCoordArrayToEnergyFiniteDifferenceMethodTest){
+    auto coordsArray_base = CoordsMatrixType<double>(409, 3);
+
+    std::ifstream atomIdPairsFileStream("../../res/google_tests/atomIdPairs.txt");
+    std::ifstream CoordsFileStream("../../res/google_tests/coords.txt");
+    auto experimentalData_table = IoUtils::readTable(
+            "../../res/10nsstart+posres+fitting/singleton_data_10nsstart+fit_3-5_1977pairs_80_A.csv", true);
+
+    auto tempAtomIdPairsTable = IoUtils::read_uniform_table_of<int>(atomIdPairsFileStream);
+    std::vector<std::tuple<int, int> > atomIdPairs;
+    for (auto row : tempAtomIdPairsTable) {
+        atomIdPairs.emplace_back(row[0], row[1]);
+    }
+    auto tempCoordsTable = IoUtils::read_uniform_table_of<double>(CoordsFileStream);
+    for (int i = 0; i < tempCoordsTable.size(); ++i) {
+        coordsArray_base.row(i) = Eigen::RowVector3<double>{tempCoordsTable[i][0], tempCoordsTable[i][1], tempCoordsTable[i][2]};
+    }
+    std::cout << "Atom ID Pairs (" << atomIdPairs.size() << "):";
+    std::cout << "<< \n";
+    auto atomIdPairsMatrix = Eigen::Matrix<int, Eigen::Dynamic, 2>(atomIdPairs.size(), 2);
+    for (int i = 0; i < atomIdPairs.size(); ++i) {
+     auto [lt, rt] = atomIdPairs[i];
+        atomIdPairsMatrix(i, 0) = lt;
+        atomIdPairsMatrix(i, 1) = rt;
+    }
+    std::cout << atomIdPairsMatrix.transpose() << std::endl;
+
+    std::vector<std::vector<std::string> > data = std::get<1>(experimentalData_table);
+    auto &g0 = *new Eigen::Matrix<double, Eigen::Dynamic, 2>(data.size(), 2);
+    for (int i = 0; i < data.size(); ++i) {
+        auto record = data[i];
+        std::istringstream temp1(record[5]), temp2(record[6]);
+        temp1 >> g0(i, 0);
+        temp2 >> g0(i, 1);
+    }
+
+    double k = 5e8;
+    double n = 0.25;
+    auto simulated_grouping_list = std::vector<std::vector<std::vector<int>>>{{{0}}, {{0}}};
+    auto allSimulationsSubAtomsX_vector = std::vector<CoordsMatrixType<double>>{coordsArray_base};
+    const auto &[energy_base, allDerivatives_vector_base] =
+            KEnRef<double>::coord_array_to_energy(allSimulationsSubAtomsX_vector, atomIdPairs,
+                                                         simulated_grouping_list, g0,
+                                                         k, n, true, 20);
+
+//    std::cout << "Energy " << energy_base << "\n first 20 lines of derivatives in TestKEnRef\n"
+//              << allDerivatives_vector_base[0].topRows(20) << std::endl;
+
+    EXPECT_NEAR(energy_base, 35.9427, 1e-2);
+
+    double  delta = 1e-6;
+    Eigen::IOFormat heavyFmt(Eigen::FullPrecision, 0, ", ", ";\n", "[", "]", "[", "]");
+    for (int model = 0; model < allSimulationsSubAtomsX_vector.size(); ++model) {
+        for (int i = 0; i < coordsArray_base.rows(); ++i) {
+            for (int j = 0; j < 3; ++j) {
+                CoordsMatrixType<double> coordsArray_derived(coordsArray_base);
+                coordsArray_derived(i, j) += delta;
+                allSimulationsSubAtomsX_vector = std::vector<CoordsMatrixType<double>>{coordsArray_derived};
+                const auto &[energy_derived, allDerivatives_vector_derived] =
+                        KEnRef<double>::coord_array_to_energy(allSimulationsSubAtomsX_vector, atomIdPairs,
+                                                                     simulated_grouping_list, g0,
+                                                                     k, n, true, 20);
+
+                double E_delta = energy_derived - energy_base;
+                auto diff_mat = allDerivatives_vector_derived[model] - allDerivatives_vector_base[model];
+                std::cout << "changed (" << i << ", " << j << ")";
+                std::cout << std::scientific;
+
+                std::cout << "\tE_delta = " << E_delta /*<< std::endl*/;
+                std::cout << "\tF_delta = " << diff_mat(i,j) /*<< std::endl*/;
+
+                double d_FD = E_delta /delta;
+                double d_Anal = allDerivatives_vector_base[model](i,j);
+                double method_diff = abs((d_Anal - d_FD) / d_FD);
+//                double method_diff = abs((d_Anal - d_FD) / d_Anal);
+
+                std::cout << "\tdFD = " << d_FD;
+                std::cout << "\td_Anal = " << d_Anal;
+                std::cout << "\t(d_Anal - d_FD) / d_FD) = " << method_diff;
+
+//                Eigen::Index maxRow, maxCol;
+//                double max = diff_mat.cwiseAbs().maxCoeff(&maxRow, &maxCol);
+//                std::cout << "\tMax F_delta found at ("<< maxRow << ", " << maxCol << "). Value = " << std::scientific << max;
+//                std::cout << "\t(dE-df)/d " << ((E_delta - diff_mat(i,j))/delta);
+
+                std::cout << std::endl;
+//                std::cout << "\ndiff_mat=\n" << diff_mat.format(heavyFmt) << std::endl;
+            }
+        }
+    }
+}
+
+TEST(KEnRefTestSuite, testRestOfTestsToWrite){
     CoordsMatrixType<KEnRef_Real_t> model1(5, 3);
     model1 <<
            32.708, 53.484, 20.701,
@@ -210,7 +302,9 @@ TEST(KEnRefTestSuite, restOfTestsToWrite){
     std::cout << "eros3_sub_1_g" << std::endl << eros3_sub_1_g << std::endl;
 
 
-    auto[eros3_sub_energy, eros3_sub_energy_grad] = KEnRef<KEnRef_Real_t>::coord_array_to_energy(eros3_sub_coord, eros3_sub_atom_idPairs, eros3_grouping_list, eros3_sub_1_g, 1.0, 0.25, true);
+    auto [eros3_sub_energy, eros3_sub_energy_grad] =
+            KEnRef<KEnRef_Real_t>::coord_array_to_energy(eros3_sub_coord, eros3_sub_atom_idPairs, eros3_grouping_list,
+                                                         eros3_sub_1_g, 1.0, 0.25, true);
     std::cout << "eros3_sub_energy" << std::endl << eros3_sub_energy << std::endl;
     for (const auto& mat: eros3_sub_energy_grad) {
         std::cout << "eros3_sub_energy_grad" << std::endl << mat << std::endl;
