@@ -202,7 +202,6 @@ KEnRef<KEnRef_Real>::d_array_to_g(
             //for every member of the grouping block
             //sum relevant models into relevant groups (e.g. model 1 & 2 into group 1, and models 3 & 4 into group 2)
             d_matrix += d_arrays[currentGrouping[j]];
-            //TODO print d_matrix after each iteration to verify
         }
 
         if (gradient) {
@@ -242,8 +241,6 @@ KEnRef<KEnRef_Real>::g_to_energy_uncorrected(
     Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> g0, // target group norm squared values
     KEnRef_Real k, // force constant
     bool gradient, int numOmpThreads) {
-    //	std::cout << "g   (" << g.rows() << " x " << g.cols() << ")" <<std::endl;
-    //	std::cout << "g0  (" << g0.rows() << " x " << g0.cols() << ")" <<std::endl;
     Eigen::Array<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> g_minus_g0 = g.array() - g0.array();
     auto ret1 = k * g_minus_g0.square().matrix();
     if (gradient) {
@@ -274,7 +271,7 @@ KEnRef<KEnRef_Real>::g_to_energy(
     //    std::cout << "g_arr " << g_arr << std::endl;
     Eigen::Array<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> common; //TODO better keep it as an ArrayExpression (or simply auto) for better optimization
     Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> ret1;
-    Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> ret2{};
+    Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> ret2{}; //TODO don't initialize. use **nullOpt** instead
 
     switch (lossFunc) {
         case SQRT_ABS_POWER_N:
