@@ -51,10 +51,14 @@ void KEnRefForceProvider::setGuideAtom0Indices(std::shared_ptr<std::vector<int> 
 void KEnRefForceProvider::setGuideAtomsReferenceCoords(
     std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> &guideAtomsReferenceCoords) {
     this->guideAtomsReferenceCoords_ = std::move(guideAtomsReferenceCoords);
-    //move its Center of Mass (COM) to the origin for faster processing
-    this->guideAtomsReferenceCoords_ =
+    //keep another cashed version after moving its Center of Mass (COM) to the origin for faster processing
+    this->guideAtomsReferenceCoordsCentered_ =
             std::make_shared<const CoordsMatrixType<KEnRef_Real_t>>(
                     Kabsch_Umeyama<KEnRef_Real_t>::translateCenterOfMassToOrigin(*this->guideAtomsReferenceCoords_));
+}
+
+void KEnRefForceProvider::setSubAtomsXReferenceCoords(std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> &subAtomsXReferenceCoords) {
+    this->subAtomsXReferenceCoords_ = std::move(subAtomsXReferenceCoords);
 }
 
 void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forceProviderInput,
@@ -64,12 +68,16 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     const auto homenr = forceProviderInput.homenr_; // total number of atoms in the system (or domain dec ?)
     GMX_ASSERT(homenr >= 0, "number of home atoms must be non-negative.");
 
-    //    const auto& box = forceProviderInput.box_;
-    auto box = new matrix;
-    copy_mat(forceProviderInput.box_, box);
-    GMX_ASSERT(check_box(PbcType::Unset, box) == nullptr, "Invalid box.");
+    //TODO move the PBC to KEnRefForceProvider::fillParamsStep0()
+//    //const auto& box = forceProviderInput.box_;
+//    auto box = new matrix;
+//    copy_mat(forceProviderInput.box_, box);
+//    GMX_ASSERT(check_box(PbcType::Unset, box) == nullptr, "Invalid box.");
+//    auto *pbc = new t_pbc{};
+//    set_pbc(pbc, PbcType::Unset, box);
+    GMX_ASSERT(check_box(PbcType::Unset, forceProviderInput.box_) == nullptr, "Invalid box.");
     auto *pbc = new t_pbc{};
-    set_pbc(pbc, PbcType::Unset, box);
+    set_pbc(pbc, PbcType::Unset, forceProviderInput.box_);
 
     const auto &x = forceProviderInput.x_;
     const auto &cr = forceProviderInput.cr_;
@@ -113,11 +121,10 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
             }
         }
 #endif
-        fillParamsStep0(homenr, numSimulations);
+        fillParamsStep0(homenr, numSimulations, forceProviderInput);
         paramsInitialized = true;
     }
 
-    std::vector<int> const &guideAtom0Indices = *this->guideAtom0Indices_; //ZERO indexed
     // const auto &atomName_to_atomSub0Id_map = *this->atomName_to_atomSub0Id_map_;
     const auto &sub0Id_to_global1Id = *this->sub0Id_to_global1Id_;
     // const auto &experimentalData_table = *this->experimentalData_table_;
@@ -139,48 +146,54 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 #endif
 
 
-    // Fill needed atoms of subAtomsX with atoms (in the original order).
-    for (int i = 0; i < subAtomsX.rows(); i++) {
-        const int *piGlobal = new int{sub0Id_to_global1Id[i] - 1};
-        const int *piLocal = cr.dd->ga2la->findHome(*piGlobal);
-        GMX_ASSERT(piLocal, "ERROR: Can't find local index of atom");
-        const gmx::RVec atom_x = x[*piLocal];
-
-#if VERBOSE
-        std::cout << sub0Id_to_global1Id[i] << "\t" << *piGlobal << "\t" << *piLocal << "\t x: " << atom_x[0] << ", " << atom_x[1] << ", " << atom_x[2] << std::endl;
-#endif
-        if constexpr (std::is_same_v<KEnRef_Real_t, real>) {
-            auto subAtomsX_buffer = subAtomsX.data();
-            const auto rvec = atom_x.as_vec();
-            std::copy_n(rvec, 3, &subAtomsX_buffer[i * 3]);
-        } else {
-            for (int j = 0; j < 3; ++j) {
-                subAtomsX(i, j) = static_cast<KEnRef_Real_t>(atom_x[j]);
-            }
-        }
-    }
-    //transform to Angstrom
-    subAtomsX *= 10;
-#if VERBOSE
-    std::cout << "subAtomsX shape: (" << subAtomsX.rows() << ", " << subAtomsX.cols() <<"). After :" << std::endl << subAtomsX << std::endl;
-#endif
+    //Fill needed atoms of subAtomsX with atoms (in the original order).
+    // Also, transform to Angstrom to compare/fit against Angstrom from PDB
+    //N.P. We chose Angstrom, although we are working in Gromacs (Nanometer-based environment) because the energy
+    // was calculated using the PDB, which is Angstrom based.
+    // BTW, don't panic about scaling the forces back, because that is handled/included in the force constant.
+    //N.B. You must call restoreNoJump() BEFORE calling applyTransform().
+    fillSubAtomsX(subAtomsX, sub0Id_to_global1Id, forceProviderInput, true);
+    restoreNoJump(subAtomsX, *this->subAtomsXReferenceCoords_, forceProviderInput.box_, true,
+                  gmx_omp_nthreads_get(ModuleMultiThread::Default));
 
     if (haveDDAtomOrdering(cr)) {
         //TODO handle Domain Decomposition
     }
-    // pbc_dx(pbc, *box_const, atom_x, atoms_nopbc[*pii]); //TODO restore atom coordinates without the PBC
+
+#if VERBOSE
+    std::cout << "subAtomsX shape: (" << subAtomsX.rows() << ", " << subAtomsX.cols() <<"). After :" << std::endl << subAtomsX << std::endl;
+#endif
 
     // Copy all subAtomsXAfterFitting into its corresponding section of allSimulationsSubAtomsX (after fitting)
 
     // ================= fit all models to reference ====================
     CoordsMatrixType<KEnRef_Real_t> subAtomsXAfterFitting; // needs to be a Matrix to access its buffer using .data()
-    const CoordsMatrixType<KEnRef_Real_t> &guideAtomsX_ZEROIndexed = getGuideAtomsX(x, cr, guideAtom0Indices);
+    const CoordsMatrixType<KEnRef_Real_t> &guideAtomsX_ZEROIndexed = getGuideAtomsX(*this->guideAtom0Indices_,
+                                                                                    forceProviderInput, true);
+    //N.B. You must call restoreNoJump() BEFORE calling find3DAffineTransform().
+    restoreNoJump(const_cast<CoordsMatrixType<KEnRef_Real_t> &>(guideAtomsX_ZEROIndexed),
+                  *this->guideAtomsReferenceCoords_, forceProviderInput.box_, true,
+                  gmx_omp_nthreads_get(ModuleMultiThread::Default));
+    //N.B. You must restore no jump BEFORE calling find3DAffineTransform().
+    //Here, I am trying to rotate only
+    const auto &affine = Kabsch_Umeyama<KEnRef_Real_t>::find3DAffineTransform(*this->guideAtomsReferenceCoordsCentered_,
+                                                                              guideAtomsX_ZEROIndexed,
+                                                                              true, false, false);
+
+    //TODO later:
+    //  1) fix and use guideAtomsReferenceCoordsCentered_ (may need to pass the old center centered matrix + original center).
+    //  2) may rearrange instructions to rise the block where you prepare the guide and reference above where you prepare subAtomsX
+
+    if constexpr (5 ==7){
+        std::cout << "guideAtomsX_ZEROIndexed size (" << guideAtomsX_ZEROIndexed.rows() << ", " << guideAtomsX_ZEROIndexed.cols()<< ")\n";
+        std::cout << "guideAtomsX_ZEROIndexed sample before transform\n" << guideAtomsX_ZEROIndexed(Eigen::seqN(0, 5, 10), Eigen::all) << std::endl;
+        std::cout << "guideAtomsReferenceCoords_ sample\n" << (*guideAtomsReferenceCoords_)(Eigen::seqN(0, 5, 10), Eigen::all) << std::endl;
+        std::cout << "Affine matrix\n" << affine.matrix() << std::endl;
+    }
 
     //    I don't think this line is important. Only for easy printing
     //    gmx_barrier(mainRanksComm);
 
-    const auto &affine = Kabsch_Umeyama<KEnRef_Real_t>::Find3DAffineTransform(
-            guideAtomsX_ZEROIndexed, *this->guideAtomsReferenceCoords_, true);
 #if VERBOSE
     std::cout << "Affine Matrix" << std::endl << affine.matrix() << std::endl;
 #endif
@@ -229,13 +242,10 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         std::vector<CoordsMatrixType<KEnRef_Real_t> > allSimulationsSubAtomsX_vector;
         allSimulationsSubAtomsX_vector.reserve(numSimulations);
         for (int i = 0; i < numSimulations; i++) {
-            //TODO Review (and Simplify?)
-            //            CoordsMatrixType<KEnRef_Real_t> tempMatrix = CoordsMapType<KEnRef_Real_t>(
-            //                    &allSimulationsSubAtomsX.data()[i * subAtomsX.size()], subAtomsX.rows(), 3);
-            //            allSimulationsSubAtomsX_vector.emplace_back(std::move(tempMatrix));
+            //TODO Review (and Simplify?). May need memory alignment
             allSimulationsSubAtomsX_vector.emplace_back(std::move(
-                CoordsMapType<KEnRef_Real_t>(&allSimulationsSubAtomsX.data()[i * subAtomsX.size()], subAtomsX.rows(),
-                                             3)));
+                    CoordsMapType<KEnRef_Real_t>(&allSimulationsSubAtomsX.data()[i * subAtomsX.size()],
+                                                 subAtomsX.rows(), 3)));
         }
 
         const auto &atomId_pairs = *this->atomId_pairs_;
@@ -395,17 +405,41 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     std::cout << "=================" << std::endl;
 }
 
-CoordsMatrixType<KEnRef_Real_t> KEnRefForceProvider::getGuideAtomsX(const gmx::ArrayRef<const gmx::RVec> &x,
-                                                                    const t_commrec &cr,
-                                                                    const std::vector<int> &guideAtom0Indices) {
+void KEnRefForceProvider::fillSubAtomsX(CoordsMatrixType<KEnRef_Real_t> &subAtomsX,
+                                        const std::vector<int> &sub0Id_to_global1Id,
+                                        const gmx::ForceProviderInput &forceProviderInput, bool toAngstrom){
+    for (int i = 0; i < subAtomsX.rows(); i++) {
+        const int *piGlobal = new int{sub0Id_to_global1Id[i] - 1};
+        const int *piLocal = forceProviderInput.cr_.dd->ga2la->findHome(*piGlobal);
+        GMX_ASSERT(piLocal, "ERROR: Can't find local index of atom");
+        const gmx::RVec atom_x = forceProviderInput.x_[*piLocal];
+#if VERBOSE
+        std::cout << sub0Id_to_global1Id[i] << "\t" << *piGlobal << "\t" << *piLocal << "\t x: " << atom_x[0] << ", " << atom_x[1] << ", " << atom_x[2] << std::endl;
+#endif
+        if constexpr (std::is_same_v<KEnRef_Real_t, real>) {
+            auto subAtomsX_buffer = subAtomsX.data();
+            const auto rvec = atom_x.as_vec();
+            std::copy_n(rvec, 3, &subAtomsX_buffer[i * 3]);
+        } else {
+            for (int j = 0; j < 3; ++j) {
+                subAtomsX(i, j) = static_cast<KEnRef_Real_t>(atom_x[j]);
+            }
+        }
+    }
+    if(toAngstrom)
+        subAtomsX *= 10;
+}
+
+CoordsMatrixType<KEnRef_Real_t> KEnRefForceProvider::getGuideAtomsX(const std::vector<int> &guideAtom0Indices,
+                                                                    const gmx::ForceProviderInput &forceProviderInput, bool toAngstrom) {
     long guideAtom0IndicesSize = static_cast<long>(guideAtom0Indices.size());
     auto guideAtomsX_ZEROIndexed = CoordsMatrixType<KEnRef_Real_t>(guideAtom0IndicesSize, 3);
     KEnRef_Real_t *guideAtomsX_ZEROIndexed_buffer = guideAtomsX_ZEROIndexed.data();
     for (auto i = 0; i < guideAtom0IndicesSize; i++) {
         const int *pi = &guideAtom0Indices[i];
-        const int *piLocal = cr.dd->ga2la->findHome(*pi);
+        const int *piLocal = forceProviderInput.cr_.dd->ga2la->findHome(*pi);
         GMX_ASSERT(piLocal, "ERROR: Can't find local index of atom");
-        const gmx::RVec atom_x = x[*piLocal];
+        const gmx::RVec atom_x = forceProviderInput.x_[*piLocal];
 
         auto rvec = atom_x.as_vec();
         std::copy_n(rvec, 3, &guideAtomsX_ZEROIndexed_buffer[i * 3]);
@@ -419,11 +453,48 @@ CoordsMatrixType<KEnRef_Real_t> KEnRefForceProvider::getGuideAtomsX(const gmx::A
     std::cout << "guideAtomsX_ZEROIndexed shape is (" << guideAtomsX_ZEROIndexed.rows() << ", " << guideAtomsX_ZEROIndexed.cols() << ")" << std::endl;
     std::cout << "guideAtomsX_ZEROIndexed" << std::endl << guideAtomsX_ZEROIndexed << std::endl;
 #endif
-
+    if (toAngstrom)
+        guideAtomsX_ZEROIndexed *= 10;
     return guideAtomsX_ZEROIndexed; //RETURN BY VALUE
 }
 
-void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulations) {
+void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
+                   const CoordsMatrixType<KEnRef_Real_t> &reference,
+                   const matrix &box_, bool toAngstrom, int numOmpThreads) {
+    auto box = new matrix;
+    if(toAngstrom)
+        msmul(box_, 10, box);
+
+    // Calculate half the box length in each dimension
+    Eigen::RowVector3<KEnRef_Real_t> box_half = 0.5 * (Eigen::RowVector3<KEnRef_Real_t>) {box[XX][XX], box[YY][YY],
+                                                                                          box[ZZ][ZZ]};
+
+#pragma omp parallel for num_threads(numOmpThreads)
+    for (int i = 0; i < atoms.rows(); ++i) {
+        for (int m = DIM - 1; m >= 0; --m) {
+            if (box_half[m] == 0)
+                continue;
+            auto atom = atoms.row(i);
+            auto refAtom = reference.row(i);
+            // Checsk if atom jumped across the box in this dimension
+            while ((atom[m] - refAtom[m]) <= -box_half[m]) {
+                // Jumped to negative image, correct by adding box size
+                for (int d = 0; d <= m; ++d) {
+                    atom[d] += box[m][d];
+                }
+            }
+            while ((atom[m] - refAtom[m]) > box_half[m]) {
+                // Jumped to positive image, correct by subtracting box size
+                for (int d = 0; d <= m; ++d) {
+                    atom[d] -= box[m][d];
+                }
+            }
+        }
+    }
+    delete[] box;
+}
+
+void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulations, const gmx::ForceProviderInput &forceProviderInput) {
     auto begin = std::chrono::high_resolution_clock::now();
     bool isMultiSimulation = this->simulationContext_->multiSimulation_ != nullptr;
     this->atomName_to_atomGlobalId_map_ = std::make_shared<std::map<std::string, int> >(
@@ -481,6 +552,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
     this->experimentalData_table_ = std::make_shared<std::tuple<std::vector<std::string>, std::vector<std::vector<
                 std::string> > > >
             (IoUtils::readTable(KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME, true, maxAtomPairsToRead));
+    //TODO check number of atom pairs
     GMX_ASSERT(experimentalData_table_ && !(maxAtomPairsToRead && std::get<1>(*experimentalData_table_).empty()),
                "No simulated data found");
 #if VERBOSE
@@ -597,6 +669,13 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
                                     ? std::shared_ptr<KEnRef_Real_t[]>(new KEnRef_Real_t[this->subAtomsX_->size()])
                                     : this->allDerivatives_buffer_;
 
+    //FIXME this is wrong. subAtomsXReferenceCoords_ must come from independent reference, not from a restart;
+    // because it will be used in the noJump algorithm..
+    //TODO Delete this line. replace it with a fill in during initialization.
+    this->subAtomsXReferenceCoords_ = std::make_shared<CoordsMatrixType<KEnRef_Real_t> >(subAtomsX_->rows(), 3);
+    auto &subAtomsXReferenceCoords = *this->subAtomsXReferenceCoords_;
+    fillSubAtomsX(const_cast<CoordsMatrixType<KEnRef_Real_t> &>(subAtomsXReferenceCoords), sub0Id_to_global1Id,
+                  forceProviderInput, true);
     auto end = std::chrono::high_resolution_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin);
     this->calculateForces_time -= elapsed.count(); //Exclude THIS method from wall time calculation

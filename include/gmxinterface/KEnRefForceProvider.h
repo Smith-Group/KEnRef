@@ -29,6 +29,8 @@ class KEnRefForceProvider : public gmx::IForceProvider {
 	bool paramsInitialized = false;
 	std::shared_ptr<std::vector<int> const> guideAtom0Indices_; //ZERO indexed
 	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t> const> guideAtomsReferenceCoords_; //ZERO indexed
+	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t> const> guideAtomsReferenceCoordsCentered_; //ZERO indexed. Cashed for faster Kabsch Algorithm
+    std::shared_ptr<CoordsMatrixType<KEnRef_Real_t> const> subAtomsXReferenceCoords_; //ZERO indexed
 	std::shared_ptr<std::map<std::string, int> const> atomName_to_atomGlobalId_map_; //TODO later you may remove this and keep atomName_to_atomSubId_map_, or update it and delete atomName_to_atomSubId_map_
 	std::shared_ptr<std::map<std::string, int> > atomName_to_atomSub0Id_map_; //atomName is normalized string. SubId is a small subset and is ZERO based
 	std::shared_ptr<std::tuple<std::vector<std::string>, std::vector<std::vector<std::string> > > > experimentalData_table_ = nullptr; //TODO remove this pointer when it is no longer needed
@@ -69,11 +71,20 @@ public:
 	virtual void setGuideAtomsReferenceCoords(
 		std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> &guideAtomsReferenceCoords);
 
-	void fillParamsStep0(size_t homenr, int numSimulations);
+    void setSubAtomsXReferenceCoords(std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> &subAtomsXReferenceCoords);
+
+    static void restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
+                       const CoordsMatrixType<KEnRef_Real_t> &reference,
+                       const matrix &box, bool toAngstrom, int numOmpThreads);
+
+    void fillParamsStep0(size_t homenr, int numSimulations, const gmx::ForceProviderInput &subAtomsXRef);
 
 	static CoordsMatrixType<KEnRef_Real_t>
-	getGuideAtomsX(const gmx::ArrayRef<const gmx::RVec> &x, const t_commrec &cr,
-	               const std::vector<int> &guideAtom0Indices);
+	getGuideAtomsX(const std::vector<int> &guideAtom0Indices,
+                   const gmx::ForceProviderInput &forceProviderInput, bool toAngstrom);
+
+    static void fillSubAtomsX(CoordsMatrixType<KEnRef_Real_t> &subAtomsX, const std::vector<int> &sub0Id_to_global1Id,
+                              const gmx::ForceProviderInput &forceProviderInput, bool toAngstrom);
 };
 
 #endif /* KENREFFORCEPROVIDER_H_ */

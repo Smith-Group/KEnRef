@@ -94,7 +94,7 @@ class KEnRefMDModule final: public gmx::IMDModule {
     std::shared_ptr<KEnRefForceProvider> forceProvider_;
     gmx::SimulationContext* simulationContext_ = nullptr;
     std::shared_ptr<std::vector<int> const> guideAtoms0Indexed; //ZERO indexed
-    std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> guideAtomsReferenceCoords;
+    std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> guideAtomsReferenceCoords_;
 
     static void readParams(const char *kenref_params) {
         const std::map<std::string, std::string> &params = IoUtils::readParams(kenref_params);
