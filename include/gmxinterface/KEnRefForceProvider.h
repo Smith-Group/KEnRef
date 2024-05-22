@@ -64,15 +64,22 @@ public:
 	void calculateForces(const gmx::ForceProviderInput &forceProviderInput,
 	                     gmx::ForceProviderOutput *forceProviderOutput) override;
 
-	virtual void setSimulationContext(gmx::SimulationContext *simulationContext);
+	void setSimulationContext(gmx::SimulationContext *simulationContext);
 
-	virtual void setGuideAtom0Indices(std::shared_ptr<std::vector<int> const> targetAtoms0Indices);
+	void setGuideAtom0Indices(std::shared_ptr<std::vector<int> const> targetAtoms0Indices);
 
-	virtual void setGuideAtomsReferenceCoords(
+	void setGuideAtomsReferenceCoords(
 		std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> &guideAtomsReferenceCoords);
 
     void setSubAtomsXReferenceCoords(std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> &subAtomsXReferenceCoords);
 
+    /** Ported from Gromacs Trjconv code.
+     * nojump checks if atoms jump across the box and then puts them back. This has the effect that all molecules will
+     * remain whole (provided they were whole in the initial conformation). Note that this ensures a continuous
+     * trajectory but molecules may diffuse out of the box. The starting configuration for this procedure is taken from
+     * the structure file, if one is supplied, otherwise it is the first frame.
+     * **N.B.** You must call restoreNoJump() BEFORE calling applyTransform().
+     */
     static void restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
                        const CoordsMatrixType<KEnRef_Real_t> &reference,
                        const matrix &box, bool toAngstrom, int numOmpThreads);

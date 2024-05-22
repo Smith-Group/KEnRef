@@ -52,9 +52,9 @@ void KEnRefForceProvider::setGuideAtomsReferenceCoords(
     std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> &guideAtomsReferenceCoords) {
     this->guideAtomsReferenceCoords_ = std::move(guideAtomsReferenceCoords);
     //keep another cashed version after moving its Center of Mass (COM) to the origin for faster processing
-    this->guideAtomsReferenceCoordsCentered_ =
-            std::make_shared<const CoordsMatrixType<KEnRef_Real_t>>(
-                    Kabsch_Umeyama<KEnRef_Real_t>::translateCenterOfMassToOrigin(*this->guideAtomsReferenceCoords_));
+    this->guideAtomsReferenceCoordsCentered_ = std::make_shared<const CoordsMatrixType<KEnRef_Real_t>>(
+            Kabsch_Umeyama<KEnRef_Real_t>::translateCenterOfMassToOrigin(*this->guideAtomsReferenceCoords_));
+    //TODO do we need a guideAtomsReferenceCoordsCOM_ ?
 }
 
 void KEnRefForceProvider::setSubAtomsXReferenceCoords(std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> &subAtomsXReferenceCoords) {
@@ -220,9 +220,6 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
     //in the master rank
     if (!isMultiSimulation || simulationIndex == 0) {
-        //        KEnRef_Real_t energy;
-        //        std::vector<CoordsMatrixType<KEnRef_Real_t>> allDerivatives_vector;
-
         //collect all matrices of all replica into a vector of atom coordinates.
         std::vector<CoordsMatrixType<KEnRef_Real_t> > allSimulationsSubAtomsX_vector;
         allSimulationsSubAtomsX_vector.reserve(numSimulations);
@@ -255,7 +252,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     auto derivatives_buffer = this->derivatives_buffer_.get();
     // First, prepare the buffer
     if (simulationIndex == 0) { //whether master rank or single simulation
-        //I will use the slow method of copying data now, as it is less error-prone. TODO To change it, we need first to make sure the function returns the date contagiously.
+        //I will use the slow method of copying data now, as it is less error-prone. TODO To change it, we need first to make sure the function returns the data contagiously.
         for (int i = 0; i < allDerivatives_vector.size(); ++i) {
             const auto &matrix = allDerivatives_vector[i];
             std::copy_n(matrix.data(), subAtomsX.size(), &allDerivatives_buffer[i * subAtomsX.size()]);
@@ -275,10 +272,8 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     // Transform them back
     //N.B. You must restore no jump BEFORE calling find3DAffineTransform(), applyTransform(), or applyInverseOfTransform().
     CoordsMatrixType<KEnRef_Real_t> derivatives_rectified = Kabsch_Umeyama<KEnRef_Real_t>::applyInverseOfTransform(affine, derivatives_map);
+//    CoordsMatrixType<KEnRef_Real_t> derivatives_rectified = derivatives_map;
 
-//    std::cout << "derivatives_rectified # " << simulationIndex << " shape (" << derivatives_rectified.rows() << " x "
-//              << derivatives_rectified.cols() << "). First 100 lines:" << std::endl
-//              << derivatives_rectified.topRows(100) << std::endl;
 
     KEnRef<KEnRef_Real_t>::saturate(derivatives_rectified, simulationIndex, energy, this->maxForceSquared_,
                                     gmx_omp_nthreads_get(ModuleMultiThread::Default));
@@ -286,17 +281,6 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     //////////////////////////////////////////////////////////////////////////////////////////////////
     std::cout << "computeVirial_ = " << std::boolalpha << forceProviderOutput->forceWithVirial_.computeVirial_ <<
             std::endl;
-    ////	const gmx::ArrayRef<gmx::BasicVector<KEnRef_Real> > 	force = forceProviderOutput->forceWithVirial_.force_;
-    //	for (int i = 0; i < 5 /*force.size()/100*/; ++i) {
-    //		std::cout  << "Sum forces on Atom # " << i << ":" << std::endl;
-    ////		auto forceitem = force[i];
-    //		for(int j = 0; j < 3; j++){
-    //			std::cout << forceProviderInput.x_[i][j] << " ";
-    //			//			std::cout << forceitem[j] << " ";
-    //		}
-    //		std::cout << std::endl;
-    //	}
-    //	std::cout << std::endl << std::endl;
     /////////////////////////////////////////////////////////////////////////////////////////////////
 
     if (isMultiSimulation && haveDDAtomOrdering(cr)) {
@@ -304,15 +288,6 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         // I need to find the right sub-communicator. What I really want is a _scoped_ communicator...
         gmx_barrier(cr.mpi_comm_mygroup);
     }
-
-    //    // From /Gromacs-Source@gromacs/src/gromacs/restraint/restraintmdmodule.cpp
-    //    const int  site1  = static_cast<int>(sites_.front().index());
-    //    const int* aLocal = &site1;
-    //    // Set forces using index `site1` if no domain decomposition, otherwise set with local index if available.
-    //    const auto& force = forceProviderOutput->forceWithVirial_.force_;
-    //    if ((cr.dd == nullptr) || (aLocal = cr.dd->ga2la->findHome(site1))){
-    //        force[static_cast<size_t>(*aLocal)] += result.force;
-    //    }
 
     //Finally, add them to corresponding atoms
     for (int i = 0; i < subAtomsX.rows(); i++) {
@@ -628,7 +603,8 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
     auto &atomName_to_atomSub0Id_map = *this->atomName_to_atomSub0Id_map_;
     for (const auto &[name, globalId]: atomName_to_atomGlobalId_map)
         atomName_to_atomSub0Id_map[name] = global1Id_to_sub0Id[globalId];
-    this->atomId_pairs_ = KEnRef<KEnRef_Real_t>::atomNamePairs_2_atomIdPairs(*atomName_pairs_, atomName_to_atomSub0Id_map);
+    this->atomId_pairs_ = KEnRef<KEnRef_Real_t>::atomNamePairs_2_atomIdPairs(*atomName_pairs_,
+                                                                             atomName_to_atomSub0Id_map);
 
 #if VERBOSE
     for(const auto& [name, subId]: atomName_to_atomSub0Id_map){
@@ -638,21 +614,20 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
 
     this->subAtomsX_ = std::make_shared<CoordsMatrixType<KEnRef_Real_t> >(sub0Id_to_global1Id.size(), 3);//contains needed atoms only
 #if VERBOSE
-    auto subAtomsX = *this->subAtomsX_; std::cout << "subAtomsX_ shape is (" << subAtomsX.rows() << ", " << subAtomsX.cols() << ")" << std::endl;
+    auto subAtomsX = *this->subAtomsX_; std::cout << "subAtomsX_ shape is (" << subAtomsX.rows() << ", " <<
+    subAtomsX.cols() << ")" << std::endl;
 #endif
-    this->allSimulationsSubAtomsX_ = isMultiSimulation
-                                         ? std::make_shared<CoordsMatrixType<KEnRef_Real_t> >(
-                                             numSimulations * this->subAtomsX_->rows(), 3)
-                                         : this->subAtomsX_;
+    this->allSimulationsSubAtomsX_ = isMultiSimulation ? std::make_shared<CoordsMatrixType<KEnRef_Real_t> >(
+            numSimulations * this->subAtomsX_->rows(), 3) : this->subAtomsX_;
 #if VERBOSE
-    auto allSimulationsSubAtomsX = *this->allSimulationsSubAtomsX_; std::cout << "allSimulationsSubAtomsX_ shape is (" << allSimulationsSubAtomsX.rows() << ", " << allSimulationsSubAtomsX.cols() << ")" << std::endl;
+    auto allSimulationsSubAtomsX = *this->allSimulationsSubAtomsX_; std::cout << "allSimulationsSubAtomsX_ shape is ("
+    << allSimulationsSubAtomsX.rows() << ", " << allSimulationsSubAtomsX.cols() << ")" << std::endl;
 #endif
 
     this->allDerivatives_buffer_ = std::shared_ptr<KEnRef_Real_t[]>(
-        new KEnRef_Real_t[this->subAtomsX_->size() * numSimulations]);
-    this->derivatives_buffer_ = isMultiSimulation
-                                    ? std::shared_ptr<KEnRef_Real_t[]>(new KEnRef_Real_t[this->subAtomsX_->size()])
-                                    : this->allDerivatives_buffer_;
+            new KEnRef_Real_t[this->subAtomsX_->size() * numSimulations]);
+    this->derivatives_buffer_ = isMultiSimulation ? std::shared_ptr<KEnRef_Real_t[]>(
+            new KEnRef_Real_t[this->subAtomsX_->size()]) : this->allDerivatives_buffer_;
 
     //FIXME this is wrong. subAtomsXReferenceCoords_ must come from independent reference, not from a restart;
     // because it will be used in the noJump algorithm..

@@ -74,6 +74,11 @@ public:
         return A;
     }
 
+    static inline void fitAtomsInPlace(CoordsMatrixType<precision>& mobile, const CoordsMatrixType<precision>& target){
+        //TODO implement
+        std::cerr << "fitAtomsInPlace not yet implemented\n";
+        exit(-50);
+    }
     // Translate the center of mass of a 3D point cloud to the origin. This could save some processing time if you
     // consistently fit some points (atoms) to the same reference structure everytime.
     static inline CoordsMatrixType<precision> translateCenterOfMassToOrigin(const CoordsMatrixType<precision>& points) {

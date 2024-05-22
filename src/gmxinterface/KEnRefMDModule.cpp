@@ -37,6 +37,9 @@ KEnRefMDModule::KEnRefMDModule() {
 //    std::cout << "Reference Atoms"<< std::endl << guideAtomsReferenceCoords_ << std::endl;
 //    guideAtomsReferenceCoords *= 10; // Don't multiply. they are already in Angstrom
     this->guideAtomsReferenceCoords_ = std::make_shared<const CoordsMatrixType<KEnRef_Real_t >>(guideAtomsReferenceCoords);
+
+    //TODO: build another matrix for subAtomsXReferenceCoords
+
 }
 
 KEnRefMDModule::~KEnRefMDModule() = default;
