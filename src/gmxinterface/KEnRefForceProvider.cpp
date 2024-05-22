@@ -145,13 +145,26 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     //Note that the first atom of guideAtomsX (i.e. guideAtomsX[0]) is not the same subAtomsX_[0], and even subAtomsX_[0] ((may)) later not be the first atom in the system.
 #endif
 
+    // ================= fit all models to reference ====================
+    const CoordsMatrixType<KEnRef_Real_t>& guideAtomsX_ZEROIndexed = getGuideAtomsX(*this->guideAtom0Indices_,
+                                                                                    forceProviderInput, true);
+    restoreNoJump(const_cast<CoordsMatrixType<KEnRef_Real_t> &>(guideAtomsX_ZEROIndexed),
+                  *this->guideAtomsReferenceCoords_, forceProviderInput.box_, true,
+                  gmx_omp_nthreads_get(ModuleMultiThread::Default));
+
+    //TODO later fix and use guideAtomsReferenceCoordsCentered_ (may need to pass the old center centered matrix + original center).
+    //N.B. You must restore no jump BEFORE calling find3DAffineTransform(), applyTransform(), or applyInverseOfTransform().
+    const auto &affine = Kabsch_Umeyama<KEnRef_Real_t>::find3DAffineTransform(
+                                                                            guideAtomsX_ZEROIndexed,
+                                                                              *this->guideAtomsReferenceCoordsCentered_,
+                                                                              false, false, false);
+//    std::cout << "affine: \n" << affine.matrix() << std::endl;
 
     //Fill needed atoms of subAtomsX with atoms (in the original order).
     // Also, transform to Angstrom to compare/fit against Angstrom from PDB
     //N.P. We chose Angstrom, although we are working in Gromacs (Nanometer-based environment) because the energy
     // was calculated using the PDB, which is Angstrom based.
     // BTW, don't panic about scaling the forces back, because that is handled/included in the force constant.
-    //N.B. You must call restoreNoJump() BEFORE calling applyTransform().
     fillSubAtomsX(subAtomsX, sub0Id_to_global1Id, forceProviderInput, true);
     restoreNoJump(subAtomsX, *this->subAtomsXReferenceCoords_, forceProviderInput.box_, true,
                   gmx_omp_nthreads_get(ModuleMultiThread::Default));
@@ -160,51 +173,23 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         //TODO handle Domain Decomposition
     }
 
-#if VERBOSE
-    std::cout << "subAtomsX shape: (" << subAtomsX.rows() << ", " << subAtomsX.cols() <<"). After :" << std::endl << subAtomsX << std::endl;
-#endif
-
     // Copy all subAtomsXAfterFitting into its corresponding section of allSimulationsSubAtomsX (after fitting)
-
-    // ================= fit all models to reference ====================
-    CoordsMatrixType<KEnRef_Real_t> subAtomsXAfterFitting; // needs to be a Matrix to access its buffer using .data()
-    const CoordsMatrixType<KEnRef_Real_t> &guideAtomsX_ZEROIndexed = getGuideAtomsX(*this->guideAtom0Indices_,
-                                                                                    forceProviderInput, true);
-    //N.B. You must call restoreNoJump() BEFORE calling find3DAffineTransform().
-    restoreNoJump(const_cast<CoordsMatrixType<KEnRef_Real_t> &>(guideAtomsX_ZEROIndexed),
-                  *this->guideAtomsReferenceCoords_, forceProviderInput.box_, true,
-                  gmx_omp_nthreads_get(ModuleMultiThread::Default));
-    //N.B. You must restore no jump BEFORE calling find3DAffineTransform().
-    //Here, I am trying to rotate only
-    const auto &affine = Kabsch_Umeyama<KEnRef_Real_t>::find3DAffineTransform(*this->guideAtomsReferenceCoordsCentered_,
-                                                                              guideAtomsX_ZEROIndexed,
-                                                                              true, false, false);
-
-    //TODO later:
-    //  1) fix and use guideAtomsReferenceCoordsCentered_ (may need to pass the old center centered matrix + original center).
-    //  2) may rearrange instructions to rise the block where you prepare the guide and reference above where you prepare subAtomsX
-
-    if constexpr (5 ==7){
-        std::cout << "guideAtomsX_ZEROIndexed size (" << guideAtomsX_ZEROIndexed.rows() << ", " << guideAtomsX_ZEROIndexed.cols()<< ")\n";
-        std::cout << "guideAtomsX_ZEROIndexed sample before transform\n" << guideAtomsX_ZEROIndexed(Eigen::seqN(0, 5, 10), Eigen::all) << std::endl;
-        std::cout << "guideAtomsReferenceCoords_ sample\n" << (*guideAtomsReferenceCoords_)(Eigen::seqN(0, 5, 10), Eigen::all) << std::endl;
-        std::cout << "Affine matrix\n" << affine.matrix() << std::endl;
-    }
 
     //    I don't think this line is important. Only for easy printing
     //    gmx_barrier(mainRanksComm);
 
-#if VERBOSE
-    std::cout << "Affine Matrix" << std::endl << affine.matrix() << std::endl;
-#endif
-
-    subAtomsXAfterFitting = Kabsch_Umeyama<KEnRef_Real_t>::applyTransform(affine, subAtomsX);
+//    subAtomsX= Kabsch_Umeyama<KEnRef_Real_t>::translateCenterOfMassToOrigin(subAtomsX);
+//    std::cout << "subAtomsX B4 transform: \n" << subAtomsX(Eigen::seqN(0, 5, 10), Eigen::all) << std::endl;
+    //N.B. You must restore no jump BEFORE calling find3DAffineTransform(), applyTransform(), or applyInverseOfTransform().
+    subAtomsX = Kabsch_Umeyama<KEnRef_Real_t>::applyTransform(affine, subAtomsX);
+//    subAtomsXAfterFitting = subAtomsX;
+//    std::cout << "subAtomsX after transform: \n" << subAtomsX(Eigen::seqN(0, 5, 10), Eigen::all) << std::endl;
 
     // Gather allSimulationsSubAtomsX to rank 0 (in allSimulationsSubAtomsX)
     if (isMultiSimulation) {
-        MPI_Gather(subAtomsXAfterFitting.data(), static_cast<int>(subAtomsXAfterFitting.size()),
+        MPI_Gather(subAtomsX.data(), static_cast<int>(subAtomsX.size()),
                    ((std::is_same_v<KEnRef_Real_t, float>) ? MPI_FLOAT : MPI_DOUBLE),
-                   allSimulationsSubAtomsX.data(), static_cast<int>(subAtomsXAfterFitting.size()),
+                   allSimulationsSubAtomsX.data(), static_cast<int>(subAtomsX.size()),
                    ((std::is_same_v<KEnRef_Real_t, float>) ? MPI_FLOAT : MPI_DOUBLE), 0,
                    mainRanksComm);
         //I don't think this line is important. Only for easy printing
@@ -288,6 +273,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     new(&derivatives_map) CoordsMapType<KEnRef_Real_t>(derivatives_buffer, subAtomsX.rows(), 3);
 
     // Transform them back
+    //N.B. You must restore no jump BEFORE calling find3DAffineTransform(), applyTransform(), or applyInverseOfTransform().
     CoordsMatrixType<KEnRef_Real_t> derivatives_rectified = Kabsch_Umeyama<KEnRef_Real_t>::applyInverseOfTransform(affine, derivatives_map);
 
 //    std::cout << "derivatives_rectified # " << simulationIndex << " shape (" << derivatives_rectified.rows() << " x "
@@ -627,17 +613,16 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
     this->sub0Id_to_global1Id_ = std::make_shared<std::vector<int> >(globalAtomIdFlags.size(), -1);
     auto &global1Id_to_sub0Id = *this->global1Id_to_sub0Id_;
     auto &sub0Id_to_global1Id = *this->sub0Id_to_global1Id_;
-    {
-        int localId = 0;
-        for (int i = 0; i < globalAtomIdFlags.size(); i++) {
-            if (globalAtomIdFlags[i]) {
-                global1Id_to_sub0Id[i] = localId;
-                sub0Id_to_global1Id[localId] = i;
-                localId++;
-            }
+
+    int localId = 0;
+    for (int i = 0; i < globalAtomIdFlags.size(); i++) {
+        if (globalAtomIdFlags[i]) {
+            global1Id_to_sub0Id[i] = localId;
+            sub0Id_to_global1Id[localId] = i;
+            localId++;
         }
-        sub0Id_to_global1Id.resize(localId);
     }
+    sub0Id_to_global1Id.resize(localId);
 
     this->atomName_to_atomSub0Id_map_ = std::make_shared<std::map<std::string, int> >();
     auto &atomName_to_atomSub0Id_map = *this->atomName_to_atomSub0Id_map_;

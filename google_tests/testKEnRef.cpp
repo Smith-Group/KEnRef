@@ -150,7 +150,7 @@ TEST(KEnRefTestSuite, TestCoordArrayToEnergyFiniteDifferenceMethodTest){
     std::ifstream atomIdPairsFileStream("../../res/google_tests/atomIdPairs.txt");
     std::ifstream CoordsFileStream("../../res/google_tests/coords.txt");
     auto experimentalData_table = IoUtils::readTable(
-            "../../res/10nsstart+posres+fitting/singleton_data_10nsstart+fit_3-5_1977pairs_80_A.csv", true);
+            "../../res/10nsstart+fitting/singleton_data_10nsstart+fit_3-5_1977pairs_80_A.csv", true);
 
     auto tempAtomIdPairsTable = IoUtils::read_uniform_table_of<int>(atomIdPairsFileStream);
     std::vector<std::tuple<int, int> > atomIdPairs;
