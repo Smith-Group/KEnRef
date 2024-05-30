@@ -275,7 +275,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 //    CoordsMatrixType<KEnRef_Real_t> derivatives_rectified = derivatives_map;
 
 
-    KEnRef<KEnRef_Real_t>::saturate(derivatives_rectified, simulationIndex, energy, this->maxForceSquared_,
+    KEnRef<KEnRef_Real_t>::saturate(derivatives_rectified, this->maxForceSquared_,
                                     gmx_omp_nthreads_get(ModuleMultiThread::Default));
 
     //////////////////////////////////////////////////////////////////////////////////////////////////

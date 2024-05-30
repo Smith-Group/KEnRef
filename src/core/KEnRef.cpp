@@ -496,24 +496,13 @@ KEnRef<KEnRef_Real>::coord_array_to_g(
 //TODO Shall we move it (with its test of course) to GMXKenRefForceProvider?
 template<typename KEnRef_Real>
 void
-KEnRef<KEnRef_Real>::saturate(CoordsMatrixType<KEnRef_Real> &derivatives_rectified, int simulationIndex,
-                              KEnRef_Real energy, KEnRef_Real thresholdSquared, int numOmpThreads) {
-
-
-//#pragma omp parallel for num_threads(numOmpThreads) default(shared)
-    constexpr bool KEnRefReal_less_than_double = sizeof(KEnRef_Real) < sizeof(double);
-    int index = 0;
+KEnRef<KEnRef_Real>::saturate(CoordsMatrixType<KEnRef_Real> &derivatives_rectified, KEnRef_Real thresholdSquared,
+                              int numOmpThreads) {
+#pragma omp parallel for num_threads(numOmpThreads) default(shared)
     for (int i = 0; i < derivatives_rectified.rows(); i++) {
-        if (KEnRefReal_less_than_double && (derivatives_rectified.row(i).array().abs() > 1e15).any()){
-            auto scaleDownDouble = derivatives_rectified.row(i).template cast<double>().squaredNorm() / thresholdSquared;
-            if (scaleDownDouble > 1.0) {
-                derivatives_rectified.row(i) /= static_cast<KEnRef_Real>(std::sqrt(scaleDownDouble));
-            }
-        }else{
-            auto scaleDown = derivatives_rectified.row(i).squaredNorm() / thresholdSquared;
-            if (scaleDown > 1.0) {
-                derivatives_rectified.row(i) /= std::sqrt(scaleDown);
-            }
+        auto scaleDown = derivatives_rectified.row(i).squaredNorm() / thresholdSquared;
+        if (scaleDown > 1.0) {
+            derivatives_rectified.row(i) /= std::sqrt(scaleDown);
         }
     }
 }
