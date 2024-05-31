@@ -1,10 +1,9 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="KEnRef" type="CMakeRunConfiguration" factoryName="Application" PROGRAM_PARAMS="-s ../../res/10nsstart/md_10_10_HBonds.tpr -nsteps 1000 -cpi state" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" WORKING_DIR="file://$CMakeCurrentBuildDir$/../res/run-output" PASS_PARENT_ENVS_2="true" PROJECT_NAME="KEnRef" TARGET_NAME="KEnRef" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="KEnRef" RUN_TARGET_NAME="KEnRef">
+  <configuration default="false" name="KEnRef" type="CMakeRunConfiguration" factoryName="Application" PROGRAM_PARAMS="-s ../../res/10nsstart+fitting/t000.00.tpr -nsteps 1000 -cpi state" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" WORKING_DIR="file://$CMakeCurrentBuildDir$/../res/run-output" PASS_PARENT_ENVS_2="true" PROJECT_NAME="KEnRef" TARGET_NAME="KEnRef" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="KEnRef" RUN_TARGET_NAME="KEnRef">
     <envs>
       <env name="KENREF_K" value="1e8" />
       <env name="KENREF_MAXFORCE" value="800" />
-      <env name="KENREF_PARAMS" value="../KENREF_PARAMS.txt" />
-      <env name="KENREF_MAX_ATOMPAIRS_TO_READ_off" value="2" />
+      <env name="KENREF_PARAMS" value="../10nsstart+fitting/KENREF_PARAMS_A.txt" />
     </envs>
     <method v="2">
       <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
