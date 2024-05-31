@@ -64,7 +64,9 @@ void KEnRefForceProvider::setSubAtomsXReferenceCoords(std::shared_ptr<const Coor
 void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forceProviderInput,
                                           gmx::ForceProviderOutput *forceProviderOutput) {
     auto begin = std::chrono::high_resolution_clock::now();
+#if VERBOSE
     std::cout << "calculateForces() called" << std::endl;
+#endif
     const auto homenr = forceProviderInput.homenr_; // total number of atoms in the system (or domain dec ?)
     GMX_ASSERT(homenr >= 0, "number of home atoms must be non-negative.");
 
@@ -92,13 +94,13 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
                                  ? this->simulationContext_->multiSimulation_->mainRanksComm_
                                  : MPI_COMM_NULL;
     if (step % 10 == 0)
-        std::cout << "--> isMultiSimulation: " << std::boolalpha << isMultiSimulation << "\n" <<
-                "--> numSimulations " << numSimulations << "\n"
-                << "--> rankInDefaultCommunicator " << cr.rankInDefaultCommunicator << " " << (
-                    isMultiSimulation ? simulationIndex : -1) << "\n"
-                << "--> simulationIndex " << simulationIndex << "\tstep " << step << std::endl;
+        std::cout
+        // << "--> isMultiSimulation: " << std::boolalpha << isMultiSimulation << "\n"
+        << "--> numSimulations " << numSimulations << "\n"
+        << "--> rankInDefaultCommunicator " << cr.rankInDefaultCommunicator << " " << (isMultiSimulation ? simulationIndex : -1) << "\n"
+        << "--> simulationIndex " << simulationIndex << "\tstep " << step << std::endl;
 
-    if (!paramsInitialized /* || step == 0 */) {
+    if (!paramsInitialized) {
         volatile bool holdToDebug = false;
         while (simulationIndex > 0 && holdToDebug) {
             sleep(1);
@@ -106,7 +108,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     }
 
 
-    if (!paramsInitialized /*|| step == 0*/) {
+    if (!paramsInitialized) {
         std::cout << "Number of atoms = " << homenr << std::endl;
         std::cout << "havePPDomainDecomposition(cr): " << havePPDomainDecomposition(&cr) << std::endl;
         std::cout << "haveDDAtomOrdering(cr): " << haveDDAtomOrdering(cr) << std::endl;
@@ -278,10 +280,10 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     KEnRef<KEnRef_Real_t>::saturate(derivatives_rectified, this->maxForceSquared_,
                                     gmx_omp_nthreads_get(ModuleMultiThread::Default));
 
-    //////////////////////////////////////////////////////////////////////////////////////////////////
+#if VERBOSE
     std::cout << "computeVirial_ = " << std::boolalpha << forceProviderOutput->forceWithVirial_.computeVirial_ <<
             std::endl;
-    /////////////////////////////////////////////////////////////////////////////////////////////////
+#endif
 
     if (isMultiSimulation && haveDDAtomOrdering(cr)) {
         // Note: this assumes that all ranks are hitting this line, which is not generally true.
@@ -363,7 +365,8 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
     //I don't think this line is important. Only for easy printing
     //	if(isMultiSimulation) gmx_barrier(mainRanksComm);
-    std::cout << "=================" << std::endl;
+    if (!(step % 10) && simulationIndex == 0)
+        std::cout << "=================" << std::endl;
 }
 
 void KEnRefForceProvider::fillSubAtomsX(CoordsMatrixType<KEnRef_Real_t> &subAtomsX,

@@ -26,7 +26,7 @@ class KEnRefForceProvider : public gmx::IForceProvider {
 	KEnRef_Real_t maxForceSquared_ = 200.0 * 200.0;
 	KEnRef_Real_t k_ = 1.0;
 	KEnRef_Real_t n_ = 0.25;
-	bool paramsInitialized = false;
+	bool paramsInitialized = false; // We use it instead of (step == 0), because the simulation may be continuing after 0
 	std::shared_ptr<std::vector<int> const> guideAtom0Indices_; //ZERO indexed
 	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t> const> guideAtomsReferenceCoords_; //ZERO indexed
 	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t> const> guideAtomsReferenceCoordsCentered_; //ZERO indexed. Cashed for faster Kabsch Algorithm
