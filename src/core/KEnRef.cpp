@@ -197,10 +197,10 @@ KEnRef<KEnRef_Real>::d_array_to_g(
 
         // sum the dipole interaction tensors within each group/block
 #pragma omp parallel for num_threads(numOmpThreads) // schedule(static) //num_threads(gmx_omp_nthreads_get(ModuleMultiThread::Default))
-
         for (int j = 0; j < currentGroupSize; ++j) {
             //for every member of the grouping block
             //sum relevant models into relevant groups (e.g. model 1 & 2 into group 1, and models 3 & 4 into group 2)
+//#pragma omp atomic
             d_matrix += d_arrays[currentGrouping[j]];
         }
 
@@ -218,12 +218,18 @@ KEnRef<KEnRef_Real>::d_array_to_g(
         }
 
         // Divide d_matrix by currentGroupSize to get the average
-        d_matrix /= CURRENT_GROUP_SIZE_real;
+        d_matrix /= CURRENT_GROUP_SIZE_real; //N.B. Dividing it line by line in OMP, was slower(!)
+//#pragma omp parallel for num_threads(numOmpThreads)
+//        for (int i = 0; i < d_matrix.rows(); i++) {
+//            d_matrix.row(i) /= CURRENT_GROUP_SIZE_real;
+//        }
 
         // calculate self dot product (norm squared) and accumulate group's contribution to mean g
 #pragma omp parallel for num_threads(numOmpThreads)
         for (int j = 0; j < num_pairIds; j++) {
-            ret1(j) += d_matrix.row(j).squaredNorm() * currentGroupSize_OVER_num_models_real;
+            const auto contribution = d_matrix.row(j).squaredNorm() * currentGroupSize_OVER_num_models_real;
+#pragma omp atomic
+            ret1(j) += contribution;
         }
     }
     //	std::cout << "ret1" << std::endl << ret1 << std::endl;
@@ -319,8 +325,7 @@ KEnRef<KEnRef_Real>::coord_array_to_r_array(
     const std::vector<std::tuple<int, int> > &atomId_pairs, int numOmpThreads) {
     //	std::cout << "coord_array_to_r_array() called" << std::endl;
     std::vector<CoordsMatrixType<KEnRef_Real> > ret(coord_array.size());
-    // TODO What is the problem in the next pragma OMP line? I will temporarily use a single for loop optimization in the inner loop.
-    //#pragma omp parallel for collapse(2) num_threads(numOmpThreads)
+//#pragma omp parallel for collapse(2) num_threads(numOmpThreads)
     for (int model_no = 0; model_no < coord_array.size(); ++model_no) {
         ret.at(model_no) = {atomId_pairs.size(), 3};
 #pragma omp parallel for num_threads(numOmpThreads)
@@ -414,11 +419,17 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
             d_energy_d_d_vector.at(i) = std::move(
                 Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>::Zero(static_cast<int>(num_pairs), 5));
 
-        // TODO I commented this line until I am sure of its efficacy
-        //#pragma omp parallel for collapse(2) num_threads(numOmpThreads)
+//#pragma omp parallel for collapse(3) num_threads(numOmpThreads)
+#pragma omp parallel for collapse(2) num_threads(numOmpThreads)
         for (int i = 0; i < g_list.size(); i++) { //for each grouping
             for (int j = 0; j < g_list_grad[i].size(); j++) {
                 d_energy_d_d_vector[j].array() += (energy_matrix_grad.col(i).rowwise().template replicate<5>().array() * g_list_grad[i][j].array());
+//                // OMP line by line was slower (!)
+//                for (int r = 0; r < d_energy_d_d_vector[j].rows(); ++r) {
+//                    const auto &temp = energy_matrix_grad(r, i) * g_list_grad[i][j].row(r);
+//#pragma omp atomic
+//                    d_energy_d_d_vector[j].row(r) += temp;
+//                }
             }
         }
 
@@ -449,13 +460,15 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
             gradients.at(i) = CoordsMatrixType<KEnRef_Real>::Zero(num_atoms, 3);
         }
         // propagate the internuclear vector derivatives back onto the atomic coordinates
-//#pragma omp parallel for collapse(2) num_threads(numOmpThreads)
+#pragma omp parallel for collapse(2) num_threads(numOmpThreads)
         for (int p = 0; p < num_pairs; ++p) {
             // seq_len(dim(d_energy_d_r_array)[1])
             for (int m = 0; m < num_models; m++) {
-                auto [atomId0, atomId1] = atomId_pairs[p];
-                auto pair_grad = d_energy_d_r_array[m].row(p);
+                const auto [atomId0, atomId1] = atomId_pairs[p];
+                const auto& pair_grad = d_energy_d_r_array[m].row(p);
+#pragma omp atomic
                 gradients[m].row(atomId0) -= pair_grad;
+#pragma omp atomic
                 gradients[m].row(atomId1) += pair_grad;
             }
         }
