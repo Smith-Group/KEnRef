@@ -317,4 +317,37 @@ TEST(KEnRefTestSuite, testRestOfTestsToWrite){
     //	exit(0);
 
 
+    KEnRef_Real_t epsilon;
+    if constexpr (std::is_same_v<KEnRef_Real_t, float>){
+        epsilon = 5e-6;
+    }else{
+        epsilon = 1e-13;
+    }
+    std::cout << "testing float S2 difference with epsilon = " << epsilon << "\n";
+    const auto &experimentalS2Double = KEnRef<KEnRef_Real_t>::s2OrderParams(coordsVector, atomIdPairs,0);
+    std::cout << "expectedS2    \t" << expectedS2.transpose() << std::endl;
+    std::cout << "experimentalS2\t" << experimentalS2Double.transpose() << std::endl;
+    TestHelper<KEnRef_Real_t>::EXPECT_MATRIX_NEAR(expectedS2, experimentalS2Double, epsilon);
+
 }
+
+std::string padWithZeros(int value, int width) {
+    std::ostringstream oss;
+    oss << std::setw(width) << std::setfill('0') << value;
+    return oss.str();
+}
+
+    KEnRef_Real_t epsilon;
+    if constexpr (std::is_same_v<KEnRef_Real_t, float>){
+        epsilon = 5e-6;
+    }else{
+        epsilon = 1e-13;
+    }
+    std::cout << "testing float S2 difference with epsilon = " << epsilon << "\n";
+    const auto &experimentalS2Double = KEnRef<KEnRef_Real_t>::s2OrderParams(coordsVector, atomIdPairs,0);
+    std::cout << "expectedS2    \t" << expectedS2.transpose() << std::endl;
+    std::cout << "experimentalS2\t" << experimentalS2Double.transpose() << std::endl;
+    TestHelper<KEnRef_Real_t>::EXPECT_MATRIX_NEAR(expectedS2, experimentalS2Double, epsilon);
+
+}
+

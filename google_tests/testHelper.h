@@ -16,7 +16,7 @@ public:
     static void EXPECT_MATRIX_NEAR(const Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> &leftSide,
                                    const Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> &rightSide,
                                    const KEnRef_Real epsilon = std::is_same_v<KEnRef_Real_t, float> ? 5e-6 :
-                                                                 std::is_same_v<KEnRef_Real_t, float> ? 1e-14 :
+                                                                 std::is_same_v<KEnRef_Real_t, double> ? 1e-14 :
                                                                  std::numeric_limits<KEnRef_Real>::min()
     ){
         EXPECT_EQ(leftSide.rows(), rightSide.rows()) << "Matrix rows do not match.";
@@ -28,7 +28,6 @@ public:
             }
         }
     }
-
 };
 
 template class TestHelper<float>;

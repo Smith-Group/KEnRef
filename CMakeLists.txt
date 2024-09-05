@@ -5,6 +5,9 @@ set(CMAKE_CXX_STANDARD 17)
 string(TOLOWER ${CMAKE_BUILD_TYPE} build_type)
 message(STATUS "the build type is: ${build_type}")
 
+### comment the next line to make it float. Uncomment to make it double.
+#add_compile_options(-DDOUBLE)
+
 if (NOT DEFINED ACCEL)
 	set(ACCEL "AVX2_256")
 	message(STATUS "ACCEL variable not defined. Setting it to ${ACCEL}")

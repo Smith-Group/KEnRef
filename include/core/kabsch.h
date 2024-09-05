@@ -39,7 +39,7 @@ public:
         before_centroid = before_temp.colwise().mean();
         before_temp = (before_temp.rowwise() - before_centroid.transpose()).eval();
         if (! afterAlreadyCentered){
-            //p_temp = translateCenterOfMassToOrigin(p_temp); //can't use it yet, coz it does not return the COM (yet)
+            //p_temp = translateCenterOfMassToOrigin(p_temp); //can't use translateCenterOfMassToOrigin yet, coz it does not return the COM (yet)
             after_centroid = after_temp.colwise().mean();
             after_temp = (after_temp.rowwise() - after_centroid.transpose()).eval();
         }
