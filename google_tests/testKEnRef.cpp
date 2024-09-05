@@ -155,20 +155,20 @@ TEST(KEnRefTestSuite, TestCoordArrayToEnergyFiniteDifferenceMethodTest){
     for (int i = 0; i < tempCoordsTable.size(); ++i) {
         coordsArray_base.row(i) = Eigen::RowVector3<double>{tempCoordsTable[i][0], tempCoordsTable[i][1], tempCoordsTable[i][2]};
     }
-    std::cout << "Atom ID Pairs (" << atomIdPairs.size() << "):";
-    std::cout << "<< \n";
+
+    const auto& atomIdPairs = IoUtils::readAtomIdPairs("../../res/google_tests/atomIdPairs.txt");
     auto atomIdPairsMatrix = Eigen::Matrix<int, Eigen::Dynamic, 2>(atomIdPairs.size(), 2);
     for (int i = 0; i < atomIdPairs.size(); ++i) {
-     auto [lt, rt] = atomIdPairs[i];
+        auto [lt, rt] = atomIdPairs[i];
         atomIdPairsMatrix(i, 0) = lt;
         atomIdPairsMatrix(i, 1) = rt;
     }
     std::cout << atomIdPairsMatrix.transpose() << std::endl;
 
     std::vector<std::vector<std::string> > data = std::get<1>(experimentalData_table);
-    auto &g0 = *new Eigen::Matrix<double, Eigen::Dynamic, 2>(data.size(), 2);
+    auto g0 = Eigen::Matrix<double, Eigen::Dynamic, 2>(data.size(), 2);
     for (int i = 0; i < data.size(); ++i) {
-        auto record = data[i];
+        const auto& record = data[i];
         std::istringstream temp1(record[5]), temp2(record[6]);
         temp1 >> g0(i, 0);
         temp2 >> g0(i, 1);
@@ -252,7 +252,7 @@ TEST(KEnRefTestSuite, testRestOfTestsToWrite){
     auto eros3_sub_r_array = KEnRef<KEnRef_Real_t>::coord_array_to_r_array(eros3_sub_coord, eros3_sub_atom_idPairs);
     std::cout << "eros3_sub_r_array" << std::endl;
     for (int i = 0; i < eros3_sub_r_array.size(); i++) {
-        auto r_array = eros3_sub_r_array[i];
+        const auto &r_array = eros3_sub_r_array[i];
         std::cout << "Model " << i+1 << std::endl << r_array << std::endl;
     }
     auto [eros3_sub_d_array, eros3_sub_d_array_grad] = KEnRef<KEnRef_Real_t>::r_array_to_d_array(eros3_sub_r_array, true);
@@ -303,13 +303,47 @@ TEST(KEnRefTestSuite, testRestOfTestsToWrite){
     for (const auto& mat: eros3_sub_energy_grad) {
         std::cout << "eros3_sub_energy_grad" << std::endl << mat << std::endl;
     }
-
-
     //	auto [g_list, eros3_sub_g_list_grad] = KEnRef::d_array_to_g(eros3_sub_d_array, eros3_grouping_list, true);
     //	KEnRef::g_to_energy(g_matrix, eros3_sub_1_g, 1.0, true);
 
     //	exit(0);
+}
 
+TEST(KEnRefTestSuite, TestS2OrderParameters){
+    std::vector<std::string> files {"../../res/google_tests/ensemble_coord_moldel1.csv", "../../res/google_tests/ensemble_coord_moldel2.csv"};
+//    std::vector<std::ifstream> ifStreams{};
+//    ifStreams.emplace_back("../../res/google_tests/ensemble_coord_moldel1.csv");
+//    ifStreams.emplace_back("../../res/google_tests/ensemble_coord_moldel2.csv");
+    std::vector<CoordsMatrixType<KEnRef_Real_t>> coordsVector;
+    coordsVector.reserve(files.size());
+//    float f;
+    for (int i = 0; i < files.size(); ++i) {
+        auto tempCoordsData = std::get<1>(IoUtils::readTable(files[i], false, ","));
+        coordsVector.emplace_back(tempCoordsData.size(), 3);
+        for (int j = 0; j < tempCoordsData.size(); ++j) {
+            for (int k = 0; k < 3; ++k) {
+                std::istringstream temp(tempCoordsData[j][k]);
+                temp >> coordsVector[i](j, k);
+            }
+//            coordsVector[i].row(j) = Eigen::RowVector3<double>{tempCoordsTable[j][0], tempCoordsTable[j][1], tempCoordsTable[j][2]};
+        }
+    }
+    auto experimentalData_table = IoUtils::readTable(
+            "../../res/google_tests/singleton_data_10nsstart+fit_0+10.csv", true, ",");
+
+    std::vector<std::vector<std::string> > data = std::get<1>(experimentalData_table);
+    std::vector<std::tuple<int, int>> atomIdPairs;
+    auto expectedS2 = Eigen::VectorX<KEnRef_Real_t>(data.size());
+    int i1, i2;
+    KEnRef_Real_t f;
+    for (int i = 0; i < data.size(); ++i) {
+        const auto& record = data[i];
+        std::istringstream temp1(record[3]), temp2(record[4]), temp3(record[7]);
+        temp1 >> i1;
+        temp2 >> i2;
+        atomIdPairs.emplace_back(i1 - 1, i2 - 1);
+        temp3 >> expectedS2(i);
+    }
 
     KEnRef_Real_t epsilon;
     if constexpr (std::is_same_v<KEnRef_Real_t, float>){

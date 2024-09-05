@@ -22,36 +22,40 @@ std::vector<std::vector<T>> IoUtils::read_uniform_table_of(std::istream &ins) {
 }
 
 //caution: this method does not handle the case when there is a comma inside a string
-std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>> IoUtils::readTable(const std::string& fileName, bool has_header, int max_rows){
-	std::vector<std::string> header{};
-	std::vector<std::vector<std::string>> data{};
-	bool header_consumed = false;
-	std::string line;
-
+std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>> IoUtils::readTable(const std::string& fileName, bool has_header, const std::string& delimiter, int max_rows){
     std::ifstream instream(fileName);
     if (!instream.is_open()) {
         std::cerr << "Error opening file: " << fileName << std::endl;
-        return {header, data};
+        return {{}, {}};
     }
+    return readTable(instream, has_header, delimiter, max_rows);
+}
+
+std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>
+IoUtils::readTable(std::ifstream &instream, bool has_header, const std::string &delimiter, int max_rows) {
+    std::vector<std::string> header{};
+    std::vector<std::vector<std::string>> data{};
+    bool header_consumed = false;
+    std::string line;
     int counter = 0;
     //TODO create a unit test to validate the effect when max_rows is 0, -1, or a positive int
-	while(instream.peek() != EOF && max_rows == -1 || counter < max_rows){
-		std::getline(instream, line);
-		auto tokens = split(line, ",\\s*");
-		for(size_t i = 0; i < tokens.size(); ++i){ // NOLINT(modernize-loop-convert)
-			tokens[i] = strip_enclosing_quotoes(tokens[i], '\"');
-		}
-		if(has_header && ! header_consumed){
-			//use consumed header
-			header = tokens;
+    while(instream.peek() != EOF && max_rows == -1 || counter < max_rows){
+        std::getline(instream, line);
+        auto tokens = split(line, delimiter);
+        for(size_t i = 0; i < tokens.size(); ++i){ // NOLINT(modernize-loop-convert)
+            tokens[i] = strip_enclosing_quotoes(tokens[i], '\"');
+        }
+        if(has_header && ! header_consumed){
+            //use consumed header
+            header = tokens;
 //			for(auto colName: header){std::cout << colName << '\t';} std::cout << std::endl;
-			header_consumed = true;
-		}else{
-			data.emplace_back(tokens);
+            header_consumed = true;
+        }else{
+            data.emplace_back(tokens);
 //			for(std::string value: data.back()){std::cout << value << '\t';} std::cout << std::endl;
-			counter++;
-		}
-	}
+            counter++;
+        }
+    }
 
 //    std::cerr << "------- before table tuple" << std::endl;
 //    std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>> ret = std::make_tuple(header, data);

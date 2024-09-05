@@ -159,6 +159,12 @@ public:
 	vectorOfVectors_to_Matrix(std::vector<Eigen::VectorX<KEnRef_Real>> g_vect/*, int numOmpThreads = 0*/);
     static void saturate(CoordsMatrixType<KEnRef_Real> &derivatives_rectified, KEnRef_Real thresholdSquared,
                          int numOmpThreads = 0);
+
+    static Eigen::VectorX<KEnRef_Real>
+    s2OrderParams(
+            const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array, //Every vector item is a Nx3 Matrix representing atom coordinates of a model.
+            const std::vector<std::tuple<int, int> > &atomId_pairs, // Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
+            int numOmpThreads);
 };
 
 #endif /* KENREF_H_ */

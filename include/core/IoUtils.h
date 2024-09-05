@@ -16,6 +16,7 @@
 #include <map>
 #include <functional>
 #include <Eigen/Core>
+#include <fstream>
 
 #include "../config/KEnRefConfig.h"
 #include "core/KEnRef.h"
@@ -30,7 +31,7 @@ public:
     read_uniform_table_of(std::istream &ins);
 
     static std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>
-    readTable(const std::string &fileName, bool has_header = true, int max_rows = -1);
+    readTable(const std::string &fileName, bool has_header = true, const std::string& delimiter = "\\s*", int max_rows = -1);
 
     static std::map<std::string, std::string>
     readParams(const std::string &fileName);
@@ -141,5 +142,11 @@ public:
 
     template<typename KEnRef_Real>
     static void fill_atomIndex1_to_coords_Map(std::map<int, Eigen::RowVector3<KEnRef_Real>> &ret, const std::smatch &sm);
+
+    static std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>
+    readTable(std::ifstream &instream, bool has_header = true, const std::string& delimiter = "\\s*",int max_rows = -1);
+
+    static std::vector<std::tuple<int, int>>
+    readAtomIdPairs(const std::string &fileName);
 };
 #endif /* IOUTILS_H_ */

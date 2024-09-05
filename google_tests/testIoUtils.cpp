@@ -6,7 +6,7 @@
 #include "core/IoUtils.h"
 
 TEST(IoUtilsTestSuite, TestGetAtomNameMappingFromPdb){
-    static const char *const ATOMNAME_MAPPING_FILENAME = "../../res/10nsstart+fitting/0ns.pdb";
+    static const char *const ATOMNAME_MAPPING_FILENAME = "../../res/google_tests/00ns.pdb";
     std::cout << std::filesystem::current_path() << std::endl;
     std::map<std::string, int> atomNameMapping = IoUtils::getAtomMappingFromPdb<std::string, int>(ATOMNAME_MAPPING_FILENAME, IoUtils::fill_atomId_to_index_Map);
     EXPECT_TRUE(!atomNameMapping.empty());

@@ -494,7 +494,7 @@ KEnRef<KEnRef_Real>::coord_array_to_g(
     int numOmpThreads) {
     //	std::cout << "coord_array_to_g() called" << std::endl;
     // calculate internuclear vectors
-    auto r_arrays = coord_array_to_r_array(coord_array, atomId_pairs, numOmpThreads);
+    const auto &r_arrays = coord_array_to_r_array(coord_array, atomId_pairs, numOmpThreads);
 
     // calculate dipole-dipole interaction tensors [and their derivatives]
     auto [d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, numOmpThreads);
@@ -519,6 +519,205 @@ KEnRef<KEnRef_Real>::saturate(CoordsMatrixType<KEnRef_Real> &derivatives_rectifi
         }
     }
 }
+
+template<typename KEnRef_Real>
+Eigen::VectorX<KEnRef_Real>
+KEnRef<KEnRef_Real>::s2OrderParams(
+        const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array, //Every vector item is a Nx3 Matrix representing atom coordinates of a model.
+        const std::vector<std::tuple<int, int> > &atomId_pairs, // Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
+        int numOmpThreads) {
+    int numModels = coord_array.size();
+
+//    //calculate internuclear vectors
+//    const auto &r_arrays = coord_array_to_r_array(coord_array, atomId_pairs, numOmpThreads);
+//
+//    // calculate dipole-dipole interaction tensors [and their derivatives]
+//    const auto &[d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, numOmpThreads);
+
+////////////////////////////////////////////////////////////////////////////////
+
+    //calculate array of internuclear vectors *group_r_array*
+    // group_r_array <- ke::coord_array_to_r_array(aperm(group_mean_coord, c(2,1,3)), group_pairs)
+    //const auto &group_r_array = KEnRef<KEnRef_Real>::coord_array_to_r_array(group_mean_coord, atomId_pairs, numOmpThreads);
+    // As long as there are no "groups" (i.e. all are singltons), we can safely use *coord_array* for now.
+    const auto &group_r_array = KEnRef<KEnRef_Real>::coord_array_to_r_array(coord_array, atomId_pairs, numOmpThreads);
+
+    //calculate matrix of radii
+    // group_r_mat <- sqrt(rowSums(group_r_array^2, dims=2))
+    std::vector<Eigen::VectorX<KEnRef_Real>> group_r_mat;
+    group_r_mat.reserve(numModels);
+    for (int i = 0; i < numModels; ++i) {
+//        group_r_mat.at(i) = std::move(Eigen::VectorX<KEnRef_Real>(group_r_array[i].rows()));
+        group_r_mat.emplace_back(Eigen::VectorX<KEnRef_Real>(group_r_array[i].rows()));
+    }
+    for (int m = 0; m < numModels; ++m) {
+        for (int i = 0; i < group_r_array[m].rows(); ++i) {
+            group_r_mat[m](i) = group_r_array[m].row(i).norm();
+        }
+    }
+
+    //calculate order parameter using normalized array of internuclear vectors
+    // group_rnorm_array <- group_r_array/as.vector(group_r_mat)
+    // group_dnorm_array <- ke::r_array_to_d_array(group_rnorm_array)
+    // group_s2 <- rowSums(colMeans(aperm(group_dnorm_array, c(2,1,3)))^2)
+    Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> group_dnorm_array_tempMeans = Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>::Zero(group_r_mat[0].rows(), 5);
+    for (int i = 0; i < numModels; ++i) {
+        const auto& group_rnorm_array = group_r_array[i].array() / group_r_mat[i].rowwise().template replicate<3>().array();
+        const auto &group_dnorm_array_1model = KEnRef<KEnRef_Real>::r_array_to_d_array(group_rnorm_array, false, numOmpThreads);
+        group_dnorm_array_tempMeans += std::get<0>(group_dnorm_array_1model);
+    }
+    group_dnorm_array_tempMeans /= numModels;
+//    Eigen::VectorX<KEnRef_Real> group_s2 = group_dnorm_array_tempMeans.array().square().colwise().sum();
+    Eigen::VectorX<KEnRef_Real> group_s2 = Eigen::VectorX<KEnRef_Real>::Zero(group_dnorm_array_tempMeans.rows());
+    group_s2 = group_dnorm_array_tempMeans.array().square().rowwise().sum();
+
+    //################################################
+
+    //TODO Alternate approach directly from d_array
+    // group_d_array <- ke::r_array_to_d_array(group_r_array)
+    // group_dnorm_array_alt <- group_d_array/as.vector(sqrt(rowSums(group_d_array^2, dims=2)))
+    // group_s2_alt <- rowSums(colMeans(aperm(group_dnorm_array_alt, c(2,1,3)))^2)
+    std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>> group_d_array =
+            std::get<0>(KEnRef<KEnRef_Real>::r_array_to_d_array(group_r_array, false, numOmpThreads));
+
+    std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>> group_dnorm_array_alt;
+    group_dnorm_array_alt.reserve(numModels);
+    for (int i = 0; i < numModels; ++i) {
+        Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>temp = group_d_array[i].array().rowwise().norm().template replicate<1, 5>();
+        group_dnorm_array_alt.emplace_back(group_d_array[i].array() / temp.array());
+    }
+
+    Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> group_dnorm_array_alt_tempMeans = Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>::Zero(group_dnorm_array_alt[0].rows(), 5);
+    for (int i = 0; i < numModels; ++i) {
+        group_dnorm_array_alt_tempMeans.array() += group_dnorm_array_alt[i].array();
+    }
+    group_dnorm_array_alt_tempMeans.array() /= numModels;
+    Eigen::VectorX<KEnRef_Real> group_s2_alt = group_dnorm_array_alt_tempMeans.array().square().colwise().sum();
+
+//    assert((group_s2 - group_s2_alt).array() < 1e7); //FIXME didn't work
+    //#######################################################
+    return group_s2;
+}
+
+//template<typename KEnRef_Real>
+//Eigen::VectorX<KEnRef_Real>
+//s2OrderParamsPseudocode(
+//        const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array, //Every vector item is a Nx3 Matrix representing atom coordinates of a model.
+//        const std::vector<std::string> &atomNames, //All atom names
+//        const std::vector<std::tuple<int, int> > &atomId_pairs, // Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
+//        int numOmpThreads) {
+//    //below are just some assumptions. We may need them later.
+//    int numModels = 2;
+//    int numHAtoms = 5000;
+//    int numProtonGroups = 2500;
+//    int numProtonGroupsAfterExclusions = 2300;
+//
+//    numModels = coord_array.size();
+//
+//    //TODO find *proton_groups*
+//
+//    //TODO find exclusions of proton_groups
+//
+//    //TODO # **group_list** is a list with each element giving the protons in the group, matching the input order
+//    // implement it as vector<pair<string, vector<string>>>
+//    // e.g.
+//    // " CA  MET     1 " : [" HA  MET     1 "]
+//    // " HB1 MET     1 " : [" HB1 MET     1 "]
+//    // ...
+//    // " CE  MET     1 " : [" HE1 MET     1 ", " HE2 MET     1 ", " HE3 MET     1 "]
+//    std::vector<std::pair<std::string, std::vector<std::string>>> group_list{};
+//
+//    //TODO *group_mean_coord* includes the averages of the coordinates, in its model.
+//    // each row represents the average coordinates in its corresponding group_list element.
+//    // implement it as vector<CoordsMatrixType>.
+//    std::vector<CoordsMatrixType<KEnRef_Real>> group_mean_coord;
+//    group_mean_coord.reserve(numModels);
+//    for (int m = 0; m < numModels; ++m) {
+////        group_mean_coord.at(m) = CoordsMatrixType<KEnRef_Real>::Zero(group_list.size(), 3);
+//        group_mean_coord.at(m) = CoordsMatrixType<KEnRef_Real>(group_list.size(), 3);
+//    }
+//
+//    for (int m = 0; m < numModels; ++m) {
+//        for (int groupIdx = 0; groupIdx < group_list.size(); ++groupIdx) {
+//            auto& groupAtomNames = group_list[groupIdx].second;
+//
+//            std::string &atomName = groupAtomNames[0];
+//            int atomId = 0; //TODO find Id of atomName
+//            group_mean_coord[m].row(groupIdx) = coord_array[m].row(atomId);
+//            if (groupAtomNames.size() > 1){
+//                for (int i = 1; i < groupAtomNames.size(); ++i) {
+//                    std::string &atomName = groupAtomNames[i];
+//                    int atomId = 0; //TODO find Id of atomName
+//                    group_mean_coord[m].row(groupIdx) += coord_array[m].row(atomId);
+//                }
+//                group_mean_coord[m].row(groupIdx) /= groupAtomNames.size();
+//            }
+//        }
+//    }
+//
+//    //TODO calculate a distance matrix for every member of the ensemble (every Dimension separately) in *dist_array*
+//    //TODO average *dist_array* over ensemble members to get average distances in the ensemble
+//    //TODO determine set of atoms that are within the distance cutoff.
+//    // Put them in *group_pairs*. This is equivalent to *atomId_pairs* in C++ code
+//
+//    //TODO calculate array of internuclear vectors *group_r_array*
+//    // group_r_array <- ke::coord_array_to_r_array(aperm(group_mean_coord, c(2,1,3)), group_pairs)
+//    const auto &group_r_array = KEnRef<KEnRef_Real>::coord_array_to_r_array(group_mean_coord, atomId_pairs, numOmpThreads);
+//
+//    //TODO calculate matrix of radii
+//    // group_r_mat <- sqrt(rowSums(group_r_array^2, dims=2))
+//    std::vector<Eigen::VectorX<KEnRef_Real>> group_r_mat;
+//    group_r_mat.reserve(numModels);
+//    for (int i = 0; i < numModels; ++i) {
+//        group_r_mat.at(i) = std::move(Eigen::VectorX<KEnRef_Real>(group_r_array[i].rows()));
+//    }
+//    for (int i = 0; i < numModels; ++i) {
+//        for (int j = 0; j < group_r_array[i].rows(); ++j) {
+//            group_r_mat[i](j) = group_r_array[i].row(j).norm();
+//        }
+//    }
+//
+//    //TODO # calculate order parameter using normalized array of internuclear vectors
+//    // group_rnorm_array <- group_r_array/as.vector(group_r_mat)
+//    // group_dnorm_array <- ke::r_array_to_d_array(group_rnorm_array)
+//    // group_s2 <- rowSums(colMeans(aperm(group_dnorm_array, c(2,1,3)))^2)
+//    Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> group_dnorm_array_tempMeans = Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>::Zero(group_r_mat[0].rows());
+//    for (int i = 0; i < numModels; ++i) {
+//        const auto& group_rnorm_array = group_r_array[i].array() / group_r_mat[i].array();
+//        const auto &group_dnorm_array_1model = KEnRef<KEnRef_Real>::r_array_to_d_array(group_rnorm_array, false, numOmpThreads);
+//        group_dnorm_array_tempMeans += std::get<0>(group_dnorm_array_1model);
+//    }
+//    group_dnorm_array_tempMeans /= numModels;
+////    Eigen::VectorX<KEnRef_Real> group_s2 = group_dnorm_array_tempMeans.array().square().colwise().sum();
+//    Eigen::VectorX<KEnRef_Real> group_s2 = Eigen::VectorX<KEnRef_Real>::Zero(group_dnorm_array_tempMeans.rows());
+//    group_s2 = group_dnorm_array_tempMeans.array().square().colwise().sum();
+//
+//    //################################################
+//
+//    //TODO Alternate approach directly from d_array
+//    // group_d_array <- ke::r_array_to_d_array(group_r_array)
+//    // group_dnorm_array_alt <- group_d_array/as.vector(sqrt(rowSums(group_d_array^2, dims=2)))
+//    // group_s2_alt <- rowSums(colMeans(aperm(group_dnorm_array_alt, c(2,1,3)))^2)
+//    std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>> group_d_array =
+//            std::get<0>(KEnRef<KEnRef_Real>::r_array_to_d_array(group_r_array, false, numOmpThreads));
+//
+//    std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>> group_dnorm_array_alt;
+//    group_dnorm_array_alt.reserve(numModels);
+//    for (int i = 0; i < numModels; ++i) {
+//        group_dnorm_array_alt.at(i) = group_d_array[i].data() / group_d_array[i].data().rowwise().norm();
+//    }
+//
+//    Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> group_dnorm_array_alt_tempMeans = Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>::Zero(group_dnorm_array_alt[0].rows());
+//    for (int i = 0; i < numModels; ++i) {
+//        group_dnorm_array_alt_tempMeans += group_dnorm_array_alt.data();
+//    }
+//    group_dnorm_array_alt_tempMeans.data() /= numModels;
+//    Eigen::VectorX<KEnRef_Real> group_s2_alt = group_dnorm_array_alt_tempMeans.array().square().colwise().sum();
+//
+//    assert((group_s2.data() - group_s2_alt.data()) < 1e7);
+//    //#######################################################
+//    return group_s2;
+//}
 
 template class KEnRef<float>;
 template class KEnRef<double>;
