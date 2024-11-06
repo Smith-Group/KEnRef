@@ -314,8 +314,11 @@ std::map<retMapKey, retMapValue>
 IoUtils::getAtomMappingFromPdb(const std::string &pdbFilename, std::function<void(std::map<retMapKey, retMapValue> &ret, const std::smatch &sm)> mappingFunc){
     std::map<retMapKey, retMapValue> ret = {};
 
-    std::ifstream pdbFileStream(pdbFilename); //no need to try and catch here.
-
+    std::ifstream pdbFileStream(pdbFilename);
+    if (pdbFileStream.fail()) {
+        std::cerr << "ERROR: Could not open " << pdbFilename << "\n";
+        throw std::runtime_error("File not found: " + pdbFilename);
+    }
     std::string line;
     std::smatch sm;
     while (std::getline(pdbFileStream, line)) {
@@ -326,7 +329,7 @@ IoUtils::getAtomMappingFromPdb(const std::string &pdbFilename, std::function<voi
         }
     }
     pdbFileStream.close();
-    std::cerr << "number of items in the map = " << ret.size() << std::endl;
+//    std::cerr << "number of items in the map = " << ret.size() << std::endl;
     return ret; //std::move(&ret);
 }
 
@@ -377,6 +380,89 @@ std::map<std::string, std::string> IoUtils::readParams(std::istream &paramsFileS
     return ret;
 }
 
+int IoUtils::getEnvParam(const std::string& paramName, int defaultValue){
+    if (const char *pSEnvParam = std::getenv(paramName.c_str())) {
+        int retValue = std::atoi(pSEnvParam);
+        std::cout << paramName << " is: " << retValue << '\n';
+        return retValue;
+    } else {
+        std::cout << "No "<< paramName << " identified. Will use default value of " << defaultValue << std::endl;
+        return defaultValue;
+    }
+}
+long IoUtils::getEnvParam(const std::string& paramName, long defaultValue){
+    if (const char *pSEnvParam = std::getenv(paramName.c_str())) {
+        long retValue = std::atol(pSEnvParam);
+        std::cout << paramName << " is: " << retValue << '\n';
+        return retValue;
+    } else {
+        std::cout << "No "<< paramName << " identified. Will use default value of " << defaultValue << std::endl;
+        return defaultValue;
+    }
+}
+
+std::string IoUtils::getEnvParam(const std::string& paramName, const char *defaultValue){
+    return getEnvParam(paramName, std::string(defaultValue));
+}
+std::string IoUtils::getEnvParam(const std::string& paramName, const std::string& defaultValue){
+    std::string retValue = defaultValue;
+    if (const char *pSEnvParam = std::getenv(paramName.c_str())) {
+        retValue = pSEnvParam;
+        std::cout << paramName << " is: " << retValue << '\n';
+    } else {
+        std::cout << "No "<< paramName << " identified. Will use default value of " << defaultValue << std::endl;
+    }
+    return retValue;
+}
+template<typename KEnRef_Real_t>
+KEnRef_Real_t IoUtils::getEnvParam(const std::string& paramName, KEnRef_Real_t defaultValue){
+    if (const char *pSEnvParam = std::getenv(paramName.c_str())) {
+        std::stringstream sstream(pSEnvParam);
+        KEnRef_Real_t retValue;
+        sstream >> retValue;
+        std::cout << paramName << " is: " << retValue << '\n';
+        return retValue;
+    } else {
+        std::cout << "No "<< paramName << " identified. Will use default value of " << defaultValue << std::endl;
+        return defaultValue;
+    }
+}
+
+
+std::vector<std::tuple<int, int>> IoUtils::readAtomIdPairs(const std::string &fileName) {
+    std::ifstream atomIdPairsFileStream(fileName);
+    auto tempAtomIdPairsTable = IoUtils::read_uniform_table_of<int>(atomIdPairsFileStream);
+    std::vector<std::tuple<int, int>> atomIdPairs;
+    for (auto row : tempAtomIdPairsTable) {
+        atomIdPairs.emplace_back(row[0], row[1]);
+    }
+    std::cout << "Atom ID Pairs (" << atomIdPairs.size() << "):";
+    std::cout << "<< \n";
+    return atomIdPairs;
+}
+
+std::string IoUtils::padWithZeros(int value, int width) {
+    std::ostringstream oss;
+    oss << std::setw(width) << std::setfill('0') << value;
+    return oss.str();
+}
+
+template<typename KEnRef_Real_t>
+CoordsMatrixType<KEnRef_Real_t>
+IoUtils::extractCoords(const std::vector<int> &atomIndices, bool indicesOneBased,
+                       std::map<int, Eigen::RowVector3<KEnRef_Real_t>> &allAtomCoords, bool mapOneBased) {
+    auto coords = CoordsMatrixType<KEnRef_Real_t>(atomIndices.size(), 3);
+    int delta = 0;
+    if(indicesOneBased ^ mapOneBased)
+        indicesOneBased ? delta-- : delta++;
+
+
+    for (int i = 0; i < atomIndices.size(); ++i) {
+        int key = atomIndices[i] + delta;
+        coords(i, Eigen::all) = allAtomCoords[key];
+    }
+    return coords;
+}
 
 template<typename TYPE>
 void IoUtils::printVector(const std::vector<TYPE>& vec){
@@ -385,8 +471,21 @@ void IoUtils::printVector(const std::vector<TYPE>& vec){
     std::cout << std::endl;
 }
 
+///////// Template Declarations /////////////////////////
+
 template std::vector<std::vector<int>>IoUtils::read_uniform_table_of(std::istream&);
 template std::vector<std::vector<double>>IoUtils::read_uniform_table_of(std::istream&);
+
+template float IoUtils::getEnvParam(const std::string& paramName, float defaultValue);
+template double IoUtils::getEnvParam(const std::string& paramName, double defaultValue);
+
+template CoordsMatrixType<float>
+IoUtils::extractCoords(const std::vector<int> &atomIndices, bool indicesOneBased,
+                       std::map<int, Eigen::RowVector3<float>> &allAtomCoords, bool mapOneBased);
+template CoordsMatrixType<double>
+IoUtils::extractCoords(const std::vector<int> &atomIndices, bool indicesOneBased,
+                       std::map<int, Eigen::RowVector3<double>> &allAtomCoords, bool mapOneBased);
+
 template void IoUtils::printVector(const std::vector<bool> &vec);
 template void IoUtils::printVector(const std::vector<int> &vec);
 template void IoUtils::printVector(const std::vector<float> &vec);

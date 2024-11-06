@@ -18,6 +18,7 @@
 #include <Eigen/Core>
 
 #include "../config/KEnRefConfig.h"
+#include "core/KEnRef.h"
 
 class IoUtils final {
 private:
@@ -37,6 +38,14 @@ public:
     static std::map<std::string, std::string>
     readParams(std::istream &paramsFileStream);
 
+    static int getEnvParam(const std::string& paramName, int defaultValue);
+    static long getEnvParam(const std::string& paramName, long defaultValue);
+    static std::string getEnvParam(const std::string& paramName, const char *defaultValue);
+    static std::string getEnvParam(const std::string& paramName, const std::string& defaultValue);
+    template<typename KEnRef_Real_t>
+    static KEnRef_Real_t getEnvParam(const std::string& paramName, KEnRef_Real_t defaultValue);
+
+
     static std::string
     strip_enclosing_quotoes(const std::string &str, char delim = '\"');
 
@@ -49,14 +58,19 @@ public:
     std::vector<std::string>
     static split(const std::string &str, const std::string &delim = "\\s+");
 
-    static std::map<std::string, std::vector<std::string>>
-    read_noe_groups(std::istream &ins);
+    static std::map<std::string, std::vector<std::string>> read_noe_groups(std::istream &ins);
     static std::vector<int> getGmxNdxGroup(const std::string &filename, const std::string &groupName);
     static std::map<std::string, std::vector<int>> getAllGmxNdxGroups(const std::string &filename);
 
     template<typename TYPE>
     static void printVector(const std::vector<TYPE> &vec);
 
+    static std::string padWithZeros(int value, int width);
+
+    template<typename KEnRef_Real_t>
+    static CoordsMatrixType<KEnRef_Real_t>
+    extractCoords(const std::vector<int> &atomIndices, bool indicesOneBased,
+                  std::map<int, Eigen::RowVector3<KEnRef_Real_t>> &allAtomCoords, bool mapOneBased);
     template<typename retMapKey, typename retMapValue>
     static std::map<retMapKey, retMapValue>
     getAtomMappingFromPdb(const std::string &pdbFilename, std::function<void(std::map<retMapKey, retMapValue> &ret, const std::smatch &sm)> mappingFunc);

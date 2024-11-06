@@ -147,17 +147,11 @@ TEST(KEnRefTestSuite, testSaturate) {
 TEST(KEnRefTestSuite, TestCoordArrayToEnergyFiniteDifferenceMethodTest){
     auto coordsArray_base = CoordsMatrixType<double>(409, 3);
 
-    std::ifstream atomIdPairsFileStream("../../res/google_tests/atomIdPairs.txt");
-    std::ifstream CoordsFileStream("../../res/google_tests/coords.txt");
+    std::ifstream coordsFileStream("../../res/google_tests/coords.txt");
     auto experimentalData_table = IoUtils::readTable(
             "../../res/10nsstart+fitting/singleton_data_10nsstart+fit_3-5_1977pairs_80_A.csv", true);
 
-    auto tempAtomIdPairsTable = IoUtils::read_uniform_table_of<int>(atomIdPairsFileStream);
-    std::vector<std::tuple<int, int> > atomIdPairs;
-    for (auto row : tempAtomIdPairsTable) {
-        atomIdPairs.emplace_back(row[0], row[1]);
-    }
-    auto tempCoordsTable = IoUtils::read_uniform_table_of<double>(CoordsFileStream);
+    auto tempCoordsTable = IoUtils::read_uniform_table_of<double>(coordsFileStream);
     for (int i = 0; i < tempCoordsTable.size(); ++i) {
         coordsArray_base.row(i) = Eigen::RowVector3<double>{tempCoordsTable[i][0], tempCoordsTable[i][1], tempCoordsTable[i][2]};
     }
@@ -331,11 +325,6 @@ TEST(KEnRefTestSuite, testRestOfTestsToWrite){
 
 }
 
-std::string padWithZeros(int value, int width) {
-    std::ostringstream oss;
-    oss << std::setw(width) << std::setfill('0') << value;
-    return oss.str();
-}
 
     KEnRef_Real_t epsilon;
     if constexpr (std::is_same_v<KEnRef_Real_t, float>){
