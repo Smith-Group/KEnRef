@@ -30,7 +30,6 @@ class KEnRefForceProvider : public gmx::IForceProvider {
 	std::shared_ptr<std::vector<int> const> guideAtom0Indices_; //ZERO indexed
 	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t> const> guideAtomsReferenceCoords_; //ZERO indexed
 	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t> const> guideAtomsReferenceCoordsCentered_; //ZERO indexed. Cashed for faster Kabsch Algorithm
-    std::shared_ptr<CoordsMatrixType<KEnRef_Real_t> const> subAtomsXReferenceCoords_; //ZERO indexed
 	std::shared_ptr<std::map<std::string, int> const> atomName_to_atomGlobalId_map_; //TODO later you may remove this and keep atomName_to_atomSubId_map_, or update it and delete atomName_to_atomSubId_map_
 	std::shared_ptr<std::map<std::string, int> > atomName_to_atomSub0Id_map_; //atomName is normalized string. SubId is a small subset and is ZERO based
 	std::shared_ptr<std::tuple<std::vector<std::string>, std::vector<std::vector<std::string> > > > experimentalData_table_ = nullptr; //TODO remove this pointer when it is no longer needed
@@ -45,6 +44,8 @@ class KEnRefForceProvider : public gmx::IForceProvider {
 	std::shared_ptr<KEnRef_Real_t[]> allDerivatives_buffer_;
 	std::shared_ptr<KEnRef_Real_t[]> derivatives_buffer_;
 	long long calculateForces_time = 0;
+    std::shared_ptr<CoordsMatrixType<KEnRef_Real_t>> lastFrameSubAtomsX_; //Used only for proper NoJump algorithm
+    std::shared_ptr<CoordsMatrixType<KEnRef_Real_t>> lastFrameGuideAtomsX_ZEROIndexed_; //Used only for proper NoJump algorithm
 
 public:
 	EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -70,8 +71,6 @@ public:
 
 	void setGuideAtomsReferenceCoords(
 		std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> &guideAtomsReferenceCoords);
-
-    void setSubAtomsXReferenceCoords(std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> &subAtomsXReferenceCoords);
 
     /** Ported from Gromacs Trjconv code.
      * nojump checks if atoms jump across the box and then puts them back. This has the effect that all molecules will

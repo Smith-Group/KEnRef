@@ -55,10 +55,7 @@ void KEnRefForceProvider::setGuideAtomsReferenceCoords(
     this->guideAtomsReferenceCoordsCentered_ = std::make_shared<const CoordsMatrixType<KEnRef_Real_t>>(
             Kabsch_Umeyama<KEnRef_Real_t>::translateCenterOfMassToOrigin(*this->guideAtomsReferenceCoords_));
     //TODO do we need a guideAtomsReferenceCoordsCOM_ ?
-}
-
-void KEnRefForceProvider::setSubAtomsXReferenceCoords(std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> &subAtomsXReferenceCoords) {
-    this->subAtomsXReferenceCoords_ = std::move(subAtomsXReferenceCoords);
+    this->lastFrameGuideAtomsX_ZEROIndexed_ = std::make_shared<CoordsMatrixType<KEnRef_Real_t>>(this->guideAtomsReferenceCoords_->rows(), this->guideAtomsReferenceCoords_->cols());
 }
 
 void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forceProviderInput,
@@ -135,9 +132,16 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     CoordsMatrixType<KEnRef_Real_t> &subAtomsX = *this->subAtomsX_;
     CoordsMatrixType<KEnRef_Real_t> &allSimulationsSubAtomsX = *this->allSimulationsSubAtomsX_;
     //setting the coordinate values to ZERO (or ONE) is dangerous because it causes Invalid floating point operation
-    std::vector<std::vector<std::vector<int> > > simulated_grouping_list{{{0}, {1}, {2}}, {{0, 1, 2}}};
+    std::vector<std::vector<std::vector<int> > > simulated_grouping_list;
     if (!isMultiSimulation) {
         simulated_grouping_list = {{{0}}, {{0}}};
+    } else {
+        GMX_ASSERT(numSimulations <= 3, "I don't know how to handle more than 3 simulations yet");
+        if (numSimulations == 2) {
+            simulated_grouping_list = {{{0}, {1}}, {{0, 1}}};
+        } else if (numSimulations == 3) {
+            simulated_grouping_list = {{{0}, {1}, {2}}, {{0, 1, 2}}};
+        }
     }
 
 #if VERBOSE
@@ -151,7 +155,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     const CoordsMatrixType<KEnRef_Real_t>& guideAtomsX_ZEROIndexed = getGuideAtomsX(*this->guideAtom0Indices_,
                                                                                     forceProviderInput, true);
     restoreNoJump(const_cast<CoordsMatrixType<KEnRef_Real_t> &>(guideAtomsX_ZEROIndexed),
-                  *this->guideAtomsReferenceCoords_, forceProviderInput.box_, true,
+                  *this->lastFrameGuideAtomsX_ZEROIndexed_, forceProviderInput.box_, true,
                   gmx_omp_nthreads_get(ModuleMultiThread::Default));
 
     //TODO later fix and use guideAtomsReferenceCoordsCentered_ (may need to pass the old center centered matrix + original center).
@@ -168,8 +172,10 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     // was calculated using the PDB, which is Angstrom based.
     // BTW, don't panic about scaling the forces back, because that is handled/included in the force constant.
     fillSubAtomsX(subAtomsX, sub0Id_to_global1Id, forceProviderInput, true);
-    restoreNoJump(subAtomsX, *this->subAtomsXReferenceCoords_, forceProviderInput.box_, true,
+    restoreNoJump(subAtomsX, *this->lastFrameSubAtomsX_, forceProviderInput.box_, true,
                   gmx_omp_nthreads_get(ModuleMultiThread::Default));
+    (*this->lastFrameSubAtomsX_)(Eigen::all, Eigen::all) = subAtomsX(Eigen::all, Eigen::all);
+    (*this->lastFrameGuideAtomsX_ZEROIndexed_)(Eigen::all, Eigen::all) = guideAtomsX_ZEROIndexed(Eigen::all, Eigen::all);
 
     if (haveDDAtomOrdering(cr)) {
         //TODO handle Domain Decomposition
@@ -239,6 +245,8 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
                                                              simulated_grouping_list, g0,
                                                              this->k_, this->n_, true,
                                                              gmx_omp_nthreads_get(ModuleMultiThread::Default));
+        if (step % 10 == 0)
+            std::cout << "Step: " << step << " Energy: " << energy << std::endl;
 #if VERBOSE
         std::cout << "energy = " << energy << ", allDerivatives_vector:" << std::endl;
         for (int i = 0; i < allDerivatives_vector.size(); i++) {
@@ -428,6 +436,9 @@ void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
     auto box = new matrix;
     if(toAngstrom)
         msmul(box_, 10, box);
+    else
+        msmul(box_, 1, box);
+
 
     // Calculate half the box length in each dimension
     Eigen::RowVector3<KEnRef_Real_t> box_half = 0.5 * (Eigen::RowVector3<KEnRef_Real_t>) {box[XX][XX], box[YY][YY],
@@ -440,7 +451,7 @@ void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
                 continue;
             auto atom = atoms.row(i);
             auto refAtom = reference.row(i);
-            // Checsk if atom jumped across the box in this dimension
+            // Check if atom jumped across the box in this dimension
             while ((atom[m] - refAtom[m]) <= -box_half[m]) {
                 // Jumped to negative image, correct by adding box size
                 for (int d = 0; d <= m; ++d) {
@@ -467,40 +478,10 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
     GMX_ASSERT(!atomName_to_atomGlobalId_map_->empty(), "No atom mapping found");
     auto &atomName_to_atomGlobalId_map = *this->atomName_to_atomGlobalId_map_;
 
-    if (const char *kenref_maxForce = std::getenv("KENREF_MAXFORCE")) {
-        std::stringstream sstream(kenref_maxForce);
-        KEnRef_Real_t maxForce;
-        sstream >> maxForce;
-        std::cout << "KENREF_MAXFORCE is: " << maxForce << '\n';
-        this->maxForceSquared_ = maxForce * maxForce;
-    } else {
-        std::cout << "No KENREF_MAXFORCE identified. Will use default value of " << std::sqrt(this->maxForceSquared_)
-                << std::endl;
-    }
-    if (const char *kenref_k = std::getenv("KENREF_K")) {
-        std::stringstream sstream(kenref_k);
-        sstream >> this->k_;
-        std::cout << "KENREF_K is: " << this->k_ << '\n';
-    } else {
-        std::cout << "No KENREF_K identified. Will use default value of " << this->k_ << std::endl;
-    }
-    if (const char *kenref_n = std::getenv("KENREF_N")) {
-        std::stringstream sstream(kenref_n);
-        sstream >> this->n_;
-        std::cout << "KENREF_N is: " << this->n_ << '\n';
-    } else {
-        std::cout << "No KENREF_N identified. Will use default value of " << this->n_ << std::endl;
-    }
-
-    int maxAtomPairsToRead = -1;
-    if (const char *maxAtomPairsToRead_str = std::getenv("KENREF_MAX_ATOMPAIRS_TO_READ")) {
-        std::stringstream sstream(maxAtomPairsToRead_str);
-        sstream >> maxAtomPairsToRead;
-        std::cout << "KENREF_MAX_ATOMPAIRS_TO_READ is: " << maxAtomPairsToRead << '\n';
-    } else {
-        std::cout << "No KENREF_MAX_ATOMPAIRS_TO_READ identified. Will use default value of " << maxAtomPairsToRead <<
-                std::endl;
-    }
+    this->maxForceSquared_ = std::pow(IoUtils::getEnvParam("KENREF_MAXFORCE", std::sqrt(this->maxForceSquared_)), 2.f);
+    this->k_ = IoUtils::getEnvParam("KENREF_K", this->k_);
+    this->n_ = IoUtils::getEnvParam("KENREF_N", this->n_);
+    int maxAtomPairsToRead = IoUtils::getEnvParam("KENREF_MAX_ATOMPAIRS_TO_READ", -1);
 
     std::cout << "KEnRef_Real_t type is: " << typeid(KEnRef_Real_t).name() << '\n';
 
@@ -515,7 +496,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
 #endif
     this->experimentalData_table_ = std::make_shared<std::tuple<std::vector<std::string>, std::vector<std::vector<
                 std::string> > > >
-            (IoUtils::readTable(KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME, true, maxAtomPairsToRead));
+            (IoUtils::readTable(KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME, true, "\\s*,\\s*", maxAtomPairsToRead));
     //TODO check number of atom pairs
     GMX_ASSERT(experimentalData_table_ && !(maxAtomPairsToRead && std::get<1>(*experimentalData_table_).empty()),
                "No simulated data found");
@@ -555,7 +536,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
     this->g0_ = new Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, Eigen::Dynamic>(data.size(), 2);
     auto &g0 = *g0_;
     for (int i = 0; i < data.size(); ++i) {
-        auto record = data[i];
+        const auto& record = data[i];
         std::istringstream temp1(record[5]), temp2(record[6]);
         temp1 >> g0(i, 0);
         temp2 >> g0(i, 1);
@@ -587,10 +568,8 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
 #endif
     globalAtomIdFlags.resize(maxAtomIdOfInterest + 1);
 
-    this->global1Id_to_sub0Id_ = std::make_shared<std::vector<int> >(globalAtomIdFlags.size(), -1);
-    this->sub0Id_to_global1Id_ = std::make_shared<std::vector<int> >(globalAtomIdFlags.size(), -1);
-    auto &global1Id_to_sub0Id = *this->global1Id_to_sub0Id_;
-    auto &sub0Id_to_global1Id = *this->sub0Id_to_global1Id_;
+    auto global1Id_to_sub0Id = std::vector<int>(globalAtomIdFlags.size(), -1);
+    auto sub0Id_to_global1Id = std::vector<int>(globalAtomIdFlags.size(), -1);
 
     int localId = 0;
     for (int i = 0; i < globalAtomIdFlags.size(); i++) {
@@ -602,10 +581,13 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
     }
     sub0Id_to_global1Id.resize(localId);
 
+    this->global1Id_to_sub0Id_ = std::make_shared<std::vector<int> >(std::move(global1Id_to_sub0Id));
+    this->sub0Id_to_global1Id_ = std::make_shared<std::vector<int> >(std::move(sub0Id_to_global1Id));
+
     this->atomName_to_atomSub0Id_map_ = std::make_shared<std::map<std::string, int> >();
     auto &atomName_to_atomSub0Id_map = *this->atomName_to_atomSub0Id_map_;
     for (const auto &[name, globalId]: atomName_to_atomGlobalId_map)
-        atomName_to_atomSub0Id_map[name] = global1Id_to_sub0Id[globalId];
+        atomName_to_atomSub0Id_map[name] = (*global1Id_to_sub0Id_)[globalId];
     this->atomId_pairs_ = KEnRef<KEnRef_Real_t>::atomNamePairs_2_atomIdPairs(*atomName_pairs_,
                                                                              atomName_to_atomSub0Id_map);
 
@@ -615,7 +597,8 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
     }
 #endif
 
-    this->subAtomsX_ = std::make_shared<CoordsMatrixType<KEnRef_Real_t> >(sub0Id_to_global1Id.size(), 3);//contains needed atoms only
+    this->subAtomsX_ = std::make_shared<CoordsMatrixType<KEnRef_Real_t> >(this->sub0Id_to_global1Id_->size(), 3);//contains needed atoms only
+    this->lastFrameSubAtomsX_ = std::make_shared<CoordsMatrixType<KEnRef_Real_t>>(this->subAtomsX_->rows(), this->subAtomsX_->cols());
 #if VERBOSE
     auto subAtomsX = *this->subAtomsX_; std::cout << "subAtomsX_ shape is (" << subAtomsX.rows() << ", " <<
     subAtomsX.cols() << ")" << std::endl;
@@ -632,13 +615,9 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
     this->derivatives_buffer_ = isMultiSimulation ? std::shared_ptr<KEnRef_Real_t[]>(
             new KEnRef_Real_t[this->subAtomsX_->size()]) : this->allDerivatives_buffer_;
 
-    //FIXME this is wrong. subAtomsXReferenceCoords_ must come from independent reference, not from a restart;
-    // because it will be used in the noJump algorithm..
-    //TODO Delete this line. replace it with a fill in during initialization.
-    this->subAtomsXReferenceCoords_ = std::make_shared<CoordsMatrixType<KEnRef_Real_t> >(subAtomsX_->rows(), 3);
-    auto &subAtomsXReferenceCoords = *this->subAtomsXReferenceCoords_;
-    fillSubAtomsX(const_cast<CoordsMatrixType<KEnRef_Real_t> &>(subAtomsXReferenceCoords), sub0Id_to_global1Id,
-                  forceProviderInput, true);
+    fillSubAtomsX(*this->lastFrameSubAtomsX_, *this->sub0Id_to_global1Id_, forceProviderInput, true);
+    (*this->lastFrameGuideAtomsX_ZEROIndexed_)(Eigen::all, Eigen::all) = getGuideAtomsX(*this->guideAtom0Indices_, forceProviderInput, true);
+
     auto end = std::chrono::high_resolution_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin);
     this->calculateForces_time -= elapsed.count(); //Exclude THIS method from wall time calculation

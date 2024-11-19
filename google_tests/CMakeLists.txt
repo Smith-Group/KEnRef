@@ -30,8 +30,11 @@ add_subdirectory(lib/google_tests-src)
 
 message(STATUS "gtest_SOURCE_DIR is: ${gtest_SOURCE_DIR}")
 # Now simply link against gtest or gtest_main as needed. Eg
-add_executable(Google_tests_exe testKabsch.cpp testKEnRef.cpp testIoUtils.cpp)
-target_link_libraries(Google_tests_exe gtest gtest_main KENREF_CORE)
+add_executable(Google_tests_kenref_core_exe testKabsch.cpp testKEnRef.cpp testIoUtils.cpp)
+target_link_libraries(Google_tests_kenref_core_exe gtest gtest_main KENREF_CORE)
 ##add_test(NAME Google_tests COMMAND example)
+target_include_directories(Google_tests_kenref_core_exe PRIVATE ${gtest_SOURCE_DIR}/include ${gtest_SOURCE_DIR})
 
-target_include_directories(Google_tests_exe PRIVATE ${gtest_SOURCE_DIR}/include ${gtest_SOURCE_DIR})
+add_executable(Google_tests_kenref_gmxinterface_exe testKEnRefForceProvider.cpp)
+target_link_libraries(Google_tests_kenref_gmxinterface_exe gtest gtest_main KENREF_CORE KENREF_GMXINTERFACE)
+target_include_directories(Google_tests_kenref_gmxinterface_exe PRIVATE ${gtest_SOURCE_DIR}/include ${gtest_SOURCE_DIR})
