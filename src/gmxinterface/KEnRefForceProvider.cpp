@@ -59,6 +59,8 @@ void KEnRefForceProvider::setGuideAtomsReferenceCoords(
     this->lastFrameGuideAtomsX_ZEROIndexed_ = std::make_shared<CoordsMatrixType<KEnRef_Real_t>>(this->guideAtomsReferenceCoords_->rows(), this->guideAtomsReferenceCoords_->cols());
 }
 
+static constexpr const char *const singleStr = "single";
+
 void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forceProviderInput,
                                           gmx::ForceProviderOutput *forceProviderOutput) {
     auto begin = std::chrono::high_resolution_clock::now();
@@ -80,9 +82,27 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     MPI_Comm mainRanksComm = isMultiSimulation
                                  ? this->simulationContext_->multiSimulation_->mainRanksComm_
                                  : MPI_COMM_NULL;
+    if (!paramsInitialized) {
+        std::string alt_out_path = IoUtils::strip_enclosing_quotoes(IoUtils::getEnvParam("KENREF_ALT_OUT_PATH", std::string("")));
+        if (!alt_out_path.empty()) {
+            if (isMultiSimulation) {
+                auto pos = alt_out_path.find(singleStr);
+                std::string simIndexStr = std::to_string(simulationIndex + 1);
+                if (pos != std::string::npos)
+                    alt_out_path.replace(pos, strlen(singleStr), simIndexStr, 0, simIndexStr.length());
+            }
+            alt_out_path = std::filesystem::absolute(alt_out_path);
+            std::cout << "Attempting to redirect output to " << alt_out_path << std::endl;
+            if (std::freopen(alt_out_path.c_str(), "a", stdout)) {
+                std::cout << "Redirected stdout stream" << std::endl;
+            } else {
+                std::cout << "FAILED to redirect output to " << alt_out_path << std::endl;
+            }
+        }
+    }
+
     if (step % 10 == 0)
         std::cout
-        // << "--> isMultiSimulation: " << std::boolalpha << isMultiSimulation << "\n"
         << "--> numSimulations " << numSimulations << "\n"
         << "--> rankInDefaultCommunicator " << cr.rankInDefaultCommunicator << " " << (isMultiSimulation ? simulationIndex : -1) << "\n"
         << "--> simulationIndex " << simulationIndex << "\tstep " << step << std::endl;
