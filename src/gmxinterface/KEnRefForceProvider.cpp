@@ -5,7 +5,7 @@
  */
 
 #include <iostream>
-#include <typeinfo>
+//#include <typeinfo>
 #include <cmath>
 #include <memory>
 #include <Eigen/Core>
@@ -33,8 +33,9 @@ KEnRefForceProvider::KEnRefForceProvider() = default;
 
 KEnRefForceProvider::~KEnRefForceProvider() = default;
 
-// KEnRefForceProvider::KEnRefForceProvider(KEnRefForceProvider &&other) noexcept = default;
-KEnRefForceProvider::KEnRefForceProvider(const KEnRefForceProvider &other) = default;
+[[maybe_unused]] KEnRefForceProvider::KEnRefForceProvider(KEnRefForceProvider &&other) noexcept = default;
+
+[[maybe_unused]] KEnRefForceProvider::KEnRefForceProvider(const KEnRefForceProvider &other) = default;
 
 KEnRefForceProvider &KEnRefForceProvider::operator=(const KEnRefForceProvider &other) = default;
 
@@ -67,18 +68,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     const auto homenr = forceProviderInput.homenr_; // total number of atoms in the system (or domain dec ?)
     GMX_ASSERT(homenr >= 0, "number of home atoms must be non-negative.");
 
-    //TODO move the PBC to KEnRefForceProvider::fillParamsStep0()
-//    //const auto& box = forceProviderInput.box_;
-//    auto box = new matrix;
-//    copy_mat(forceProviderInput.box_, box);
-//    GMX_ASSERT(check_box(PbcType::Unset, box) == nullptr, "Invalid box.");
-//    auto *pbc = new t_pbc{};
-//    set_pbc(pbc, PbcType::Unset, box);
-    GMX_ASSERT(check_box(PbcType::Unset, forceProviderInput.box_) == nullptr, "Invalid box.");
-    auto *pbc = new t_pbc{};
-    set_pbc(pbc, PbcType::Unset, forceProviderInput.box_);
-
-    const auto &x = forceProviderInput.x_;
+//    const auto &x = forceProviderInput.x_;
     const auto &cr = forceProviderInput.cr_;
     const auto &step = forceProviderInput.step_;
     //    const auto& t  = forceProviderInput.t_; // Not needed (at least yet)
@@ -99,13 +89,14 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
     if (!paramsInitialized) {
         volatile bool holdToDebug = false;
-        while (simulationIndex > 0 && holdToDebug) {
+        while (/*simulationIndex > 0 &&*/ holdToDebug) {
             sleep(1);
         }
     }
 
 
     if (!paramsInitialized) {
+        GMX_ASSERT(check_box(PbcType::Unset, forceProviderInput.box_) == nullptr, "Invalid box.");
         std::cout << "Number of atoms = " << homenr << std::endl;
         std::cout << "havePPDomainDecomposition(cr): " << havePPDomainDecomposition(&cr) << std::endl;
         std::cout << "haveDDAtomOrdering(cr): " << haveDDAtomOrdering(cr) << std::endl;

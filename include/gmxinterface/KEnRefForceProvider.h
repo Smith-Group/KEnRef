@@ -54,9 +54,9 @@ public:
 
 	virtual ~KEnRefForceProvider();
 
-	KEnRefForceProvider(const KEnRefForceProvider &other);
+    [[maybe_unused]] [[maybe_unused]] KEnRefForceProvider(const KEnRefForceProvider &other);
 
-	KEnRefForceProvider(KEnRefForceProvider &&other) noexcept;
+    [[maybe_unused]] [[maybe_unused]] KEnRefForceProvider(KEnRefForceProvider &&other) noexcept;
 
 	KEnRefForceProvider &operator=(const KEnRefForceProvider &other);
 
