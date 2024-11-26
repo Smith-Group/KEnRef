@@ -102,7 +102,7 @@ TEST(KEnRefForceProviderTestSuite, TestRestoreNoJump){
     std::cout << "Testing no jump on C-Alpha guide atoms" << std::endl;
     CoordsMatrixType<KEnRef_Real_t> guideAtomsDiffB4NoJump = all_guideAtomsX_ZEROIndexed[1] - all_guideAtomsX_ZEROIndexed[0];
     std::cout << "differences before restoreNoJump:\n" << guideAtomsDiffB4NoJump.transpose() << std::endl;
-    KEnRefForceProvider::restoreNoJump(all_guideAtomsX_ZEROIndexed[1], all_guideAtomsX_ZEROIndexed[0], box_, true, 1);
+    KEnRefForceProvider::restoreNoJump(all_guideAtomsX_ZEROIndexed[1], all_guideAtomsX_ZEROIndexed[0], box_, true, 1, false);
     TestHelper<KEnRef_Real_t>::EXPECT_MATRIX_NEAR(all_guideAtomsX_ZEROIndexed[1], all_guideAtomsX_ZEROIndexed[0], epsilon);
     CoordsMatrixType<KEnRef_Real_t> guideAtomsDiffAfterNoJump = all_guideAtomsX_ZEROIndexed[1] - all_guideAtomsX_ZEROIndexed[0];
     std::cout << "differences after  restoreNoJump:\n" << guideAtomsDiffAfterNoJump.transpose() << std::endl;
@@ -111,7 +111,7 @@ TEST(KEnRefForceProviderTestSuite, TestRestoreNoJump){
     std::cout << "\n\nTesting no jump on Hydrogen subset of atoms" << std::endl;
     CoordsMatrixType<KEnRef_Real_t> subAtomsDiffB4NoJump = all_subAtomsX[1] - all_subAtomsX[0];
     std::cout << "differences before restoreNoJump:\n" << subAtomsDiffB4NoJump.transpose() << std::endl;
-    KEnRefForceProvider::restoreNoJump(all_subAtomsX[1], all_subAtomsX[0], box_, true, 1);
+    KEnRefForceProvider::restoreNoJump(all_subAtomsX[1], all_subAtomsX[0], box_, true, 1, true);
     TestHelper<KEnRef_Real_t>::EXPECT_MATRIX_NEAR(all_subAtomsX[1], all_subAtomsX[0], epsilon);
     CoordsMatrixType<KEnRef_Real_t> subAtomsDiffAfterNoJump = all_subAtomsX[1] - all_subAtomsX[0];
     std::cout << "differences after  restoreNoJump:\n" << subAtomsDiffAfterNoJump.transpose() << std::endl;

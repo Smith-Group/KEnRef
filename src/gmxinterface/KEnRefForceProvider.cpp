@@ -156,7 +156,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
                                                                                     forceProviderInput, true);
     restoreNoJump(const_cast<CoordsMatrixType<KEnRef_Real_t> &>(guideAtomsX_ZEROIndexed),
                   *this->lastFrameGuideAtomsX_ZEROIndexed_, forceProviderInput.box_, true,
-                  gmx_omp_nthreads_get(ModuleMultiThread::Default));
+                  gmx_omp_nthreads_get(ModuleMultiThread::Default), (step % 10 == 0));
 
     //TODO later fix and use guideAtomsReferenceCoordsCentered_ (may need to pass the old center centered matrix + original center).
     //N.B. You must restore no jump BEFORE calling find3DAffineTransform(), applyTransform(), or applyInverseOfTransform().
@@ -173,7 +173,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     // BTW, don't panic about scaling the forces back, because that is handled/included in the force constant.
     fillSubAtomsX(subAtomsX, sub0Id_to_global1Id, forceProviderInput, true);
     restoreNoJump(subAtomsX, *this->lastFrameSubAtomsX_, forceProviderInput.box_, true,
-                  gmx_omp_nthreads_get(ModuleMultiThread::Default));
+                  gmx_omp_nthreads_get(ModuleMultiThread::Default), (step % 10 == 0));
     (*this->lastFrameSubAtomsX_)(Eigen::all, Eigen::all) = subAtomsX(Eigen::all, Eigen::all);
     (*this->lastFrameGuideAtomsX_ZEROIndexed_)(Eigen::all, Eigen::all) = guideAtomsX_ZEROIndexed(Eigen::all, Eigen::all);
 
@@ -244,7 +244,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
                 KEnRef<KEnRef_Real_t>::coord_array_to_energy(allSimulationsSubAtomsX_vector, atomId_pairs,
                                                              simulated_grouping_list, g0,
                                                              this->k_, this->n_, true,
-                                                             gmx_omp_nthreads_get(ModuleMultiThread::Default));
+                                                             gmx_omp_nthreads_get(ModuleMultiThread::Default), (step % 10 == 0));
         if (step % 10 == 0)
             std::cout << "Step: " << step << " Energy: " << energy << std::endl;
 #if VERBOSE
@@ -432,7 +432,7 @@ CoordsMatrixType<KEnRef_Real_t> KEnRefForceProvider::getGuideAtomsX(const std::v
 
 void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
                    const CoordsMatrixType<KEnRef_Real_t> &reference,
-                   const matrix &box_, bool toAngstrom, int numOmpThreads) {
+                   const matrix &box_, bool toAngstrom, int numOmpThreads, bool printStatistics) {
     auto box = new matrix;
     if(toAngstrom)
         msmul(box_, 10, box);
@@ -443,6 +443,9 @@ void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
     // Calculate half the box length in each dimension
     Eigen::RowVector3<KEnRef_Real_t> box_half = 0.5 * (Eigen::RowVector3<KEnRef_Real_t>) {box[XX][XX], box[YY][YY],
                                                                                           box[ZZ][ZZ]};
+    Eigen::RowVectorXi updatedLocations(atoms.rows());
+    updatedLocations.setZero();
+    bool updated = false;
 
 #pragma omp parallel for num_threads(numOmpThreads)
     for (int i = 0; i < atoms.rows(); ++i) {
@@ -457,15 +460,25 @@ void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
                 for (int d = 0; d <= m; ++d) {
                     atom[d] += box[m][d];
                 }
+                if(printStatistics){
+                    updatedLocations(i) = 1;
+                    updated = true;
+                }
             }
             while ((atom[m] - refAtom[m]) > box_half[m]) {
                 // Jumped to positive image, correct by subtracting box size
                 for (int d = 0; d <= m; ++d) {
                     atom[d] -= box[m][d];
                 }
+                if (printStatistics){
+                    updatedLocations(i) = 1;
+                    updated = true;
+                }
             }
         }
     }
+    if(updated)
+        std::cout << "INFO: Restored NoJump in these atoms:\n" << updatedLocations << std::endl;
     delete[] box;
 }
 

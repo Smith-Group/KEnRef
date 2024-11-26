@@ -4,13 +4,13 @@
  *  Created on: May 8, 2023
  *      Author: amr
  */
-
+#define VERBOSE false
 #include <omp.h>
 #include <limits>
 #include <memory>
 #include <Eigen/Dense>
 #include "core/KEnRef.h"
-//#include <iostream>//FIXME for testing only
+#include <iostream>//FIXME for testing only
 //#include <utility>
 
 template<typename KEnRef_Real>
@@ -377,10 +377,34 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
     const std::vector<std::tuple<int, int> > &atomId_pairs, // Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
     const std::vector<std::vector<std::vector<int> > > &grouping_list, // list of lists of integer vectors giving groupings of models to average interaction tensors
     const Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> &g0, KEnRef_Real k, KEnRef_Real n, bool gradient,
-    int numOmpThreads) {
+    int numOmpThreads, bool printStatistics) {
+#if VERBOSE
+    Eigen::IOFormat fmt(Eigen::FullPrecision, 0, "\t", "\n", "", "");
+    std::cout << "========>\n";
+    std::cout << "g0 0\tg0 1\n";
+    std::cout << g0.format(fmt) << "\n" << std::endl;
+#endif
     // calculate inter nuclear vectors
     const auto& r_arrays = coord_array_to_r_array(coord_array, atomId_pairs, numOmpThreads);
+#if VERBOSE
+    std::cout << "========>\n";
+    std::cout << "r_arrays \n";
+    for (int i = 0; i < r_arrays.size(); ++i) {
+        std::cout << "r_array # " << i << "X\t" << "r_array # " << i << "Y\t" << "r_array # " << i << "Z\t" << std::endl;
+        std::cout << r_arrays[i].format(fmt) << "\n" << std::endl;
+    }
+#endif
 
+    if (printStatistics) {
+        for (int i = 0; i < r_arrays.size(); ++i) {
+            const CoordsMatrixType<KEnRef_Real> &r_array = r_arrays[i];
+            auto &pbc_broken = r_array.array().abs().rowwise().maxCoeff() > 25;
+            if (pbc_broken.any()) {
+                std::cout << "ERROR: r values above PBC Break threshold in model " << i << ".\nAffected atom pairs:\n";
+                std::cout << pbc_broken.matrix().transpose() << "\n";
+            }
+        }
+    }
     // calculate dipole-dipole interaction tensors [and their derivatives]
     const auto &[d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, gradient, numOmpThreads);
 
@@ -395,17 +419,26 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
     //	}
 
     const auto& g_matrix = vectorOfVectors_to_Matrix(g_list/*, numOmpThreads*/);
+#if VERBOSE
+    std::cout << "========>\n";
+    std::cout << "g_matrix 0\tg_matrix 1\tg_matrix Z\n" << g_matrix.format(fmt) << "\n" << std::endl;
+#endif
 
     // calculate energies from the norm squared values
     //const auto &[energy_matrix, energy_matrix_grad] = g_to_energy_uncorrected(g_matrix, g0, k, gradient, numOmpThreads /*, KEnRef::SQRT_ABS_POWER_N*/);
     const auto &[energy_matrix, energy_matrix_grad] = g_to_energy(g_matrix, g0, k, n, gradient,
                                                               numOmpThreads /*, KEnRef::SQRT_ABS_POWER_N*/);
-    //	std::cout << "energy_matrix" << std::endl << energy_matrix << std::endl;
+#if VERBOSE
+    std::cout << "========>\n";
+    std::cout << "energy_matrix 0\tenergy_matrix 1\t" << std::endl << energy_matrix.format(fmt) << "\n" << std::endl;
+#endif
     //	std::cout << "energy_matrix_grad" << std::endl << energy_matrix_grad << std::endl;
 
     // return the sum of all the individual restraint energies
     KEnRef_Real sum = energy_matrix.sum();
-//    std::cout << "energy_matrix sum " << sum << std::endl;
+#if VERBOSE
+    std::cout << "energy_matrix sum " << sum << "\n" << std::endl;
+#endif
 
     //Add derivatives using the chain rule: de/dr = de/dd  * dd/dr = de/dg * dg/dd * dd/dr
     if (gradient) {
@@ -721,3 +754,4 @@ KEnRef<KEnRef_Real>::s2OrderParams(
 
 template class KEnRef<float>;
 template class KEnRef<double>;
+#undef VERBOSE

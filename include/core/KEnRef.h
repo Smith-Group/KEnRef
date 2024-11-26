@@ -120,7 +120,8 @@ public:
 			const Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> &g0, //target group norm squared values
 			KEnRef_Real k = 1.0, //force constant
             KEnRef_Real n = 0.25,
-			bool gradient=false, int numOmpThreads = 0
+			bool gradient=false, int numOmpThreads = 0,
+            bool printStatistics = false
 			);
 
 	static Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>

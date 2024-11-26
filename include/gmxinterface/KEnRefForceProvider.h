@@ -81,7 +81,7 @@ public:
      */
     static void restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
                        const CoordsMatrixType<KEnRef_Real_t> &reference,
-                       const matrix &box, bool toAngstrom, int numOmpThreads);
+                       const matrix &box, bool toAngstrom, int numOmpThreads, bool printStatistics);
 
     void fillParamsStep0(size_t homenr, int numSimulations, const gmx::ForceProviderInput &subAtomsXRef);
 
