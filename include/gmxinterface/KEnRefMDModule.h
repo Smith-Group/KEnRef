@@ -98,6 +98,7 @@ class KEnRefMDModule final: public gmx::IMDModule {
 
     static void readParams(const char *kenref_params) {
         const std::map<std::string, std::string> &params = IoUtils::readParams(kenref_params);
+        GMX_ASSERT(!params.empty(), "Parameters file does not exist or is empty.");
         KEnRefMDModule::GUIDE_C_ALPHA = params.at("GUIDE_C_ALPHA");
         KEnRefMDModule::INDEX_FILE_LOCATION = params.at("INDEX_FILE_LOCATION");
         KEnRefMDModule::ATOMNAME_MAPPING_FILENAME = params.at("ATOMNAME_MAPPING_FILENAME");
@@ -120,8 +121,8 @@ public:
 
     KEnRefMDModule();
 	~KEnRefMDModule() override;
-	KEnRefMDModule(const KEnRefMDModule &other);
-	KEnRefMDModule(KEnRefMDModule &&other) noexcept;
+    [[maybe_unused]] KEnRefMDModule(const KEnRefMDModule &other);
+    [[maybe_unused]] KEnRefMDModule(KEnRefMDModule &&other) noexcept;
 	KEnRefMDModule& operator=(const KEnRefMDModule &other);
 	KEnRefMDModule& operator=(KEnRefMDModule &&other) noexcept;
 

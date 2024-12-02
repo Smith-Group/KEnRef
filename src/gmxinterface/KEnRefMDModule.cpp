@@ -24,6 +24,7 @@ KEnRefMDModule::KEnRefMDModule() {
 
 	std::vector<int>const& indices = GmxKEnRefInitializer::loadGmxIndexGroup(KEnRefMDModule::GUIDE_C_ALPHA, KEnRefMDModule::INDEX_FILE_LOCATION);
 	this->guideAtoms0Indexed = std::make_shared<std::vector<int> const>(indices);
+    std::cout << "Guide atoms indices (0 indexed):\n";
     IoUtils::printVector(indices);
 
     auto allAtomReferenceCoords = IoUtils::getAtomMappingFromPdb<int, Eigen::RowVector3<KEnRef_Real_t>>(
@@ -43,8 +44,8 @@ KEnRefMDModule::KEnRefMDModule() {
 }
 
 KEnRefMDModule::~KEnRefMDModule() = default;
-KEnRefMDModule::KEnRefMDModule(const KEnRefMDModule &other) = default;
-KEnRefMDModule::KEnRefMDModule(KEnRefMDModule &&other) noexcept = default;
+[[maybe_unused]] KEnRefMDModule::KEnRefMDModule(const KEnRefMDModule &other) = default;
+[[maybe_unused]] KEnRefMDModule::KEnRefMDModule(KEnRefMDModule &&other) noexcept = default;
 KEnRefMDModule& KEnRefMDModule::operator=(const KEnRefMDModule &other) = default;
 KEnRefMDModule& KEnRefMDModule::operator=(KEnRefMDModule &&other) noexcept = default;
 

@@ -65,7 +65,7 @@ public:
 	void calculateForces(const gmx::ForceProviderInput &forceProviderInput,
 	                     gmx::ForceProviderOutput *forceProviderOutput) override;
 
-	void setSimulationContext(gmx::SimulationContext *simulationContext);
+    [[maybe_unused]]void setSimulationContext(gmx::SimulationContext *simulationContext);
 
 	void setGuideAtom0Indices(std::shared_ptr<std::vector<int> const> targetAtoms0Indices);
 

@@ -41,7 +41,7 @@ KEnRefForceProvider &KEnRefForceProvider::operator=(const KEnRefForceProvider &o
 
 KEnRefForceProvider &KEnRefForceProvider::operator=(KEnRefForceProvider &&other) noexcept = default;
 
-void KEnRefForceProvider::setSimulationContext(gmx::SimulationContext *simulationContext) {
+[[maybe_unused]] void KEnRefForceProvider::setSimulationContext(gmx::SimulationContext *simulationContext) {
     this->simulationContext_ = simulationContext;
 }
 
