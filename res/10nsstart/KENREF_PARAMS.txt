@@ -1,4 +1,0 @@
-GUIDE_C_ALPHA = "guideC-alpha"
-INDEX_FILE_LOCATION = "../../res/10nsstart/KEnRefAtomIndex.ndx"
-ATOMNAME_MAPPING_FILENAME = "../../res/10nsstart/10nsstart.pdb"
-EXPERIMENTAL_DATA_FILENAME = "../../res/10nsstart/singleton_data_10nsstart_3-5_1978pairs.csv"

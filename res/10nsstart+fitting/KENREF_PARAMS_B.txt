@@ -1,5 +1,5 @@
 GUIDE_C_ALPHA = "guideC-alpha"
-INDEX_FILE_LOCATION = "../../res/10nsstart/KEnRefAtomIndex.ndx"
+INDEX_FILE_LOCATION = "../../res/10nsstart+fitting/KEnRefAtomIndex.ndx"
 EXPERIMENTAL_DATA_FILENAME = "../../res/10nsstart+fitting/singleton_data_10nsstart+fit_3-5_1977pairs_80_B.csv"
-ATOMNAME_MAPPING_FILENAME = "../../res/10nsstart+fitting/0ns.pdb"
-REFERENCE_FILENAME = "../../res/10nsstart+fitting/0ns.pdb"
+ATOMNAME_MAPPING_FILENAME = "../../res/10nsstart+fitting/00ns.pdb"
+REFERENCE_FILENAME = "../../res/10nsstart+fitting/00ns.pdb"
