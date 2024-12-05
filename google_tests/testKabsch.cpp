@@ -4,7 +4,7 @@
 #include "testHelper.h"
 
 // Just some dummy tests
-TEST(KabschTestSuite, TestTranslate) {
+TEST(KabschTestSuite, TestTranslateOnly) {
     CoordsMatrixType<float> before(8, 3), after(8, 3);
     before << 0, 0, 0,
             10, 0, 0,
@@ -26,13 +26,13 @@ TEST(KabschTestSuite, TestTranslate) {
     auto A_calculated = Kabsch_Umeyama<float>::find3DAffineTransform(before, after, false, true, true);
     std::cout << "A_applied\n" << A_applied.matrix() << std::endl;
     std::cout << "A_calculated\n" << A_calculated.matrix() << std::endl;
-    std::cout << "A_calculated.matrix().inverse()\n" << A_calculated.matrix().inverse() << std::endl;
+//    std::cout << "A_calculated.matrix().inverse()\n" << A_calculated.matrix().inverse() << std::endl;
 
     std::cout << "difference\n" << (A_calculated.matrix() - A_applied.matrix()) << std::endl;
     TestHelper<float>::EXPECT_MATRIX_NEAR(A_calculated.matrix(), A_applied.matrix(), 1e-12);
 }
 
-TEST(KabschTestSuite, TestCenterAtoms) {
+TEST(KabschTestSuite, TestCenterOnlyAtoms) {
     CoordsMatrixType<float> after(8, 3);
     after << 0, 0, 0,
             10, 0, 0,
@@ -47,7 +47,7 @@ TEST(KabschTestSuite, TestCenterAtoms) {
     TestHelper<float>::EXPECT_MATRIX_NEAR(after.colwise().mean(), Eigen::RowVector3<float>{0, 0, 0});
 }
 
-TEST(KabschTestSuite, TestRotateTriangle) {
+TEST(KabschTestSuite, TestRotateOnlyTriangle) {
     CoordsMatrixType<float> before(3, 3), expectedAfter(3, 3);
     before <<
            0, 0, 0,
@@ -70,16 +70,16 @@ TEST(KabschTestSuite, TestRotateTriangle) {
 
     auto A_predicted = Kabsch_Umeyama<float>::find3DAffineTransform(before, after, false, true, true);
     std::cout << "A_applied\n" << A_applied.matrix() << std::endl;
-    std::cout << "A_applied.matrix().inverse()\n" << A_applied.matrix().inverse() << std::endl;
+//    std::cout << "A_applied.matrix().inverse()\n" << A_applied.matrix().inverse() << std::endl;
     std::cout << "A_predicted\n" << A_predicted.matrix() << std::endl;
     std::cout << "difference\n" << (A_predicted.matrix() - A_applied.matrix()) << std::endl;
-    TestHelper<float>::EXPECT_MATRIX_NEAR(expectedAfter, after);
-    TestHelper<float>::EXPECT_MATRIX_NEAR(A_applied.matrix(), A_predicted.matrix());
+    TestHelper<float>::EXPECT_MATRIX_NEAR(expectedAfter, after, 1e-7);
+    TestHelper<float>::EXPECT_MATRIX_NEAR(A_applied.matrix(), A_predicted.matrix(), 1e-7);
 }
 
 
 
-TEST(KabschTestSuite, TestRotateCube) {
+TEST(KabschTestSuite, TestRotateOnlyCube) {
     CoordsMatrixType<float> after(8, 3), before(8, 3);
     before << 0, 0, 0,
             10, 0, 0,
@@ -104,7 +104,7 @@ TEST(KabschTestSuite, TestRotateCube) {
     after = Kabsch_Umeyama<float>::applyTransform(A_applied, after);
     std::cout << "Q after\n" << after.matrix() << std::endl;
 
-    auto A_predicted = Kabsch_Umeyama<float>::find3DAffineTransform(before, after, false, true, true);
+    auto A_predicted = Kabsch_Umeyama<float>::find3DAffineTransform(before, after, true, true, true);
     std::cout << "A_applied\n" << A_applied.matrix() << std::endl;
 //    std::cout << "A_applied.matrix().inverse()\n" << A_applied.matrix().inverse() << std::endl;
     std::cout << "A_predicted\n" << A_predicted.matrix() << std::endl;
@@ -139,7 +139,7 @@ TEST(KabschTestSuite, TestRotateCube) {
     TestHelper<float>::EXPECT_MATRIX_NEAR(A_predicted.matrix(), A_applied.matrix(), 1e-6);
 }
 
-TEST(KabschTestSuite, TestScale) {
+TEST(KabschTestSuite, TestScaleOnly) {
     CoordsMatrixType<float> after(8, 3), before(8, 3);
     before << 0, 0, 0,
             10, 0, 0,
@@ -203,12 +203,32 @@ TEST(KabschTestSuite, TestComplexTransform){
               << (A_predicted.matrix() - A_applied.matrix()).cwiseAbs().maxCoeff() << std::endl;
     TestHelper<float>::EXPECT_MATRIX_NEAR(A_predicted.matrix(), A_applied.matrix(), 5e-6);
 
-    //Repeat after centering the reference
+    std::cout << "======== Repeat after de-centering the start ===========" << std::endl;
+    const Eigen::Vector3f translateVector{1000, -100, 5000};
+    auto A_translateOnly = Eigen::Transform<float, 3, Eigen::Affine>::Identity();
+    A_translateOnly.translate(translateVector);
+
+    A_applied = Eigen::Transform<float, 3, Eigen::Affine>::Identity();
+    A_applied.translate(translateVector);
+    A_applied.rotate(rotation);
+    A_applied.scale(55);
+    A_applied.translate(Eigen::Vector3f {400, 200, 7000});
+
     after = before;
-    after = Kabsch_Umeyama<float>::applyTransform(A_applied, after);
     before = Kabsch_Umeyama<float>::translateCenterOfMassToOrigin(before);
-    A_predicted = Kabsch_Umeyama<float>::find3DAffineTransform(before, after, true, true, true);
-    //TODO complete
+    before = Kabsch_Umeyama<float>::applyTransform(A_translateOnly, before);
+    after = Kabsch_Umeyama<float>::applyTransform(A_applied, after);
+
+    A_predicted = Kabsch_Umeyama<float>::find3DAffineTransform(before, after, false, true, true);
+    auto p_after_transform = Kabsch_Umeyama<float>::applyTransform(A_predicted, before);
+
+
+    std::cout << "After\n" << after << std::endl;
+    std::cout << "p_after_transform\n" << p_after_transform << std::endl;
+    std::cout << "difference\n" << (after - p_after_transform) << std::endl;
+    std::cout << "(after - p_after_transform).cwiseAbs().maxCoeff() = "
+              << (after - p_after_transform).cwiseAbs().maxCoeff() << std::endl;
+    TestHelper<float>::EXPECT_MATRIX_NEAR(after, p_after_transform, 5e-6);
 }
 
 
