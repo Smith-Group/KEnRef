@@ -149,9 +149,9 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     } else {
         GMX_ASSERT(numSimulations <= 3, "I don't know how to handle more than 3 simulations yet");
         if (numSimulations == 2) {
-            simulated_grouping_list = {{{0}, {1}}, {{0, 1}}};
+            simulated_grouping_list = {{{0, 1}}, {{0}, {1}}};
         } else if (numSimulations == 3) {
-            simulated_grouping_list = {{{0}, {1}, {2}}, {{0, 1, 2}}};
+            simulated_grouping_list = {{{0, 1, 2}}, {{0}, {1}, {2}}};
         }
     }
 
