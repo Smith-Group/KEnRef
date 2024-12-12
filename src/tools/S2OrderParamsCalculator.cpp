@@ -44,7 +44,8 @@ public:
         //const std::string experimentalDataFileName = IoUtils::getEnvParam("S2_experimentalDataFileName", "../res/google_tests/singleton_data_10nsstart+fit_0+10.csv");
         //const std::string experimentalDataFileName = IoUtils::getEnvParam("S2_experimentalDataFileName", "../res/10nsstart+fitting/singleton_data_10nsstart+fit_3-5_1977pairs_all.csv");
         //const std::string experimentalDataFileName = IoUtils::getEnvParam("S2_experimentalDataFileName", "../res/10nsstart+fitting/singleton_data_10nsstart+fit_0+10_3-5_1812pairs_all.csv");
-        const std::string experimentalDataFileName = IoUtils::getEnvParam("S2_experimentalDataFileName", "../res/10nsstart+fitting/singleton_data_10nsstart+fit_0+10_3-5_1812pairs_80_A.csv");
+        //const std::string experimentalDataFileName = IoUtils::getEnvParam("S2_experimentalDataFileName", "../res/10nsstart+fitting/singleton_data_10nsstart+fit_0+10_3-5_1812pairs_80_A.csv");
+        const std::string experimentalDataFileName = IoUtils::getEnvParam("S2_experimentalDataFileName", "../res/10nsstart+fitting/singleton_data_10nsstart+fit_0+10_3-5_1814pairs_80_A.csv");
         const std::string fileNameTemplate = IoUtils::getEnvParam("S2_fileNameTemplate", "data${dataDir}_structure${structure}_repl_${repl}_KEnRef_multi_${K}_.25_${max}_${variant}_${trial}.${frame}.pdb");
         const std::string s2OutFileTemplate = IoUtils::getEnvParam("S2_OUTPUT_FILE", "S2_data${dataDir}_structure${structure}_KEnRef_multi_${K}_.25_${max}_${variant}_${trial}.csv");
         const std::string s2rOutFileTemplate = IoUtils::getEnvParam("S2R_OUTPUT_FILE", "S2r_data${dataDir}_structure${structure}_KEnRef_multi_${K}_.25_${max}_${variant}_${trial}.csv");
@@ -52,7 +53,7 @@ public:
         std::string dataDir = IoUtils::getEnvParam("S2_DATA_DIR", "0+10");
         std::string structure = IoUtils::getEnvParam("S2_STRUCTURE", "0+10");
         std::string k = IoUtils::getEnvParam("S2_K", "1e9");
-        std::string max = IoUtils::getEnvParam("S2_MAX", "999");
+        std::string max = IoUtils::getEnvParam("S2_MAX", "800");
         std::string subSet = IoUtils::getEnvParam("S2_SUBSET", "80");
         std::string variant = IoUtils::getEnvParam("S2_VARIANT", "A");
         int trial = IoUtils::getEnvParam("S2_TRIAL", 2);
