@@ -41,6 +41,7 @@ public:
 
     static int getEnvParam(const std::string& paramName, int defaultValue);
     static long getEnvParam(const std::string& paramName, long defaultValue);
+    static std::string getEnvParam(const char *paramName, const char *defaultValue);
     static std::string getEnvParam(const std::string& paramName, const char *defaultValue);
     static std::string getEnvParam(const std::string& paramName, const std::string& defaultValue);
     template<typename KEnRef_Real_t>

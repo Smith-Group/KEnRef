@@ -405,6 +405,9 @@ long IoUtils::getEnvParam(const std::string& paramName, long defaultValue){
     }
 }
 
+std::string IoUtils::getEnvParam(const char *paramName, const char *defaultValue){
+    return getEnvParam(std::string(paramName), std::string(defaultValue));
+}
 std::string IoUtils::getEnvParam(const std::string& paramName, const char *defaultValue){
     return getEnvParam(paramName, std::string(defaultValue));
 }

@@ -50,7 +50,7 @@ void KEnRefForceProvider::setGuideAtom0Indices(std::shared_ptr<std::vector<int> 
 }
 
 void KEnRefForceProvider::setGuideAtomsReferenceCoords(
-    std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> &guideAtomsReferenceCoords) {
+        std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> &guideAtomsReferenceCoords) {
     this->guideAtomsReferenceCoords_ = std::move(guideAtomsReferenceCoords);
     //keep another cashed version after moving its Center of Mass (COM) to the origin for faster processing
     this->guideAtomsReferenceCoordsCentered_ = std::make_shared<const CoordsMatrixType<KEnRef_Real_t>>(
@@ -80,8 +80,8 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     int numSimulations = isMultiSimulation ? this->simulationContext_->multiSimulation_->numSimulations_ : 1;
     int simulationIndex = isMultiSimulation ? this->simulationContext_->multiSimulation_->simulationIndex_ : 0;
     MPI_Comm mainRanksComm = isMultiSimulation
-                                 ? this->simulationContext_->multiSimulation_->mainRanksComm_
-                                 : MPI_COMM_NULL;
+                             ? this->simulationContext_->multiSimulation_->mainRanksComm_
+                             : MPI_COMM_NULL;
     if (!paramsInitialized) {
         std::string alt_out_path = IoUtils::strip_enclosing_quotoes(IoUtils::getEnvParam("KENREF_ALT_OUT_PATH", std::string("")));
         if (!alt_out_path.empty()) {
@@ -103,9 +103,9 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
     if (step % 10 == 0)
         std::cout
-        << "--> numSimulations " << numSimulations << "\n"
-        << "--> rankInDefaultCommunicator " << cr.rankInDefaultCommunicator << " " << (isMultiSimulation ? simulationIndex : -1) << "\n"
-        << "--> simulationIndex " << simulationIndex << "\tstep " << step << std::endl;
+                << "--> numSimulations " << numSimulations << "\n"
+                << "--> rankInDefaultCommunicator " << cr.rankInDefaultCommunicator << " " << (isMultiSimulation ? simulationIndex : -1) << "\n"
+                << "--> simulationIndex " << simulationIndex << "\tstep " << step << std::endl;
 
     if (!paramsInitialized) {
         volatile bool holdToDebug = false;
@@ -172,9 +172,9 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     //TODO later fix and use guideAtomsReferenceCoordsCentered_ (may need to pass the old center centered matrix + original center).
     //N.B. You must restore no jump BEFORE calling find3DAffineTransform(), applyTransform(), or applyInverseOfTransform().
     const auto &affine = Kabsch_Umeyama<KEnRef_Real_t>::find3DAffineTransform(
-                                                                            guideAtomsX_ZEROIndexed,
-                                                                              *this->guideAtomsReferenceCoordsCentered_,
-                                                                              false, false, false);
+            guideAtomsX_ZEROIndexed,
+            *this->guideAtomsReferenceCoordsCentered_,
+            false, false, false);
 //    std::cout << "affine: \n" << affine.matrix() << std::endl;
 
     //Fill needed atoms of subAtomsX with atoms (in the original order).
@@ -321,9 +321,9 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         //next line assumes that the basic type of force is **real**
         // TODO optimize this line/process
         force[*piLocal] -= {
-            static_cast<real>(derivatives_rectified(i, 0)),
-            static_cast<real>(derivatives_rectified(i, 1)),
-            static_cast<real>(derivatives_rectified(i, 2))
+                static_cast<real>(derivatives_rectified(i, 0)),
+                static_cast<real>(derivatives_rectified(i, 1)),
+                static_cast<real>(derivatives_rectified(i, 2))
         };
     }
 
@@ -442,8 +442,8 @@ CoordsMatrixType<KEnRef_Real_t> KEnRefForceProvider::getGuideAtomsX(const std::v
 }
 
 void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
-                   const CoordsMatrixType<KEnRef_Real_t> &reference,
-                   const matrix &box_, bool toAngstrom, int numOmpThreads, bool printStatistics) {
+                                        const CoordsMatrixType<KEnRef_Real_t> &reference,
+                                        const matrix &box_, bool toAngstrom, int numOmpThreads, bool printStatistics) {
     auto box = new matrix;
     if(toAngstrom)
         msmul(box_, 10, box);
@@ -497,8 +497,8 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
     auto begin = std::chrono::high_resolution_clock::now();
     bool isMultiSimulation = this->simulationContext_->multiSimulation_ != nullptr;
     this->atomName_to_atomGlobalId_map_ = std::make_shared<std::map<std::string, int> >(
-        IoUtils::getAtomMappingFromPdb<std::string, int>(KEnRefMDModule::ATOMNAME_MAPPING_FILENAME,
-                                                         IoUtils::fill_atomId_to_index_Map));
+            IoUtils::getAtomMappingFromPdb<std::string, int>(KEnRefMDModule::ATOMNAME_MAPPING_FILENAME,
+                                                             IoUtils::fill_atomId_to_index_Map));
     GMX_ASSERT(!atomName_to_atomGlobalId_map_->empty(), "No atom mapping found");
     auto &atomName_to_atomGlobalId_map = *this->atomName_to_atomGlobalId_map_;
 
@@ -519,7 +519,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
 //        }
 #endif
     this->experimentalData_table_ = std::make_shared<std::tuple<std::vector<std::string>, std::vector<std::vector<
-                std::string> > > >
+            std::string> > > >
             (IoUtils::readTable(KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME, true, "\\s*,\\s*", maxAtomPairsToRead));
     //TODO check number of atom pairs
     GMX_ASSERT(experimentalData_table_ && !(maxAtomPairsToRead && std::get<1>(*experimentalData_table_).empty()),
@@ -539,7 +539,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
         if (IoUtils::isNotPrepared(record[1]) || IoUtils::isNotPrepared(record[2])) {
             //            std::cout << "TRUE, Exiting" << std::endl;
             std::cerr << "WARNING: It seems that your data is from an unprepared file. We will try to handle it, but we can not guarantee the results."
-                    << std::endl;
+                      << std::endl;
             handleUnpreparedAtomNames = true;
             break;
         }
@@ -578,7 +578,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
     int tempI;
     for (const auto &[a1, a2]: *this->atomName_pairs_) {
 #if VERBOSE
-std::cout << "[" << a1 << "]\t" << atomName_to_atomGlobalId_map.at(a1) << "\t";
+        std::cout << "[" << a1 << "]\t" << atomName_to_atomGlobalId_map.at(a1) << "\t";
 std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::endl;
 #endif
         //In the next lines I use .at() instead of [] deliberately; to throw an exception if unexpected name found
