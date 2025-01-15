@@ -37,6 +37,7 @@ class KEnRefForceProvider : public gmx::IForceProvider {
 	Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, Eigen::Dynamic> *g0_ = nullptr;
 	std::shared_ptr<std::vector<std::tuple<int, int> > > atomId_pairs_;
 	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t> > subAtomsX_;
+    std::shared_ptr<std::vector<std::vector<std::vector<int> > > > simulated_grouping_list_;
 	std::shared_ptr<std::vector<bool> > globalAtomIdFlags_; //ONE based
 	std::shared_ptr<std::vector<int> > sub0Id_to_global1Id_; //Global ID is ONE based, subId is a small subset and is ZERO based
 	std::shared_ptr<std::vector<int> > global1Id_to_sub0Id_; //Global ID is ONE based, subId is a small subset and is ZERO based

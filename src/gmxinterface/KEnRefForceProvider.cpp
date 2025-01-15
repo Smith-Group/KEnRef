@@ -56,7 +56,8 @@ void KEnRefForceProvider::setGuideAtomsReferenceCoords(
     this->guideAtomsReferenceCoordsCentered_ = std::make_shared<const CoordsMatrixType<KEnRef_Real_t>>(
             Kabsch_Umeyama<KEnRef_Real_t>::translateCenterOfMassToOrigin(*this->guideAtomsReferenceCoords_));
     //TODO do we need a guideAtomsReferenceCoordsCOM_ ?
-    this->lastFrameGuideAtomsX_ZEROIndexed_ = std::make_shared<CoordsMatrixType<KEnRef_Real_t>>(this->guideAtomsReferenceCoords_->rows(), this->guideAtomsReferenceCoords_->cols());
+    this->lastFrameGuideAtomsX_ZEROIndexed_ = std::make_shared<CoordsMatrixType<KEnRef_Real_t>>(
+            this->guideAtomsReferenceCoords_->rows(), this->guideAtomsReferenceCoords_->cols());
 }
 
 static constexpr const char *const singleStr = "single";
@@ -143,17 +144,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     CoordsMatrixType<KEnRef_Real_t> &subAtomsX = *this->subAtomsX_;
     CoordsMatrixType<KEnRef_Real_t> &allSimulationsSubAtomsX = *this->allSimulationsSubAtomsX_;
     //setting the coordinate values to ZERO (or ONE) is dangerous because it causes Invalid floating point operation
-    std::vector<std::vector<std::vector<int> > > simulated_grouping_list;
-    if (!isMultiSimulation) {
-        simulated_grouping_list = {{{0}}, {{0}}};
-    } else {
-        GMX_ASSERT(numSimulations <= 3, "I don't know how to handle more than 3 simulations yet");
-        if (numSimulations == 2) {
-            simulated_grouping_list = {{{0, 1}}, {{0}, {1}}};
-        } else if (numSimulations == 3) {
-            simulated_grouping_list = {{{0, 1, 2}}, {{0}, {1}, {2}}};
-        }
-    }
+    std::vector<std::vector<std::vector<int> > > &simulated_grouping_list = *this->simulated_grouping_list_;
 
 #if VERBOSE
     int iZero = 0;
@@ -163,7 +154,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 #endif
 
     // ================= fit all models to reference ====================
-    const CoordsMatrixType<KEnRef_Real_t>& guideAtomsX_ZEROIndexed = getGuideAtomsX(*this->guideAtom0Indices_,
+    const CoordsMatrixType<KEnRef_Real_t> &guideAtomsX_ZEROIndexed = getGuideAtomsX(*this->guideAtom0Indices_,
                                                                                     forceProviderInput, true);
     restoreNoJump(const_cast<CoordsMatrixType<KEnRef_Real_t> &>(guideAtomsX_ZEROIndexed),
                   *this->lastFrameGuideAtomsX_ZEROIndexed_, forceProviderInput.box_, true,
@@ -373,7 +364,8 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin);
     this->calculateForces_time += elapsed.count();
     if (!(step % 10) && simulationIndex == 0)
-        printf("This iteration (%ld): %.5f seconds. All walltime %.3f seconds\n", step, static_cast<double>(elapsed.count()) * 1e-9,
+        printf("This iteration (%ld): %.5f seconds. All walltime %.3f seconds\n", step,
+               static_cast<double>(elapsed.count()) * 1e-9,
                static_cast<double>(calculateForces_time) * 1e-9);
 
 
@@ -390,7 +382,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
 void KEnRefForceProvider::fillSubAtomsX(CoordsMatrixType<KEnRef_Real_t> &subAtomsX,
                                         const std::vector<int> &sub0Id_to_global1Id,
-                                        const gmx::ForceProviderInput &forceProviderInput, bool toAngstrom){
+                                        const gmx::ForceProviderInput &forceProviderInput, bool toAngstrom) {
     for (int i = 0; i < subAtomsX.rows(); i++) {
         const int *piGlobal = new int{sub0Id_to_global1Id[i] - 1};
         const int *piLocal = forceProviderInput.cr_.dd->ga2la->findHome(*piGlobal);
@@ -409,12 +401,13 @@ void KEnRefForceProvider::fillSubAtomsX(CoordsMatrixType<KEnRef_Real_t> &subAtom
             }
         }
     }
-    if(toAngstrom)
+    if (toAngstrom)
         subAtomsX *= 10;
 }
 
 CoordsMatrixType<KEnRef_Real_t> KEnRefForceProvider::getGuideAtomsX(const std::vector<int> &guideAtom0Indices,
-                                                                    const gmx::ForceProviderInput &forceProviderInput, bool toAngstrom) {
+                                                                    const gmx::ForceProviderInput &forceProviderInput,
+                                                                    bool toAngstrom) {
     long guideAtom0IndicesSize = static_cast<long>(guideAtom0Indices.size());
     auto guideAtomsX_ZEROIndexed = CoordsMatrixType<KEnRef_Real_t>(guideAtom0IndicesSize, 3);
     KEnRef_Real_t *guideAtomsX_ZEROIndexed_buffer = guideAtomsX_ZEROIndexed.data();
@@ -445,7 +438,7 @@ void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
                                         const CoordsMatrixType<KEnRef_Real_t> &reference,
                                         const matrix &box_, bool toAngstrom, int numOmpThreads, bool printStatistics) {
     auto box = new matrix;
-    if(toAngstrom)
+    if (toAngstrom)
         msmul(box_, 10, box);
     else
         msmul(box_, 1, box);
@@ -471,7 +464,7 @@ void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
                 for (int d = 0; d <= m; ++d) {
                     atom[d] += box[m][d];
                 }
-                if(printStatistics){
+                if (printStatistics) {
                     updatedLocations(i) = 1;
                     updated = true;
                 }
@@ -481,14 +474,14 @@ void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
                 for (int d = 0; d <= m; ++d) {
                     atom[d] -= box[m][d];
                 }
-                if (printStatistics){
+                if (printStatistics) {
                     updatedLocations(i) = 1;
                     updated = true;
                 }
             }
         }
     }
-    if(updated)
+    if (updated)
         std::cout << "INFO: Restored NoJump in these atoms:\n" << updatedLocations << std::endl;
     delete[] box;
 }
@@ -560,7 +553,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
     this->g0_ = new Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, Eigen::Dynamic>(data.size(), 2);
     auto &g0 = *g0_;
     for (int i = 0; i < data.size(); ++i) {
-        const auto& record = data[i];
+        const auto &record = data[i];
         std::istringstream temp1(record[5]), temp2(record[6]);
         temp1 >> g0(i, 0);
         temp2 >> g0(i, 1);
@@ -621,6 +614,22 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
     }
 #endif
 
+    switch (numSimulations) {
+        case 1:
+            this->simulated_grouping_list_ = std::make_shared<std::vector<std::vector<std::vector<int>>>>(
+                    std::vector<std::vector<std::vector<int> > >{{{0}}, {{0}}});
+            break;
+        case 2:
+            this->simulated_grouping_list_ = std::make_shared<std::vector<std::vector<std::vector<int>>>>(
+                    std::vector<std::vector<std::vector<int>>>{{{0, 1}}, {{0}, {1}}});
+            break;
+        case 3:
+            this->simulated_grouping_list_ = std::make_shared<std::vector<std::vector<std::vector<int>>>>(
+                    std::vector<std::vector<std::vector<int>>>{{{0, 1, 2}}, {{0}, {1}, {2}}});
+            break;
+        default:
+            GMX_ASSERT(numSimulations <= 3, "I don't know how to handle more than 3 simulations yet");
+    }
     this->subAtomsX_ = std::make_shared<CoordsMatrixType<KEnRef_Real_t> >(this->sub0Id_to_global1Id_->size(), 3);//contains needed atoms only
     this->lastFrameSubAtomsX_ = std::make_shared<CoordsMatrixType<KEnRef_Real_t>>(this->subAtomsX_->rows(), this->subAtomsX_->cols());
 #if VERBOSE
@@ -648,5 +657,3 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
 }
 
 #undef VERBOSE
-
-
