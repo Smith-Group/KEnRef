@@ -6,20 +6,21 @@
 #include "gromacs/math/vecdump.h"
 #include "gromacs/gmxlib/network.h"
 #include "gromacs/mdlib/gmx_omp_nthreads.h"
-#include "gromacs/utility.h"
-#include "gromacs/pbcutil/pbc.h"
-#include "gromacs/domdec/domdec_struct.h"
-#include "gromacs/domdec/ga2la.h"
 #include "core/kabsch.h"
-#include "gmxinterface/KEnRefForceProvider.h"
-#include "gmxinterface/KEnRefMDModule.h"
 #include "core/KEnRef.h"
 #include "core/IoUtils.h"
-#include "core/kabsch.h"
 #include "gmxinterface/gmxkenrefinitializer.h"
 
-const int numModels = 2;
 
+struct t_file_state{
+    t_fileio *xd;
+    rvec     *x;
+    matrix    box;
+    int       nframe, natoms;
+    int64_t   step;
+    real      prec, time;
+    gmx_bool  bOK;
+};
 
 KEnRef_Real_t pearsonCorrelation(const Eigen::VectorX<KEnRef_Real_t>& x, const Eigen::VectorX<KEnRef_Real_t>& y) {
     if (x.size() != y.size()) {
@@ -40,25 +41,46 @@ KEnRef_Real_t pearsonCorrelation(const Eigen::VectorX<KEnRef_Real_t>& x, const E
 
 Eigen::IOFormat insideCsvLineFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "", "", "", "", "");
 
+void fillX(CoordsMatrixType<KEnRef_Real_t> &targetAtomsX, const std::vector<int> &idxes0,
+           const rvec *x, bool toAngstrom) {
+    for (int i = 0; i < targetAtomsX.rows(); i++) {
+//        const int *piGlobal = new int{sub0Id_to_global1Id[i] - 1};
+//        const int *piLocal = forceProviderInput.cr_.dd->ga2la->findHome(*piGlobal);
+//        GMX_ASSERT(piLocal, "ERROR: Can't find local index of atom");
+        const gmx::RVec atom_x = x[idxes0[i]];
+#if VERBOSE
+        std::cout << sub0Id_to_global1Id[i] << "\t" << *piGlobal << "\t" << *piLocal << "\t x: " << atom_x[0] << ", " << atom_x[1] << ", " << atom_x[2] << std::endl;
+#endif
+        if constexpr (std::is_same_v<KEnRef_Real_t, real>) {
+            auto subAtomsX_buffer = targetAtomsX.data();
+            const auto rvec = atom_x.as_vec();
+            std::copy_n(rvec, 3, &subAtomsX_buffer[i * 3]);
+        } else {
+            for (int j = 0; j < 3; ++j) {
+                targetAtomsX(i, j) = static_cast<KEnRef_Real_t>(atom_x[j]);
+            }
+        }
+    }
+    if (toAngstrom)
+        targetAtomsX *= 10;
+}
 
 template<typename KEnRef_Real>
 class S2OrderParamsCalculator {
 
+    int numModels;
+
 public:
 
     //remember that the data must be PBC corrected (in every step)
-    static void calc() {
+    void calc() {
         const std::string GUIDE_C_ALPHA = IoUtils::getEnvParam("S2_GUIDE_C_ALPHA" ,"guideC-alpha");
         const std::string INDEX_FILE_LOCATION = IoUtils::getEnvParam("S2_INDEX_FILE_LOCATION", "../res/10nsstart+fitting/KEnRefAtomIndex.ndx");
         const std::string REFERENCE_FILENAME = IoUtils::getEnvParam("S2_REFERENCE_FILENAME", "../res/10nsstart+fitting/00ns.pdb");
-        const std::string inPathTemplate = IoUtils::getEnvParam("S2_IN_PATH", "/smithlab/home/aalhossary/temp/temp_pdb/data${dataDir}_structure${structure}");
+        const std::string inPathTemplate = IoUtils::getEnvParam("S2_IN_PATH", "/smithlab/home/aalhossary/temp/temp_xtc/data${dataDir}_structure${structure}");
         const std::string outPathTemplate = IoUtils::getEnvParam("S2_OUT_PATH", "/smithlab/home/aalhossary/temp/s2-order-params");
-        //const std::string experimentalDataFileName = IoUtils::getEnvParam("S2_experimentalDataFileName", "../res/google_tests/singleton_data_10nsstart+fit_0+10.csv");
-        //const std::string experimentalDataFileName = IoUtils::getEnvParam("S2_experimentalDataFileName", "../res/10nsstart+fitting/singleton_data_10nsstart+fit_3-5_1977pairs_all.csv");
-        //const std::string experimentalDataFileName = IoUtils::getEnvParam("S2_experimentalDataFileName", "../res/10nsstart+fitting/singleton_data_10nsstart+fit_0+10_3-5_1812pairs_all.csv");
-        //const std::string experimentalDataFileName = IoUtils::getEnvParam("S2_experimentalDataFileName", "../res/10nsstart+fitting/singleton_data_10nsstart+fit_0+10_3-5_1812pairs_80_A.csv");
-        const std::string experimentalDataFileName = IoUtils::getEnvParam("S2_experimentalDataFileName", "../res/10nsstart+fitting/singleton_data_10nsstart+fit_0+10_3-5_1814pairs_80_A.csv");
-        const std::string fileNameTemplate = IoUtils::getEnvParam("S2_fileNameTemplate", "repl_${repl}_KEnRef_multi_${K}_.25_${max}_${variant}_${trial}.${frame}.pdb");
+        const std::string experimentalDataFileName = IoUtils::getEnvParam("S2_experimentalDataFileName", "../res/10nsstart+fitting/singleton_data_10nsstart+fit_alef+baaa_3-5_1814pairs_80_A.csv");
+        const std::string fileNameTemplate = IoUtils::getEnvParam("S2_fileNameTemplate", "repl_${repl}_KEnRef_multi_${K}_.25_${max}_${variant}_${trial}.xtc");
         const std::string s2OutFileTemplate = IoUtils::getEnvParam("S2_OUTPUT_FILE", "S2_data${dataDir}_structure${structure}_KEnRef_multi_${K}_.25_${max}_${variant}_${trial}.csv");
 //        const std::string s2rOutFileTemplate = IoUtils::getEnvParam("S2R_OUTPUT_FILE", "S2r_data${dataDir}_structure${structure}_KEnRef_multi_${K}_.25_${max}_${variant}_${trial}.csv");
 
@@ -72,6 +94,10 @@ public:
         const std::string variant = IoUtils::getEnvParam("S2_VARIANT", "A");
         const int trial = IoUtils::getEnvParam("S2_TRIAL", 2);
         const int MAX_FRAME = IoUtils::getEnvParam("S2_MAX_FRAME", 1000);
+
+        const std::string replicatesIn = IoUtils::getEnvParam("S2_REPLICATES", "repl_01,repl_02");
+        std::vector<std::string> replicates = IoUtils::split(replicatesIn, ",");
+        numModels = (int) replicates.size();
 
         //Guide atom indices
         const std::vector<int> &guideAtom0Indices = GmxKEnRefInitializer::loadGmxIndexGroup(GUIDE_C_ALPHA, INDEX_FILE_LOCATION);
@@ -159,24 +185,19 @@ public:
         replacements["max"] = max;
         replacements["trial"] = std::to_string(trial);
         std::string s2OutputPathName = constructFileNamePath(outPathTemplate, s2OutFileTemplate, replacements);
-//        std::string s2rOutputPathName = constructFileNamePath(outPathTemplate, s2rOutFileTemplate, replacements);
         std::cout << "S2 output file path: " << s2OutputPathName << std::endl;
-//        std::cout << "S2r output file path: " << s2rOutputPathName << std::endl;
-        std::ofstream s2OutFileStream/*, s2rOutFileStream*/;
+        std::ofstream s2OutFileStream;
         s2OutFileStream.open(s2OutputPathName);
-//        s2rOutFileStream.open(s2rOutputPathName);
         if(s2OutFileStream.is_open()){
             std::cout << "S2 Output file open successfully\n";
         }else{
             std::cerr << "FATAL ERROR: Can't open file [" << s2OutputPathName << "] for writing.\n";
             exit(-1);
         }
-//        if(s2rOutFileStream.is_open()){
-//            std::cout << "S2r Output file open successfully\n";
-//        }else{
-//            std::cerr << "FATAL ERROR: Can't open file [" << s2rOutputPathName << "] for writing.\n" << std::endl;
-//            exit(-1);
-//        }
+
+        std::vector<t_file_state> fsts(numModels);
+        Eigen::VectorX<int> returns(numModels);
+        Eigen::VectorX<int> oks(numModels);
 
 
 //        //Calculate reference atoms (to use to calculate reference S2 order params later)
@@ -190,63 +211,68 @@ public:
         // Data Every frame: coordsVector
         // Actions Every frame: fitting coordsVector to guideAtomsX_ZEROIndexed
         try {
-//            KEnRef_Real_t correlationCoefficient;
-            for (int frame = 0; frame <= MAX_FRAME; frame++) {
-                CoordsMatrixType<KEnRef_Real_t> guideAtomsX_ZEROIndexed;
+            for (int modelId = 0; modelId < numModels; ++modelId) {
+                auto& fst = fsts[modelId];
+//                replacements.insert_or_assign("repl", IoUtils::padWithZeros(modelId + 1, 2));
+                replacements.insert_or_assign("repl", replicates[modelId]);
+                std::string modelPathName = constructFileNamePath(inPathTemplate, fileNameTemplate, replacements);
+
+                fst.xd = open_xtc(modelPathName, "r");
+                read_first_xtc(fst.xd, &fst.natoms, &fst.step, &fst.time, fst.box, &fst.x, &fst.prec, &fst.bOK);
+                fst.nframe = 0;
+            }
+
+            CoordsMatrixType<KEnRef_Real_t> guideAtomsX_ZEROIndexed = CoordsMatrixType<KEnRef_Real_t>(guideAtom0Indices.size(), 3);
+            do {
                 std::vector<CoordsMatrixType<KEnRef_Real_t>> allSimulationsSubAtomsXVector(numModels);
 
-                for (int modelIdx = 0; modelIdx < numModels; modelIdx++) {
-
-                    std::map<std::string, std::string> replacements_ext = {
-                            {"frame",     std::to_string(frame)},
-                            {"repl",      IoUtils::padWithZeros(modelIdx + 1, 2)},
-                    };
-                    for (auto const& node:replacements_ext) {
-                        replacements.insert_or_assign(node.first, node.second);
-                    }
-
-                    std::string currentModelPathName = constructFileNamePath(inPathTemplate, fileNameTemplate, replacements);
-
+                //Use the data from the 2 models
+                for (int modelIdx = 0; modelIdx < numModels; ++modelIdx) {
+                    auto &fst = fsts[modelIdx];
                     //calculate guideAtomsX_ZEROIndexed (every model every frame)
-                    auto modelAllAtomCoordsMap = IoUtils::getAtomMappingFromPdb<int, Eigen::RowVector3<KEnRef_Real_t>>(
-                            currentModelPathName, IoUtils::fill_atomIndex1_to_coords_Map < KEnRef_Real_t > );
-                    guideAtomsX_ZEROIndexed = IoUtils::extractCoords(guideAtom0Indices, false, modelAllAtomCoordsMap, true);
+                    fillX(guideAtomsX_ZEROIndexed, guideAtom0Indices, fst.x, true);
 
                     //remember that the data must be PBC corrected (in every step)
 
                     //calculate the transformation matrix
                     //const auto &affineForS2 = Kabsch_Umeyama<KEnRef_Real_t>::find3DAffineTransform(guideAtomsX_ZEROIndexed, guideAtomsReferenceCoordsCentered, true, true);
                     //another way to achieve the above line
-                    const auto &affineForS2 = Kabsch_Umeyama<KEnRef_Real_t>::find3DAffineTransform(guideAtomsX_ZEROIndexed, guideAtomsReferenceCoords, false, true);
+                    const auto &affineForS2 = Kabsch_Umeyama<KEnRef_Real_t>::find3DAffineTransform(
+                            guideAtomsX_ZEROIndexed, guideAtomsReferenceCoords, false, true);
 
                     //and calculate subAtomsXAfterTransform
-                    CoordsMatrixType<KEnRef_Real_t> subAtomsX = IoUtils::extractCoords(subAtoms0Ids, false, modelAllAtomCoordsMap, true);
+                    CoordsMatrixType<KEnRef_Real_t> subAtomsX = CoordsMatrixType<KEnRef_Real_t>(subAtoms0Ids.size(), 3);
+                    fillX(subAtomsX, subAtoms0Ids, fst.x, true);
                     allSimulationsSubAtomsXVector.at(modelIdx) = Kabsch_Umeyama<KEnRef_Real_t>::applyTransform(affineForS2, subAtomsX);
-                } // end of for(model)
 
-                const auto &frameS2OrderParams = KEnRef<KEnRef_Real_t>::s2OrderParams(allSimulationsSubAtomsXVector, subAtomIdPairs, 0);
-//                correlationCoefficient = pearsonCorrelation(frameS2OrderParams, referenceS2OrderParams);
-#if false
-                std::cout << frameS2OrderParams.transpose() << std::endl;
-#endif
-                if (frame == 0){
-                    std::cout << "referenceS2OrderParams\n" << referenceS2OrderParams.topRows(25).transpose() << "\n";
-                    std::cout << "frameS2OrderParams\n" << frameS2OrderParams.topRows(25).transpose() << "\n";
+                    if (modelIdx == numModels - 1){
+                        const auto &frameS2OrderParams = KEnRef<KEnRef_Real_t>::s2OrderParams(allSimulationsSubAtomsXVector, subAtomIdPairs, 0);
+                        if (fst.nframe == 0){
+                            std::cout << "referenceS2OrderParams\n" << referenceS2OrderParams.topRows(25).transpose() << "\n";
+                            std::cout << "frameS2OrderParams\n" << frameS2OrderParams.topRows(25).transpose() << "\n";
+                        }
+                        s2OutFileStream << fst.nframe << ", " << frameS2OrderParams.transpose().format(insideCsvLineFormat) << std::endl;
+                    }
+
+                    fst.nframe++;
+                    returns[modelIdx] = read_next_xtc(fst.xd, fst.natoms, &fst.step, &fst.time, fst.box, fst.x, &fst.prec, &fst.bOK);
+                    oks[modelIdx] = fst.bOK;
                 }
-//                std::cout << "pearsonCorrelation = " << correlationCoefficient << std::endl;
-//            if (frame == 0){
-//                std::cout << "referenceS2OrderParams = " << referenceS2OrderParams.transpose() << std::endl;
-//                std::cout << "difference = " << (frameS2OrderParams - referenceS2OrderParams).transpose() << std::endl;
-//            }
-                s2OutFileStream << frame << ", " << frameS2OrderParams.transpose().format(insideCsvLineFormat) << std::endl;
-//                s2rOutFileStream << frame << ", " << correlationCoefficient << "\n";
+            } while ((returns.array() != 0).all() && fsts[0].nframe <= MAX_FRAME);
+            if (! oks.all()) {
+                fprintf(stderr, "\nWARNING: Incomplete frame.\n");
+            }
+            for (auto & fst:fsts) {
+                sfree(fst.x);
+                close_xtc(fst.xd);
             }
             s2OutFileStream.close();
-//            s2rOutFileStream.close();
-//            return correlationCoefficient;
         } catch (const std::runtime_error& e) {
+            for (auto & fst:fsts) {
+                sfree(fst.x);
+                close_xtc(fst.xd);
+            }
             s2OutFileStream.close();
-//            s2rOutFileStream.close();
             throw e;
         }
     }
@@ -270,13 +296,48 @@ public:
     }
 };
 
+//void testRead() {
+//    const char* fn = "/smithlab/home/aalhossary/temp/res/out_restrained/out_multi_dataalef+alef_structurealef+alef/repl_01/KEnRef_multi_1e8_.25_800_A_1.xtc";
+//    t_fileio* xd;
+//    int       indent;
+//    char      buf[256];
+//    rvec*     x;
+//    matrix    box;
+//    int       nframe, natoms;
+//    int64_t   step;
+//    real      prec, time;
+//    gmx_bool  bOK;
+//
+//    xd = open_xtc(fn, "r");
+//    read_first_xtc(xd, &natoms, &step, &time, box, &x, &prec, &bOK);
+//
+//    nframe = 0;
+//    do {
+//        sprintf(buf, "%s frame %d", fn, nframe);
+//        indent = 0;
+////        indent = pr_title(stdout, indent, buf);
+////        pr_indent(stdout, indent);
+//        fprintf(stdout, "natoms=%10d  step=%10" PRId64 "  time=%12.7e  prec=%10g\n", natoms, step, time, prec);
+//        pr_rvecs(stdout, indent, "box", box, DIM);
+//        pr_rvecs(stdout, indent, "x", x, natoms);
+//        nframe++;
+//    } while (read_next_xtc(xd, natoms, &step, &time, box, x, &prec, &bOK) != 0);
+//    if (!bOK) {
+//        fprintf(stderr, "\nWARNING: Incomplete frame at time %g\n", time);
+//    }
+//    sfree(x);
+//    close_xtc(xd);
+//}
+
 int main(int argc, char** argv){
+    MPI_Init(&argc, &argv);
     if (argc >= 2 && std::strcmp(argv[1], "debug") == 0) {
         volatile bool holdToDebug = true;
         while (holdToDebug) {
             sleep(1);
         }
     }
-    S2OrderParamsCalculator<KEnRef_Real_t>::calc();
+//    testRead();
+    S2OrderParamsCalculator<KEnRef_Real_t>().calc();
 }
 
