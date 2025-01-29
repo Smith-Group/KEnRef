@@ -81,6 +81,7 @@ add_library(KENREF_CORE STATIC ${core_sources})
 add_library(KENREF_GMXINTERFACE STATIC ${gmxinterface_sources})
 add_executable(KEnRef "src/gmxinterface/gmxwrapper.cpp")
 add_executable(s2calc src/tools/S2OrderParamsCalculator.cpp)
+add_executable(energycalc src/tools/EnergyCalculator.cpp)
 
 target_link_libraries(KENREF_CORE PUBLIC MPI::MPI_CXX Eigen3::Eigen
 		#        Eigen3::unsupported # may need to restore it later
@@ -88,9 +89,11 @@ target_link_libraries(KENREF_CORE PUBLIC MPI::MPI_CXX Eigen3::Eigen
 target_link_libraries(KENREF_GMXINTERFACE PUBLIC KENREF_CORE Gromacs::libgromacs)
 target_link_libraries(KEnRef PRIVATE KENREF_CORE KENREF_GMXINTERFACE)
 target_link_libraries(s2calc PRIVATE KENREF_CORE KENREF_GMXINTERFACE)
+target_link_libraries(energycalc PRIVATE KENREF_CORE KENREF_GMXINTERFACE)
 
 install(TARGETS KEnRef DESTINATION bin)
 install(TARGETS s2calc DESTINATION bin)
+install(TARGETS energycalc DESTINATION bin)
 install(TARGETS KENREF_CORE KENREF_GMXINTERFACE DESTINATION lib)
 ###########################################
 ## Add gtest
