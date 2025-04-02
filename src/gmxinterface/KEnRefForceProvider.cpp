@@ -176,8 +176,8 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     fillSubAtomsX(subAtomsX, sub0Id_to_global1Id, forceProviderInput, true);
     restoreNoJump(subAtomsX, *this->lastFrameSubAtomsX_, forceProviderInput.box_, true,
                   gmx_omp_nthreads_get(ModuleMultiThread::Default), (step % 10 == 0));
-    (*this->lastFrameSubAtomsX_)(Eigen::all, Eigen::all) = subAtomsX(Eigen::all, Eigen::all);
-    (*this->lastFrameGuideAtomsX_ZEROIndexed_)(Eigen::all, Eigen::all) = guideAtomsX_ZEROIndexed(Eigen::all, Eigen::all);
+    (*this->lastFrameSubAtomsX_)(Eigen::indexing::all, Eigen::indexing::all) = subAtomsX(Eigen::indexing::all, Eigen::indexing::all);
+    (*this->lastFrameGuideAtomsX_ZEROIndexed_)(Eigen::indexing::all, Eigen::indexing::all) = guideAtomsX_ZEROIndexed(Eigen::indexing::all, Eigen::indexing::all);
 
     if (haveDDAtomOrdering(cr)) {
         //TODO handle Domain Decomposition
@@ -189,11 +189,11 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     //    gmx_barrier(mainRanksComm);
 
 //    subAtomsX= Kabsch_Umeyama<KEnRef_Real_t>::translateCenterOfMassToOrigin(subAtomsX);
-//    std::cout << "subAtomsX B4 transform: \n" << subAtomsX(Eigen::seqN(0, 5, 10), Eigen::all) << std::endl;
+//    std::cout << "subAtomsX B4 transform: \n" << subAtomsX(Eigen::seqN(0, 5, 10), Eigen::indexing::all) << std::endl;
     //N.B. You must restore no jump BEFORE calling find3DAffineTransform(), applyTransform(), or applyInverseOfTransform().
     subAtomsX = Kabsch_Umeyama<KEnRef_Real_t>::applyTransform(affine, subAtomsX);
 //    subAtomsXAfterFitting = subAtomsX;
-//    std::cout << "subAtomsX after transform: \n" << subAtomsX(Eigen::seqN(0, 5, 10), Eigen::all) << std::endl;
+//    std::cout << "subAtomsX after transform: \n" << subAtomsX(Eigen::seqN(0, 5, 10), Eigen::indexing::all) << std::endl;
 
     // Gather allSimulationsSubAtomsX to rank 0 (in allSimulationsSubAtomsX)
     if (isMultiSimulation) {
@@ -649,7 +649,7 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
             new KEnRef_Real_t[this->subAtomsX_->size()]) : this->allDerivatives_buffer_;
 
     fillSubAtomsX(*this->lastFrameSubAtomsX_, *this->sub0Id_to_global1Id_, forceProviderInput, true);
-    (*this->lastFrameGuideAtomsX_ZEROIndexed_)(Eigen::all, Eigen::all) = getGuideAtomsX(*this->guideAtom0Indices_, forceProviderInput, true);
+    (*this->lastFrameGuideAtomsX_ZEROIndexed_)(Eigen::indexing::all, Eigen::indexing::all) = getGuideAtomsX(*this->guideAtom0Indices_, forceProviderInput, true);
 
     auto end = std::chrono::high_resolution_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin);

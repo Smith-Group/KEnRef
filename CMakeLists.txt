@@ -18,7 +18,7 @@ endif ()
 ##change these if needed
 set(SUFFIX_MPI _mpi)
 set(GROMACS_SRC_DIR /home/amr/git/gromacs)
-set(GROMACS_BUILD_DIR /home/amr/git/gromacs/cmake-build-${build_type}/mpi)
+set(GROMACS_BUILD_DIR /home/amr/git/gromacs/cmake-build-${build_type})
 set(GROMACS_INSTALL_DIR /smithlab/opt/gromacs-dev/2023/2023.5/${build_type}/${ACCEL})
 set(GROMACS_DIR ${GROMACS_INSTALL_DIR}/share/cmake/gromacs${SUFFIX_MPI}) #where libgromacs*.cmake are located
 
@@ -31,7 +31,7 @@ if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 endif()
 
 #set(CMAKE_MODULE_PATH /usr/local/gromacs-dev/share/gromacs/template/cmake:$CMAKE_MODULE_PATH)
-set(Eigen3_DIR /smithlab/opt/eigen/3.4.0/share/eigen3/cmake) #:/smithlab/opt/eigen/3.4.0/include/eigen3/unsupported
+set(Eigen3_DIR /smithlab/opt/eigen/3.4.0/share/eigen3/cmake) #set(Eigen3_DIR /smithlab/opt/eigen/3.4.9/share/eigen3/cmake)
 ## comment the next line to make it float. Uncomment to make it double.
 #add_compile_options(-DDOUBLE)
 
@@ -40,8 +40,6 @@ find_package(MPI REQUIRED)
 find_package (Eigen3 3.4 REQUIRED)
 if (Eigen3_FOUND)
 	message("Eigen3 FOUND")
-	message(STATUS "EIGEN3_INCLUDE_DIR is: ${EIGEN3_INCLUDE_DIR}")
-	message(STATUS "EIGEN3_INCLUDE_DIRS is: ${EIGEN3_INCLUDE_DIRS}")
 endif ()
 
 message(STATUS "Searching for Gromacs in ${GROMACS_DIR}")
@@ -74,7 +72,7 @@ include_directories(
         "${GROMACS_SRC_DIR}/src/include"
         "${GROMACS_SRC_DIR}/src/gromacs/math/include"
 )
-include_directories("${EIGEN3_INCLUDE_DIR}")
+#include_directories("${EIGEN3_INCLUDE_DIR}")
 
 #TODO Change the targets into FENREF::CORE and KENREF::GMXINTERFACE (and rearrange sources)
 add_library(KENREF_CORE STATIC ${core_sources})

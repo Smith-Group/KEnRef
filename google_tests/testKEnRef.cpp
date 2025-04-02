@@ -70,7 +70,7 @@ TEST(KEnRefTestSuite, TestRArrayToDArray1) {
     for(int d = 0; d<5; d++)
         for(int xyz = 0; xyz < 3; xyz++)
             arr[idx++] = d + 5*xyz;
-    expected_toy_d_array_grad = temp2.transpose()(Eigen::all, arr);
+    expected_toy_d_array_grad = temp2.transpose()(Eigen::indexing::all, arr);
     std::cout << "expected_toy_d_array_grad" << std::endl << expected_toy_d_array_grad.format(fullPrecisionFmt) << std::endl;
     TestHelper<KEnRef_Real_t>::EXPECT_MATRIX_NEAR(toy_d_array_grad, expected_toy_d_array_grad);
 }

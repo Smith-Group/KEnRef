@@ -466,7 +466,7 @@ IoUtils::extractCoords(const std::vector<int> &atomIndices, bool indicesOneBased
 
     for (int i = 0; i < atomIndices.size(); ++i) {
         int key = atomIndices[i] + delta;
-        coords(i, Eigen::all) = allAtomCoords[key];
+        coords(i, Eigen::indexing::all) = allAtomCoords[key];
     }
     return coords;
 }

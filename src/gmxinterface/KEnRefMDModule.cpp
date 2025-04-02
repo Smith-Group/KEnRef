@@ -33,7 +33,7 @@ KEnRefMDModule::KEnRefMDModule() {
     //Read and save guideAtomsReferenceCoords_
     CoordsMatrixType<KEnRef_Real_t> guideAtomsReferenceCoords = CoordsMatrixType<KEnRef_Real_t>(guideAtoms0Indexed->size(), 3);
     for (int index0 = 0; index0 < guideAtoms0Indexed->size(); ++index0) {
-        guideAtomsReferenceCoords(index0, Eigen::all) = allAtomReferenceCoords[guideAtoms0Indexed->at(index0) + 1];
+        guideAtomsReferenceCoords(index0, Eigen::indexing::all) = allAtomReferenceCoords[guideAtoms0Indexed->at(index0) + 1];
     }
 //    std::cout << "Reference Atoms"<< std::endl << guideAtomsReferenceCoords_ << std::endl;
 //    guideAtomsReferenceCoords *= 10; // Don't multiply. they are already in Angstrom
