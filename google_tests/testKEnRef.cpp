@@ -311,12 +311,9 @@ TEST(KEnRefTestSuite, testRestOfTestsToWrite){
 
 TEST(KEnRefTestSuite, TestS2OrderParameters){
     std::vector<std::string> files {"../../res/google_tests/ensemble_coord_moldel1.csv", "../../res/google_tests/ensemble_coord_moldel2.csv"};
-//    std::vector<std::ifstream> ifStreams{};
-//    ifStreams.emplace_back("../../res/google_tests/ensemble_coord_moldel1.csv");
-//    ifStreams.emplace_back("../../res/google_tests/ensemble_coord_moldel2.csv");
     std::vector<CoordsMatrixType<KEnRef_Real_t>> coordsVector;
     coordsVector.reserve(files.size());
-//    float f;
+
     for (int i = 0; i < files.size(); ++i) {
         auto tempCoordsData = std::get<1>(IoUtils::readTable(files[i], false, ","));
         coordsVector.emplace_back(tempCoordsData.size(), 3);
@@ -325,7 +322,6 @@ TEST(KEnRefTestSuite, TestS2OrderParameters){
                 std::istringstream temp(tempCoordsData[j][k]);
                 temp >> coordsVector[i](j, k);
             }
-//            coordsVector[i].row(j) = Eigen::RowVector3<double>{tempCoordsTable[j][0], tempCoordsTable[j][1], tempCoordsTable[j][2]};
         }
     }
     auto experimentalData_table = IoUtils::readTable(
