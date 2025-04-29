@@ -49,7 +49,6 @@ void fillX(CoordsMatrixType<KEnRef_Real_t> &targetAtomsX, const std::vector<int>
         targetAtomsX *= 10;
 }
 
-template<typename KEnRef_Real>
 class EnergyCalculator {
 
     int numModels=0;
@@ -313,6 +312,6 @@ int main(int argc, char** argv){
             sleep(1);
         }
     }
-    EnergyCalculator<KEnRef_Real_t>().calc();
+    EnergyCalculator().calc();
 }
 

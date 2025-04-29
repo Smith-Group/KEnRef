@@ -64,7 +64,6 @@ void fillX(CoordsMatrixType<KEnRef_Real_t> &targetAtomsX, const std::vector<int>
         targetAtomsX *= 10;
 }
 
-template<typename KEnRef_Real>
 class S2OrderParamsCalculator {
 
     int numModels;
@@ -300,6 +299,6 @@ int main(int argc, char** argv){
             sleep(1);
         }
     }
-    S2OrderParamsCalculator<KEnRef_Real_t>().calc();
+    S2OrderParamsCalculator().calc();
 }
 
