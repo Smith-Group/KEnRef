@@ -603,8 +603,11 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
 
     this->atomName_to_atomSub0Id_map_ = std::make_shared<std::map<std::string, int> >();
     auto &atomName_to_atomSub0Id_map = *this->atomName_to_atomSub0Id_map_;
-    for (const auto &[name, globalId]: atomName_to_atomGlobalId_map)
-        atomName_to_atomSub0Id_map[name] = (*global1Id_to_sub0Id_)[globalId];
+    for (const auto &[name, globalId]: atomName_to_atomGlobalId_map){
+        if (globalId > maxAtomIdOfInterest)
+            continue;
+        atomName_to_atomSub0Id_map[name] = global1Id_to_sub0Id_->at(globalId);
+    }
     this->atomId_pairs_ = KEnRef<KEnRef_Real_t>::atomNamePairs_2_atomIdPairs(*atomName_pairs_,
         atomName_to_atomSub0Id_map);
 

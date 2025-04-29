@@ -73,7 +73,7 @@ public:
         const std::string structure = IoUtils::getEnvParam("ENER_STRUCTURE", "alef+alef");
         const std::string k = IoUtils::getEnvParam("ENER_K", "1e9");
         const std::string max = IoUtils::getEnvParam("ENER_MAX", "800");
-        const int subSet = IoUtils::getEnvParam("ENER_SUBSET_", 80);
+        const std::string subSet = IoUtils::getEnvParam("ENER_SUBSET_", "80");
         const std::string n = IoUtils::getEnvParam("ENER_N", ".25");
         const std::string variant = IoUtils::getEnvParam("ENER_VARIANT", "A");
         const int trial = IoUtils::getEnvParam("ENER_TRIAL", 1);
@@ -81,7 +81,7 @@ public:
 
         const std::string replicatesIn = IoUtils::getEnvParam("ENER_REPLICATES", "repl_01,repl_02");
         std::vector<std::string> replicates = IoUtils::split(replicatesIn, ",");
-        numModels = (int) replicates.size();
+        numModels = static_cast<int>(replicates.size());
 
         std::vector<std::vector<std::vector<int>>>simulated_grouping_list;
         switch (numModels) {
@@ -98,7 +98,7 @@ public:
                 assert(numModels <= 3 && "I don't know how to handle more than 3 simulations yet");
         }
 
-
+        std::cout << "Current path is "<< std::filesystem::current_path()<< std::endl;
         //Guide atom indices
         const std::vector<int> &guideAtom0Indices = GmxKEnRefInitializer::loadGmxIndexGroup(GUIDE_C_ALPHA, INDEX_FILE_LOCATION);
         IoUtils::printVector(guideAtom0Indices);
@@ -166,26 +166,27 @@ public:
             subAtomIdPairs.emplace_back(global0Id_to_sub0Id[atom1], global0Id_to_sub0Id[atom2]);
         }
 
-        std::unordered_map<std::string, std::string> replacements{};
-//                {"dataDir",   dataDir},
-//                {"structure", structure},
-//                {"K",         k},
-//                {"N",         n},
-//                {"max",       max},
-//                {"subSet",    subSet}, //TODO FIXME Avoiding a strange bug
-//                {"variant",   variant},
-//                {"trial",     std::to_string(trial)}
-//        };
-        replacements["dataDir"] = dataDir;
-        replacements["subSet"] = std::to_string(subSet);
-        replacements["structure"] = structure;
-        replacements["K"] = k;
-        replacements["N"] = n;
-        replacements["variant"] = variant;
-        replacements["max"] = max;
-        replacements["trial"] = std::to_string(trial);
+        std::unordered_map<std::string, std::string> replacements{
+                {"dataDir",   dataDir},
+                {"structure", structure},
+                {"K",         k},
+                {"N",         n},
+                {"max",       max},
+                {"subSet",    subSet},
+                {"variant",   variant},
+                {"trial",     std::to_string(trial)}
+        };
         std::string enerOutputPathName = constructFileNamePath(outPathTemplate, enerOutFileTemplate, replacements);
         std::cout << "Energy output file path: " << enerOutputPathName << std::endl;
+        std::filesystem::path file_path(enerOutputPathName);
+        // Create the directories if they do not exist
+        if (!exists(file_path.parent_path())){
+            std::error_code ec;
+            std::filesystem::create_directories(file_path.parent_path(), ec);
+            if (ec) {
+                std::cerr << "Error creating directories: " << ec.message() << std::endl;
+            }
+        }
         std::ofstream enerOutFileStream;
         enerOutFileStream.open(enerOutputPathName);
         if(enerOutFileStream.is_open()){
@@ -258,7 +259,7 @@ public:
                                                                                  false, 1, (fst.step % 10 == 0));
                         }
                         if (fst.step % 10 == 0) {
-                            std::cout << "Step: " << fst.step << " Energy: " << energy << std::endl;
+//                            std::cout << "Step: " << fst.step << " Energy: " << energy << std::endl;
                             enerOutFileStream << "Step: " << fst.step << " Energy: " << energy << std::endl;
                         }
                     }
@@ -276,13 +277,14 @@ public:
                 close_xtc(fst.xd);
             }
             enerOutFileStream.close();
-        } catch (const std::runtime_error& e) {
+        } catch (...) {
             for (auto & fst:fsts) {
                 sfree(fst.x);
                 close_xtc(fst.xd);
             }
+            enerOutFileStream.flush();
             enerOutFileStream.close();
-            throw e;
+            std::rethrow_exception(std::current_exception());
         }
     }
 
