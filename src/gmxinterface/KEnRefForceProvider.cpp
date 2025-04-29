@@ -576,9 +576,9 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
 #endif
         //In the next lines I use .at() instead of [] deliberately; to throw an exception if unexpected name found
         if ((tempI = atomName_to_atomGlobalId_map.at(a1)) > maxAtomIdOfInterest) maxAtomIdOfInterest = tempI;
-        globalAtomIdFlags[tempI] = true;
+        globalAtomIdFlags[tempI] = true; // Here I use [] instead of at(), because I am sure about the boundaries.
         if ((tempI = atomName_to_atomGlobalId_map.at(a2)) > maxAtomIdOfInterest) maxAtomIdOfInterest = tempI;
-        globalAtomIdFlags[tempI] = true;
+        globalAtomIdFlags[tempI] = true; // Here I use [] instead of at(), because I am sure about the boundaries.
     }
 #if VERBOSE
     IoUtils::printVector(globalAtomIdFlags);
@@ -606,7 +606,7 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
     for (const auto &[name, globalId]: atomName_to_atomGlobalId_map)
         atomName_to_atomSub0Id_map[name] = (*global1Id_to_sub0Id_)[globalId];
     this->atomId_pairs_ = KEnRef<KEnRef_Real_t>::atomNamePairs_2_atomIdPairs(*atomName_pairs_,
-                                                                             atomName_to_atomSub0Id_map);
+        atomName_to_atomSub0Id_map);
 
 #if VERBOSE
     for(const auto& [name, subId]: atomName_to_atomSub0Id_map){

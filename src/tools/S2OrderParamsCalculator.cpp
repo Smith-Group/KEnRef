@@ -289,48 +289,12 @@ public:
 //        std::cout << currentModelPathName << std::endl;
 
         for (const auto &pair: replacements) {
-            std::string str = "\\$\\{"+ pair.first + "\\}";
-//            std::string str = ""; //"\\$\\{";
-//            str.append(pair.first);
-            std::regex placeholder(str);
+            std::regex placeholder("\\$\\{"+ pair.first + "\\}");
             currentModelPathName = std::regex_replace(currentModelPathName, placeholder, pair.second);
         }
         return currentModelPathName;
     }
 };
-
-//void testRead() {
-//    const char* fn = "/smithlab/home/aalhossary/temp/res/out_restrained/out_multi_dataalef+alef_structurealef+alef/repl_01/KEnRef_multi_1e8_.25_800_A_1.xtc";
-//    t_fileio* xd;
-//    int       indent;
-//    char      buf[256];
-//    rvec*     x;
-//    matrix    box;
-//    int       nframe, natoms;
-//    int64_t   step;
-//    real      prec, time;
-//    gmx_bool  bOK;
-//
-//    xd = open_xtc(fn, "r");
-//    read_first_xtc(xd, &natoms, &step, &time, box, &x, &prec, &bOK);
-//
-//    nframe = 0;
-//    do {
-//        sprintf(buf, "%s frame %d", fn, nframe);
-//        indent = 0;
-////        indent = pr_title(stdout, indent, buf);
-////        pr_indent(stdout, indent);
-//        fprintf(stdout, "natoms=%10d  step=%10" PRId64 "  time=%12.7e  prec=%10g\n", natoms, step, time, prec);
-//        pr_rvecs(stdout, indent, "box", box, DIM);
-//        pr_rvecs(stdout, indent, "x", x, natoms);
-//        nframe++;
-//    } while (read_next_xtc(xd, natoms, &step, &time, box, x, &prec, &bOK) != 0);
-//    if (!bOK) {
-//        fprintf(stderr, "\nWARNING: Incomplete frame at time %g\n", time);
-//    }
-//    sfree(x);
-//    close_xtc(xd);
-//}
 
 int main(int argc, char** argv){
     MPI_Init(&argc, &argv);
@@ -340,7 +304,6 @@ int main(int argc, char** argv){
             sleep(1);
         }
     }
-//    testRead();
     S2OrderParamsCalculator<KEnRef_Real_t>().calc();
 }
 

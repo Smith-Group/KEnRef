@@ -1,3 +1,4 @@
+#include <filesystem>
 #include <iostream>
 #include <iomanip>
 #include <unistd.h>
@@ -6,7 +7,6 @@
 #include "gromacs/utility/smalloc.h"
 #include "gromacs/math/vecdump.h"
 #include "gromacs/gmxlib/network.h"
-#include "gromacs/mdlib/gmx_omp_nthreads.h"
 #include "core/kabsch.h"
 #include "core/KEnRef.h"
 #include "core/IoUtils.h"
@@ -295,10 +295,7 @@ public:
 //        std::cout << currentModelPathName << std::endl;
 
         for (const auto &pair: replacements) {
-            std::string str = "\\$\\{"+ pair.first + "\\}";
-//            std::string str = ""; //"\\$\\{";
-//            str.append(pair.first);
-            std::regex placeholder(str);
+            std::regex placeholder("\\$\\{"+ pair.first + "\\}");
             currentModelPathName = std::regex_replace(currentModelPathName, placeholder, pair.second);
         }
         return currentModelPathName;

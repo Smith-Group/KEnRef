@@ -1,9 +1,8 @@
-#include <filesystem>
-#include <regex>
-#include <fstream>
-#include <string>
-#include <system_error>
-#include <Eigen/Core>
+//#include <filesystem>
+//#include <regex>
+//#include <fstream>
+//#include <string>
+//#include <Eigen/Core>
 #include "core/IoUtils.h"
 
 template<typename T>
@@ -26,7 +25,7 @@ std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>> IoUt
     std::ifstream instream(fileName);
     if (!instream.is_open()) {
         std::cerr << "Error opening file: " << fileName << std::endl;
-        return {{}, {}};
+        throw std::runtime_error(std::string("Can't open file:").append(fileName));
     }
     return readTable(instream, has_header, delimiter, max_rows);
 }
@@ -421,11 +420,11 @@ std::string IoUtils::getEnvParam(const std::string& paramName, const std::string
     }
     return retValue;
 }
-template<typename KEnRef_Real_t>
-KEnRef_Real_t IoUtils::getEnvParam(const std::string& paramName, KEnRef_Real_t defaultValue){
+template<typename KEnRef_Real>
+KEnRef_Real IoUtils::getEnvParam(const std::string& paramName, KEnRef_Real defaultValue){
     if (const char *pSEnvParam = std::getenv(paramName.c_str())) {
         std::stringstream sstream(pSEnvParam);
-        KEnRef_Real_t retValue;
+        KEnRef_Real retValue;
         sstream >> retValue;
         std::cout << paramName << " is: " << retValue << '\n';
         return retValue;
@@ -454,11 +453,11 @@ std::string IoUtils::padWithZeros(int value, int width) {
     return oss.str();
 }
 
-template<typename KEnRef_Real_t>
-CoordsMatrixType<KEnRef_Real_t>
+template<typename KEnRef_Real>
+CoordsMatrixType<KEnRef_Real>
 IoUtils::extractCoords(const std::vector<int> &atomIndices, bool indicesOneBased,
-                       std::map<int, Eigen::RowVector3<KEnRef_Real_t>> &allAtomCoords, bool mapOneBased) {
-    auto coords = CoordsMatrixType<KEnRef_Real_t>(atomIndices.size(), 3);
+                       std::map<int, Eigen::RowVector3<KEnRef_Real>> &allAtomCoords, bool mapOneBased) {
+    auto coords = CoordsMatrixType<KEnRef_Real>(atomIndices.size(), 3);
     int delta = 0;
     if(indicesOneBased ^ mapOneBased)
         indicesOneBased ? delta-- : delta++;
