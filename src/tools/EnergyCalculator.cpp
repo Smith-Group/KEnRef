@@ -102,6 +102,9 @@ public:
         //Guide atom indices
         const std::vector<int> &guideAtom0Indices = GmxKEnRefInitializer::loadGmxIndexGroup(GUIDE_C_ALPHA, INDEX_FILE_LOCATION);
         IoUtils::printVector(guideAtom0Indices);
+        //Total number of atoms in the system
+        long homenr = GmxKEnRefInitializer::loadGmxIndexGroup("System", INDEX_FILE_LOCATION).size();
+        assert(homenr > 0 && "No group named \"System\" found in index file.");
 
         //Guide atoms X
         //load all reference coordinates (including both guide atoms and reference atoms)
@@ -129,15 +132,15 @@ public:
             temp4 >> g0(i, 1);
         }
         //N.B. globalAtomIdFlags is ZERO based, in contrast to its corresponding KEnRefForceProvider one
-        std::vector<bool> globalAtomIdFlags(experimentalData_tableData.size(), false);
+        std::vector<bool> globalAtomIdFlags(homenr, false);
         {
             int maxAtomIdOfInterest = -1;
             for (const auto &[a1, a2]: atomIdPairs) {
                 //In the next lines I use .at() instead of [] deliberately; to throw an exception if unexpected name found
                 if (a1 > maxAtomIdOfInterest) maxAtomIdOfInterest = a1;
                 if (a2 > maxAtomIdOfInterest) maxAtomIdOfInterest = a2;
-                globalAtomIdFlags[a1] = true;
-                globalAtomIdFlags[a2] = true;
+                globalAtomIdFlags.at(a1) = true;
+                globalAtomIdFlags.at(a2) = true;
             }
             globalAtomIdFlags.resize(maxAtomIdOfInterest + 1);
         }
