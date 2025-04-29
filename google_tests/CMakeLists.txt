@@ -7,7 +7,7 @@ set(FETCHCONTENT_BASE_DIR ${CMAKE_HOME_DIRECTORY}/cmake-build-${build_type}/goog
 FetchContent_Declare(
         google_tests
         # Specify the commit you depend on and update it regularly.
-        URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
+        URL https://github.com/google/googletest/releases/download/v1.16.0/googletest-1.16.0.tar.gz
         DOWNLOAD_DIR lib
         SOURCE_SUBDIR lib
 )
