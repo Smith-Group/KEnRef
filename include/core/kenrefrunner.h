@@ -8,7 +8,7 @@
 #ifndef KENREFRUNNER_H_
 #define KENREFRUNNER_H_
 
-#include "../config/KEnRefConfig.h"
+//#include "../config/KEnRefConfig.h"
 #include <filesystem>
 
 

@@ -9,8 +9,9 @@
 #define KENREFCONFIG_H_
 
 
-/**This is a very bad way of handing multiple configurations. However, it works as a quick and dirty one one the proof of concept now.
- *
+/**This is a very bad way of handing multiple configurations.
+ * However, it works as a quick and dirty one one the proof of concept now.
+ * TODO Later, use CMAke to configure the project
  */
 #define GROMACS_WRAPPER true
 #ifdef TEST

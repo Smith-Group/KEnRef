@@ -15,10 +15,10 @@
 #include <string>
 #include <map>
 #include <functional>
-#include <Eigen/Core>
+//#include <Eigen/Core>
 #include <fstream>
 
-#include "../config/KEnRefConfig.h"
+//#include "../config/KEnRefConfig.h"
 #include "core/KEnRef.h"
 
 class IoUtils final {
