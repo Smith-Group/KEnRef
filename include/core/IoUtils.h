@@ -15,7 +15,6 @@
 #include <string>
 #include <map>
 #include <functional>
-//#include <Eigen/Core>
 #include <fstream>
 
 //#include "../config/KEnRefConfig.h"
@@ -75,7 +74,7 @@ public:
                   std::map<int, Eigen::RowVector3<KEnRef_Real_t>> &allAtomCoords, bool mapOneBased);
     template<typename retMapKey, typename retMapValue>
     static std::map<retMapKey, retMapValue>
-    getAtomMappingFromPdb(const std::string &pdbFilename, std::function<void(std::map<retMapKey, retMapValue> &ret, const std::smatch &sm)> mappingFunc);
+    getAtomMappingFromPdb(const std::string &pdbFilename, const std::function<void(std::map<retMapKey, retMapValue> &ret, const std::smatch &sm)> &mappingFunc);
     static std::string &normalizeName(std::string &atomId, bool lowerNameRanks = true);
 
     static bool isNotPrepared(const std::string &atomName);

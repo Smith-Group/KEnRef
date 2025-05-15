@@ -66,7 +66,7 @@ void fillX(CoordsMatrixType<KEnRef_Real_t> &targetAtomsX, const std::vector<int>
 
 class S2OrderParamsCalculator {
 
-    int numModels;
+    int numModels = 0;
 
 public:
 
@@ -96,13 +96,13 @@ public:
 
         const std::string replicatesIn = IoUtils::getEnvParam("S2_REPLICATES", "repl_01,repl_02");
         std::vector<std::string> replicates = IoUtils::split(replicatesIn, ",");
-        numModels = (int) replicates.size();
+        numModels = static_cast<int>(replicates.size());
 
         //Guide atom indices
         const std::vector<int> &guideAtom0Indices = GmxKEnRefInitializer::loadGmxIndexGroup(GUIDE_C_ALPHA, INDEX_FILE_LOCATION);
         IoUtils::printVector(guideAtom0Indices);
         //Total number of atoms in the system
-        long homenr = GmxKEnRefInitializer::loadGmxIndexGroup("System", INDEX_FILE_LOCATION).size();
+        long homenr = static_cast<long>(GmxKEnRefInitializer::loadGmxIndexGroup("System", INDEX_FILE_LOCATION).size());
         assert(homenr > 0);
 
         //Guide atoms X

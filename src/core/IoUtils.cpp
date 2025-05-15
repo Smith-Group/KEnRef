@@ -87,7 +87,6 @@ std::tuple<std::vector<std::string>, std::vector<std::string>,
 		std::string g1 = sm[1];
 		std::string g2 = sm[2];
 		std:: string val_str = sm[3];
-		int val_int = -1;
 		if(skip_header && ! header_consumed){
 			//TODO use consumed header
 //			std::cout << g1 << '\t' << g2 << '\t' << val_str << std::endl;
@@ -95,7 +94,7 @@ std::tuple<std::vector<std::string>, std::vector<std::string>,
 		}else{
 			g1 = strip_enclosing_quotoes(g1);
 			g2 = strip_enclosing_quotoes(g2);
-			val_int = std::stoi(val_str);
+			int val_int = std::stoi(val_str);
 //			std::cout << g1 << '\t' << g2 << '\t' << val_int << std::endl;
 			temp.emplace_back(g1, g2, val_int);
 		}
@@ -314,7 +313,7 @@ std::regex atomRecordTemplate {"^((ATOM  )|(HETATM))([0-9 ]{5}) (.{15})   ([0-9 
 
 template<typename retMapKey, typename retMapValue>
 std::map<retMapKey, retMapValue>
-IoUtils::getAtomMappingFromPdb(const std::string &pdbFilename, std::function<void(std::map<retMapKey, retMapValue> &ret, const std::smatch &sm)> mappingFunc){
+IoUtils::getAtomMappingFromPdb(const std::string &pdbFilename, const std::function<void(std::map<retMapKey, retMapValue> &ret, const std::smatch &sm)> &mappingFunc){
     std::map<retMapKey, retMapValue> ret = {};
 
     std::ifstream pdbFileStream(pdbFilename);
@@ -384,18 +383,11 @@ std::map<std::string, std::string> IoUtils::readParams(std::istream &paramsFileS
 }
 
 int IoUtils::getEnvParam(const std::string& paramName, int defaultValue){
-    if (const char *pSEnvParam = std::getenv(paramName.c_str())) {
-        int retValue = std::atoi(pSEnvParam);
-        std::cout << paramName << " is: " << retValue << '\n';
-        return retValue;
-    } else {
-        std::cout << "No "<< paramName << " identified. Will use default value of " << defaultValue << std::endl;
-        return defaultValue;
-    }
+	return static_cast<int>(getEnvParam(paramName, static_cast<long>(defaultValue)));
 }
 long IoUtils::getEnvParam(const std::string& paramName, long defaultValue){
     if (const char *pSEnvParam = std::getenv(paramName.c_str())) {
-        long retValue = std::atol(pSEnvParam);
+    	long retValue = std::strtol(pSEnvParam, nullptr, 10);
         std::cout << paramName << " is: " << retValue << '\n';
         return retValue;
     } else {
@@ -472,7 +464,7 @@ IoUtils::extractCoords(const std::vector<int> &atomIndices, bool indicesOneBased
 
 template<typename TYPE>
 void IoUtils::printVector(const std::vector<TYPE>& vec){
-    for (const TYPE &val: vec)
+    for (const auto &val: vec)
         std::cout << val << " ";
     std::cout << std::endl;
 }
@@ -498,8 +490,8 @@ template void IoUtils::printVector(const std::vector<float> &vec);
 template void IoUtils::printVector(const std::vector<double> &vec);
 template void IoUtils::printVector(const std::vector<std::string> &vec);
 
-template std::map<std::string, int> IoUtils::getAtomMappingFromPdb(const std::string& pdbFilename, std::function<void(std::map<std::string, int> &, const std::smatch &)> mappingFunc);
+template std::map<std::string, int> IoUtils::getAtomMappingFromPdb(const std::string& pdbFilename, const std::function<void(std::map<std::string, int> &, const std::smatch &)> &mappingFunc);
 template void IoUtils::fill_atomIndex1_to_coords_Map<float>(std::map<int, Eigen::RowVector3<float>> &ret, const std::smatch &sm);
 template void IoUtils::fill_atomIndex1_to_coords_Map<double>(std::map<int, Eigen::RowVector3<double>> &ret, const std::smatch &sm);
-template std::map<int, Eigen::RowVector3<float>> IoUtils::getAtomMappingFromPdb<int, Eigen::RowVector3<float>>(const std::string& pdbFilename, std::function<void(std::map<int, Eigen::RowVector3<float>> &, const std::smatch &)> mappingFunc);
-template std::map<int, Eigen::RowVector3<double>> IoUtils::getAtomMappingFromPdb<int, Eigen::RowVector3<double>>(const std::string& pdbFilename, std::function<void(std::map<int, Eigen::RowVector3<double>> &, const std::smatch &)> mappingFunc);
+template std::map<int, Eigen::RowVector3<float>> IoUtils::getAtomMappingFromPdb<int, Eigen::RowVector3<float>>(const std::string& pdbFilename, const std::function<void(std::map<int, Eigen::RowVector3<float>> &, const std::smatch &)> &mappingFunc);
+template std::map<int, Eigen::RowVector3<double>> IoUtils::getAtomMappingFromPdb<int, Eigen::RowVector3<double>>(const std::string& pdbFilename, const std::function<void(std::map<int, Eigen::RowVector3<double>> &, const std::smatch &)> &mappingFunc);
