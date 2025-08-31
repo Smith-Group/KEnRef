@@ -17,9 +17,9 @@ endif ()
 #TODO rearrange setting *_DIR variables after reading https://cmake.org/cmake/help/latest/command/find_package.html [then delete this line :)]
 ##change these if needed
 set(SUFFIX_MPI _mpi)
-set(GROMACS_SRC_DIR /home/amr/git/gromacs)
-set(GROMACS_BUILD_DIR /home/amr/git/gromacs/cmake-build-${build_type})
-set(GROMACS_INSTALL_DIR /smithlab/opt/gromacs-dev/2023/2023.5/${build_type}/${ACCEL})
+set(GROMACS_SRC_DIR /home/amr/git/gromacs) # make sure you `git checkout` the right Gromacs branch and tag first.
+set(GROMACS_BUILD_DIR /home/amr/git/gromacs/cmake-build-${build_type}) # build_type is all_small
+set(GROMACS_INSTALL_DIR /smithlab/opt/gromacs-dev/2025/2025.3/${build_type}/${ACCEL})
 set(GROMACS_DIR ${GROMACS_INSTALL_DIR}/share/cmake/gromacs${SUFFIX_MPI}) #where libgromacs*.cmake are located
 
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
