@@ -84,7 +84,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
                              ? this->simulationContext_->multiSimulation_->mainRanksComm_
                              : MPI_COMM_NULL;
     if (!paramsInitialized) {
-        std::string alt_out_path = IoUtils::strip_enclosing_quotoes(IoUtils::getEnvParam("KENREF_ALT_OUT_PATH", std::string("")));
+        std::string alt_out_path = IoUtils::strip_enclosing_quotes(IoUtils::getEnvParam("KENREF_ALT_OUT_PATH", std::string("")));
         if (!alt_out_path.empty()) {
             if (isMultiSimulation) {
                 auto pos = alt_out_path.find(singleStr);
@@ -243,10 +243,10 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         const auto &atomId_pairs = *this->atomId_pairs_;
         //do force calculations
         std::tie(energy, allDerivatives_vector) =
-                KEnRef<KEnRef_Real_t>::coord_array_to_energy(allSimulationsSubAtomsX_vector, atomId_pairs,
-                                                             simulated_grouping_list, g0,
-                                                             this->k_, this->n_, true,
-                                                             gmx_omp_nthreads_get(ModuleMultiThread::Default), (step % 10 == 0));
+                KEnRef<KEnRef_Real_t>::coord_array_to_g_energy(allSimulationsSubAtomsX_vector, atomId_pairs,
+                                                               simulated_grouping_list, g0,
+                                                               this->k_, this->n_, true,
+                                                               gmx_omp_nthreads_get(ModuleMultiThread::Default));
         if (step % 10 == 0)
             std::cout << "Step: " << step << " Energy: " << energy << std::endl;
 #if VERBOSE
@@ -513,7 +513,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
 #endif
     this->experimentalData_table_ = std::make_shared<std::tuple<std::vector<std::string>, std::vector<std::vector<
             std::string> > > >
-            (IoUtils::readTable(KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME, true, "\\s*,\\s*", maxAtomPairsToRead));
+            (IoUtils::readTable_old(KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME, true, "\\s*,\\s*", maxAtomPairsToRead));
     //TODO check number of atom pairs
     GMX_ASSERT(experimentalData_table_ && !(maxAtomPairsToRead && std::get<1>(*experimentalData_table_).empty()),
                "No simulated data found");

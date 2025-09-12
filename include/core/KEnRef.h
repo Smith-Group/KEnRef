@@ -100,37 +100,83 @@ public:
     std::shared_ptr<std::vector<std::tuple<int, int>>>
     atomNamePairs_2_atomIdPairs(const std::vector<std::tuple<std::string, std::string>> &atomName_pairs, std::map<std::string, int> &atomNames_2_atomIds);
 
-    static std::tuple<KEnRef_Real, std::vector<CoordsMatrixType<KEnRef_Real>>>
-	coord_array_to_energy(
-			const std::vector<CoordsMatrixType<KEnRef_Real>>& coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
-			const std::vector<std::tuple<std::string, std::string>>& atomName_pairs, 	// Matrix with each row having the names of an atom pair (related to first dimension in `coord_array` matrices)
-			const std::vector<std::vector<std::vector<int>>>& grouping_list,	// list of lists of integer vectors giving groupings of models to average interaction tensors
-			const Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>& g0, //target group norm squared values
-			std::map<std::string, int> atomNames_2_atomIds,
-            KEnRef_Real k = 1.0, //force constant
-            KEnRef_Real n = 0.25,
-			bool gradient=false, int numOmpThreads = 0
-			);
+    static std::shared_ptr<std::vector<std::tuple<int, int> > >
+    atomNamePairs_2_atomIdPairs(const std::vector<std::tuple<std::string, std::string> > &atomName_pairs,
+                                std::map<std::string, int> &atomNames_2_atomIds, int numOmpThreads = 0);
 
-	static std::tuple<KEnRef_Real, std::vector<CoordsMatrixType<KEnRef_Real>>>
-	coord_array_to_energy(
-            const std::vector<CoordsMatrixType<KEnRef_Real>>& coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
-			const std::vector<std::tuple<int, int>>& atomId_pairs, 	// Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
-			const std::vector<std::vector<std::vector<int>>>& grouping_list,	// list of lists of integer vectors giving groupings of models to average interaction tensors
-			const Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> &g0, //target group norm squared values
-			KEnRef_Real k = 1.0, //force constant
-            KEnRef_Real n = 0.25,
-			bool gradient=false, int numOmpThreads = 0,
-            bool printStatistics = false
-			);
+    //Calculate g value restraint energy from atomic coordinates
+    static std::tuple<KEnRef_Real, std::vector<CoordsMatrixType<KEnRef_Real> > >
+    coord_array_to_g_energy(
+        const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array,
+        //Every vector item is Nx3 Matrix representing atom coordinates of a model.
+        const std::vector<std::tuple<std::string, std::string> > &atomName_pairs,
+        // Matrix with each row having the names of an atom pair (related to first dimension in `coord_array` matrices)
+        const std::vector<std::vector<std::vector<int> > > &grouping_list,
+        // list of lists of integer vectors giving groupings of models to average interaction tensors
+        const Eigen::MatrixX<KEnRef_Real> &g0, //target group norm squared values
+        std::map<std::string, int> atomNames_2_atomIds,
+        KEnRef_Real k = 1.0, //force constant
+        KEnRef_Real n = 0.25,
+        bool gradient = false, int numOmpThreads = 0
+    );
 
-	static Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>
-	coord_array_to_g(
-			const std::vector<CoordsMatrixType<KEnRef_Real>>& coord_array,	//Every vector item is an Nx3 Matrix representing atom coordinates of a model.
-			const std::vector<std::tuple<int, int>>& atomId_pairs, 	// Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
-			const std::vector<std::vector<std::vector<int>>>& grouping_list,	// list of lists of integer vectors giving groupings of models to average interaction tensors
-            int numOmpThreads = 0
-            );
+    //Calculate g value restraint energy from atomic coordinates
+    static std::tuple<KEnRef_Real, std::vector<CoordsMatrixType<KEnRef_Real> > >
+    coord_array_to_g_energy(
+        const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array,
+        //Every vector item is Nx3 Matrix representing atom coordinates of a model.
+        const std::vector<std::tuple<int, int> > &atomId_pairs,
+        // Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
+        const std::vector<std::vector<std::vector<int> > > &grouping_list,
+        // list of lists of integer vectors giving groupings of models to average interaction tensors
+        const Eigen::MatrixX<KEnRef_Real> &g0, //target group norm squared values
+        KEnRef_Real k = 1.0, //force constant
+        KEnRef_Real n = 0.25,
+        bool gradient = false, int numOmpThreads = 0
+    );
+
+    //Calculate g value restraint energy from atomic coordinates
+    static std::tuple<KEnRef_Real, std::vector<CoordsMatrixType<KEnRef_Real> > >
+    coord_array_to_g_energy_refactored(
+        const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array,
+        //Every vector item is Nx3 Matrix representing atom coordinates of a model.
+        const std::vector<std::tuple<std::string, std::string> > &atomName_pairs,
+        // Matrix with each row having the names of an atom pair (related to first dimension in `coord_array` matrices)
+        const std::vector<std::vector<std::vector<int> > > &grouping_list,
+        // list of lists of integer vectors giving groupings of models to average interaction tensors
+        const Eigen::MatrixX<KEnRef_Real> &g0, //target group norm squared values
+        std::map<std::string, int> atomNames_2_atomIds,
+        KEnRef_Real k = 1.0, //force constant
+        KEnRef_Real n = 0.25,
+        bool gradient = false, int numOmpThreads = 0
+    );
+
+    //Calculate g value restraint energy from atomic coordinates
+    static std::tuple<KEnRef_Real, std::vector<CoordsMatrixType<KEnRef_Real> > >
+    coord_array_to_g_energy_refactored(
+        const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array,
+        //Every vector item is Nx3 Matrix representing atom coordinates of a model.
+        const std::vector<std::tuple<int, int> > &atomId_pairs,
+        // Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
+        const std::vector<std::vector<std::vector<int> > > &grouping_list,
+        // list of lists of integer vectors giving groupings of models to average interaction tensors
+        const Eigen::MatrixX<KEnRef_Real> &g0, //target group norm squared values
+        KEnRef_Real k = 1.0, //force constant
+        KEnRef_Real n = 0.25,
+        bool gradient = false, int numOmpThreads = 0
+    );
+
+
+    static Eigen::MatrixX<KEnRef_Real>
+    coord_array_to_g_matrix(
+        const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array,
+        //Every vector item is Nx3 Matrix representing atom coordinates of a model.
+        const std::vector<std::tuple<int, int> > &atomId_pairs,
+        // Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
+        const std::vector<std::vector<std::vector<int> > > &grouping_list,
+        // list of lists of integer vectors giving groupings of models to average interaction tensors
+        int numOmpThreads = 0
+    );
 
 	// Calculate restraint energy from group norm squared values
 	// returns restraint energy calculated using \eqn{k*(g-g0)^2}

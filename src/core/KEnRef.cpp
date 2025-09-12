@@ -372,13 +372,16 @@ KEnRef<KEnRef_Real>::coord_array_to_energy(
 
 template<typename KEnRef_Real>
 std::tuple<KEnRef_Real, std::vector<CoordsMatrixType<KEnRef_Real> > >
-KEnRef<KEnRef_Real>::coord_array_to_energy(
-    const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array, //Every vector item is a Nx3 Matrix representing atom coordinates of a model.
-    const std::vector<std::tuple<int, int> > &atomId_pairs, // Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
-    const std::vector<std::vector<std::vector<int> > > &grouping_list, // list of lists of integer vectors giving groupings of models to average interaction tensors
-    const Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> &g0, KEnRef_Real k, KEnRef_Real n, bool gradient,
-    int numOmpThreads, bool printStatistics) {
-#if VERBOSE
+KEnRef<KEnRef_Real>::coord_array_to_g_energy(
+    const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array,
+    //Every vector item is a Nx3 Matrix representing atom coordinates of a model.
+    const std::vector<std::tuple<int, int> > &atomId_pairs,
+    // Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
+    const std::vector<std::vector<std::vector<int> > > &grouping_list,
+    // list of lists of integer vectors giving groupings of models to average interaction tensors
+    const Eigen::MatrixX<KEnRef_Real> &g0, KEnRef_Real k, KEnRef_Real n, bool gradient,
+    int numOmpThreads) {
+#if true
     Eigen::IOFormat fmt(Eigen::FullPrecision, 0, "\t", "\n", "", "");
     std::cout << "========>\n";
     std::cout << "g0 0\tg0 1\n";

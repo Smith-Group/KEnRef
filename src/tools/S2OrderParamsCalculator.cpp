@@ -114,7 +114,7 @@ public:
         //const auto &guideAtomsReferenceCoordsCentered = Kabsch_Umeyama<KEnRef_Real_t>::translateCenterOfMassToOrigin(
         //        IoUtils::extractCoords(guideAtom0Indices, false, referenceStructureAllAtomCoordsMap, true));
         const auto &guideAtomsReferenceCoords = IoUtils::extractCoords(guideAtom0Indices, false, referenceStructureAllAtomCoordsMap, true);
-        auto experimentalData_table = IoUtils::readTable(experimentalDataFileName, true, ",");
+        auto experimentalData_table = IoUtils::readTable_old(experimentalDataFileName, true, ",");
         std::vector<std::vector<std::string> > experimentalData_tableData = std::get<1>(experimentalData_table);
 
         std::vector<std::tuple<int, int>> atomIdPairs;

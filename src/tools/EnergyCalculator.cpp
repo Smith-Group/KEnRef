@@ -114,7 +114,7 @@ public:
         //const auto &guideAtomsReferenceCoordsCentered = Kabsch_Umeyama<KEnRef_Real_t>::translateCenterOfMassToOrigin(
         //        IoUtils::extractCoords(guideAtom0Indices, false, referenceStructureAllAtomCoordsMap, true));
         const auto &guideAtomsReferenceCoords = IoUtils::extractCoords(guideAtom0Indices, false, referenceStructureAllAtomCoordsMap, true);
-        auto experimentalData_table = IoUtils::readTable(experimentalDataFileName, true, ",");
+        auto experimentalData_table = IoUtils::readTable_old(experimentalDataFileName, true, ",");
         std::vector<std::vector<std::string> > experimentalData_tableData = std::get<1>(experimentalData_table);
 
         std::vector<std::tuple<int, int>> atomIdPairs;
@@ -244,18 +244,18 @@ public:
                         std::vector<CoordsMatrixType<KEnRef_Real_t> > allDerivatives_vector;
                         if constexpr(std::is_same_v<KEnRef_Real_t, float>) {
                             std::tie(energy, allDerivatives_vector) =
-                                    KEnRef<KEnRef_Real_t>::coord_array_to_energy(allSimulationsSubAtomsXVector,
-                                                                                 subAtomIdPairs,
-                                                                                 simulated_grouping_list, g0,
-                                                                                 std::stof(k), std::stof(n),
-                                                                                 false, 1, (fst.step % 10 == 0));
+                                    KEnRef<KEnRef_Real_t>::coord_array_to_g_energy(allSimulationsSubAtomsXVector,
+                                                                                   subAtomIdPairs,
+                                                                                   simulated_grouping_list, g0,
+                                                                                   std::stof(k), std::stof(n),
+                                                                                   false, 1);
                         } else {
                             std::tie(energy, allDerivatives_vector) =
-                                    KEnRef<KEnRef_Real_t>::coord_array_to_energy(allSimulationsSubAtomsXVector,
-                                                                                 subAtomIdPairs,
-                                                                                 simulated_grouping_list, g0,
-                                                                                 std::stod(k), std::stod(n),
-                                                                                 false, 1, (fst.step % 10 == 0));
+                                    KEnRef<KEnRef_Real_t>::coord_array_to_g_energy(allSimulationsSubAtomsXVector,
+                                                                                   subAtomIdPairs,
+                                                                                   simulated_grouping_list, g0,
+                                                                                   std::stod(k), std::stod(n),
+                                                                                   false, 1);
                         }
                         if (fst.step % 10 == 0) {
 //                            std::cout << "Step: " << fst.step << " Energy: " << energy << std::endl;
