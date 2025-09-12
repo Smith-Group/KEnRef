@@ -28,6 +28,17 @@ public:
             }
         }
     }
+
+    static void EXPECT_MATRIX_EQ(const Eigen::Matrix<int, Eigen::Dynamic, Eigen::Dynamic> &leftSide,
+                                   const Eigen::Matrix<int, Eigen::Dynamic, Eigen::Dynamic> &rightSide){
+    EXPECT_EQ(leftSide.rows(), rightSide.rows()) << "Matrix rows do not match.";
+    EXPECT_EQ(leftSide.cols(), rightSide.cols()) << "Matrix columns do not match.";
+    for (auto i = 0; i < leftSide.rows(); i++) {
+        for (int j = 0; j < leftSide.cols(); ++j) {
+            EXPECT_EQ(leftSide(i, j), rightSide(i, j)) << "Matrices differ at (" << i << ", " << j << ")";
+        }
+    }
+    }
 };
 
 template class TestHelper<float>;
