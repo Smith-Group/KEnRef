@@ -26,7 +26,8 @@ KEnRef<KEnRef_Real>::~KEnRef() = default;
 
 template<typename KEnRef_Real>
 std::tuple<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15> >
-KEnRef<KEnRef_Real>::r_array_to_d_array(const CoordsMatrixType<KEnRef_Real> &Nxyz, bool gradient, int numOmpThreads) {
+KEnRef<KEnRef_Real>::r_array_to_d_array(const CoordsMatrixType<KEnRef_Real> &Nxyz, bool gradient, bool addEpsilon,
+                                        int numOmpThreads) {
     //	std::cout << "r_array_to_d_array(Nxyz) called" << std::endl;
     auto N = Nxyz.rows();
 
@@ -58,7 +59,10 @@ KEnRef<KEnRef_Real>::r_array_to_d_array(const CoordsMatrixType<KEnRef_Real> &Nxy
     //CACHE(xyz) 			= CACHE(xy) * z;
     CACHE(x2_y2_z2) = CACHE(x2) + CACHE(y2) + CACHE(z2); //x2 + y2 + z2;
     CACHE(x2_minusy2) = CACHE(x2) - CACHE(y2);
-    CACHE(x2_y2_z2_p52) = CACHE(x2_y2_z2).pow(5).sqrt() + std::numeric_limits<KEnRef_Real>::epsilon();
+    // CACHE(x2_y2_z2_p52) = CACHE(x2_y2_z2).pow(5).sqrt() + std::numeric_limits<KEnRef_Real>::epsilon();
+    CACHE(x2_y2_z2_p52) = CACHE(x2_y2_z2).pow(5).sqrt();
+    if (addEpsilon)
+        CACHE(x2_y2_z2_p52) += std::numeric_limits<KEnRef_Real>::epsilon();
     CACHE(half_minusx2_minusy2__z2) = ((-CACHE(x2) - CACHE(y2)) / 2) + CACHE(z2);
     //    std::cout << "cache" << cache << std:: endl;
 
@@ -73,7 +77,8 @@ KEnRef<KEnRef_Real>::r_array_to_d_array(const CoordsMatrixType<KEnRef_Real> &Nxy
     //	std::cout << "x2_y2_z2 power 5/2" << std::endl << CACHE(x2_y2_z2_p52).rowwise().template replicate<5>() << std::endl;
 
     //	std::cout << "ret1.array()" << ret1.array() << std::endl /*<< "CACHE(x2_y2_z2_p52)" << CACHE(x2_y2_z2_p52)*/ << std::endl << "CACHE(x2_y2_z2_p52).rowwise().replicate<5>()" << std::endl << CACHE(x2_y2_z2_p52).rowwise().replicate<5>() << std::endl;
-    ret1.array() /= CACHE(x2_y2_z2_p52).rowwise().template replicate<5>()/* + std::numeric_limits<KEnRef_Real>::epsilon()*/;
+    ret1.array() /= CACHE(x2_y2_z2_p52).rowwise().template replicate<5>()
+            /* + std::numeric_limits<KEnRef_Real>::epsilon()*/;
 
     //    std:: cout << "ret1 after division" << std::endl << ret1 << std::endl;
     if (!gradient) {
@@ -81,7 +86,9 @@ KEnRef<KEnRef_Real>::r_array_to_d_array(const CoordsMatrixType<KEnRef_Real> &Nxy
     }
     //    std::cout << "CACHE after d ret1 " << cache << std::endl;
 
-    CACHE(x2_y2_z2_p72) = CACHE(x2_y2_z2).pow(7).sqrt() + std::numeric_limits<KEnRef_Real_t>::epsilon();
+    CACHE(x2_y2_z2_p72) = CACHE(x2_y2_z2).pow(7).sqrt();
+    if (addEpsilon)
+        CACHE(x2_y2_z2_p72) += std::numeric_limits<KEnRef_Real_t>::epsilon();
     //	CACHE(sqrt3_x2_y2_z2_p52) = sqrt3 * CACHE(x2_y2_z2_p52);
     //	CACHE(sqrt3_x2_y2_z2_p72) = sqrt3 * CACHE(x2_y2_z2_p72);
     CACHE(sqrt3_over_x2_y2_z2_p52) = sqrt3 / CACHE(x2_y2_z2_p52);
@@ -125,14 +132,14 @@ template<typename KEnRef_Real>
 std::tuple<std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> >, std::vector<Eigen::Matrix<KEnRef_Real,
     Eigen::Dynamic, 15> > >
 KEnRef<KEnRef_Real>::r_array_to_d_array(const std::vector<CoordsMatrixType<KEnRef_Real> > &models_Nxyz, bool gradient,
-                                        int numOmpThreads) {
+                                        bool addEpsilon, int numOmpThreads) {
     //	std::cout << "r_array_to_d_array(models_Nxyz) called" << std::endl;
     std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > ret1;
     std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15> > ret2;
     ret1.reserve(models_Nxyz.size());
     ret2.reserve(models_Nxyz.size());
     for (const auto &Nxyz: models_Nxyz) {
-        auto [arr1, arr2] = r_array_to_d_array(Nxyz, gradient, numOmpThreads);
+        auto [arr1, arr2] = r_array_to_d_array(Nxyz, gradient, addEpsilon, numOmpThreads);
         ret1.emplace_back(arr1);
         ret2.emplace_back(arr2);
     }
@@ -240,69 +247,55 @@ KEnRef<KEnRef_Real>::d_array_to_g(
 // Calculate restraint energy from group norm squared values
 // returns restraint energy (loss function) calculated using \eqn{k*(g-g0)^2} +/- gradient using \eqn{2*k(g-g0)}
 template<typename KEnRef_Real>
-std::tuple<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic,
-    Eigen::Dynamic> >
-KEnRef<KEnRef_Real>::g_to_energy_uncorrected(
-    Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> g, // current group norm squared values
-    Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> g0, // target group norm squared values
-    KEnRef_Real k, // force constant
-    bool gradient, int numOmpThreads) {
-    Eigen::Array<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> g_minus_g0 = g.array() - g0.array();
-    auto ret1 = k * g_minus_g0.square().matrix();
+std::tuple<Eigen::MatrixX<KEnRef_Real>, std::optional<Eigen::MatrixX<KEnRef_Real> > >
+KEnRef<KEnRef_Real>::power_scaled_loss_function(
+Eigen::MatrixX<KEnRef_Real> g, // current group norm squared values
+Eigen::MatrixX<KEnRef_Real> g0, // target group norm squared values.
+KEnRef_Real k, // force constant
+KEnRef_Real n, // correction power.
+const bool gradient,
+int numOmpThreads
+) {
+
+    const auto &g_arr = g.array() /*+ std::numeric_limits<KEnRef_Real_t>::epsilon()*/;
+    const auto &g0_arr = g0.array();
+    //    std::cout << "g_arr " << g_arr << std::endl;
+    Eigen::MatrixX<KEnRef_Real> ret1;
+    Eigen::MatrixX<KEnRef_Real> ret2;
+
+    const auto &common = (Eigen::pow(1 + Eigen::abs(g_arr), n) - 1) * Eigen::sign(g_arr) - (
+             Eigen::pow(1 + Eigen::abs(g0_arr), n) - 1) * Eigen::sign(g0_arr);
+    //          std::cout << "loss " << loss << std::endl;
+    ret1 = k * common.square().matrix();
+    //This value may become infinity if it excceds 3.402823466E38 in a single precision float
     if (gradient) {
-        auto ret2 = 2.0 * k * g_minus_g0.matrix();
-        return {ret1, ret2};
-    } else {
-        return {ret1, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>{}};
+        ret2 = (2.0 * k * common * (n * Eigen::pow(1 + Eigen::abs(g_arr), n - 1))).matrix();
     }
+    return {ret1, ret2};
 }
 
 // Calculate restraint energy from group norm squared values
 // returns restraint energy (loss function) calculated using \eqn{k*(Sign[g]*Abs[g]^n - Sign[g0]*Abs[g0]^n)^2} +/- gradient using \eqn{2*k(g-g0)}
 template<typename KEnRef_Real>
-std::tuple<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic,
-    Eigen::Dynamic> >
-KEnRef<KEnRef_Real>::g_to_energy(
-    Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> g, // current group norm squared values
-    Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> g0, // target group norm squared values. Cached first time, ignored next times.
-    KEnRef_Real k, // force constant
-    KEnRef_Real n, // correction power.
-    bool gradient,
-    int numOmpThreads, lossFunction lossFunc) {
-    //	std::cout << "g   (" << g.rows() << " x " << g.cols() << ")" <<std::endl;
-    //	std::cout << "g0  (" << g0.rows() << " x " << g0.cols() << ")" <<std::endl;
-
-    auto g_arr = g.array() /*+ std::numeric_limits<KEnRef_Real_t>::epsilon()*/;
-    auto g0_arr = g0.array();
+std::tuple<Eigen::MatrixX<KEnRef_Real>, std::optional<Eigen::MatrixX<KEnRef_Real> > >
+KEnRef<KEnRef_Real>::log_abs_diff_over_optimum_loss_function(
+Eigen::MatrixX<KEnRef_Real> g, // current group norm squared values
+Eigen::MatrixX<KEnRef_Real> g0, // target group norm squared values.
+KEnRef_Real k, // force constant
+const bool gradient,
+int numOmpThreads
+) {
+    const auto &g_arr = g.array() /*+ std::numeric_limits<KEnRef_Real_t>::epsilon()*/;
+    const auto &g0_arr = g0.array();
     //    std::cout << "g_arr " << g_arr << std::endl;
-    Eigen::Array<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> common; //TODO better keep it as an ArrayExpression (or simply auto) for better optimization
-    Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> ret1;
-    Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> ret2{}; //TODO don't initialize. use **nullOpt** instead
+    Eigen::MatrixX<KEnRef_Real> ret1;
+    Eigen::MatrixX<KEnRef_Real> ret2;
 
-    switch (lossFunc) {
-        case SQRT_ABS_POWER_N:
-            common = (Eigen::pow(1 + Eigen::abs(g_arr), n) - 1) * Eigen::sign(g_arr) - (
-                         Eigen::pow(1 + Eigen::abs(g0_arr), n) - 1) * Eigen::sign(g0_arr);
-        //          std::cout << "loss " << loss << std::endl;
-            ret1 = k * common.square().matrix(); //This value may become infinity if it excceds 3.402823466E38 in a single precision float
-            if (gradient) {
-                ret2 = (2.0 * k * common * (n * Eigen::pow(1 + Eigen::abs(g_arr), (n - 1)))).matrix();
-            } /* else {
-                ret2 = Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>{};
-            }*/
-            break;
-        case LOG_ABS_DIFFERENCE_OVER_NOE0:
-            common = g0_arr + Eigen::abs(g_arr - g0_arr);
-            ret1 = (k * Eigen::log(common / g0_arr)).matrix();
-            if (gradient) {
-                ret2 = (k * Eigen::sign(g_arr - g0_arr) / common).matrix();
-            } /*else {
-                ret2 = Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>{};
-            }*/
-            break;
+    const auto &common = g0_arr + Eigen::abs(g_arr - g0_arr);
+    ret1 = (k * Eigen::log(common / g0_arr)).matrix();
+    if (gradient) {
+        ret2 = (k * Eigen::sign(g_arr - g0_arr) / common).matrix();
     }
-//        std::cout << "g ret1 " << std::endl << ret1 << std::endl;
-//        std::cout << "g ret2 " << std::endl << ret2 << std::endl;
     return {ret1, ret2};
 }
 
@@ -327,12 +320,21 @@ KEnRef<KEnRef_Real>::coord_array_to_r_array(
     std::vector<CoordsMatrixType<KEnRef_Real> > ret(coord_array.size());
 //#pragma omp parallel for collapse(2) num_threads(numOmpThreads)
     for (int model_no = 0; model_no < coord_array.size(); ++model_no) {
-        ret.at(model_no) = {atomId_pairs.size(), 3};
+        ret.at(model_no) = std::move(coord_array_to_r_array(coord_array[model_no], atomId_pairs, numOmpThreads));
+    }
+    return ret;
+}
+
+template<typename KEnRef_Real>
+CoordsMatrixType<KEnRef_Real>
+KEnRef<KEnRef_Real>::coord_array_to_r_array(
+    const CoordsMatrixType<KEnRef_Real> &coord_array,
+    const std::vector<std::tuple<int, int> > &atomId_pairs, int numOmpThreads) {
+    CoordsMatrixType<KEnRef_Real> ret(atomId_pairs.size(), 3);
 #pragma omp parallel for num_threads(numOmpThreads)
-        for (int i = 0; i < atomId_pairs.size(); ++i) {
-            auto [atom0, atom1] = atomId_pairs.at(i);
-            ret.at(model_no).row(i) = coord_array[model_no].row(atom1) - coord_array[model_no].row(atom0);
-        }
+    for (int i = 0; i < atomId_pairs.size(); ++i) {
+        auto [atom0, atom1] = atomId_pairs.at(i);
+        ret.row(i) = coord_array.row(atom1) - coord_array.row(atom0);
     }
     return ret;
 }
@@ -358,16 +360,20 @@ KEnRef<KEnRef_Real>::atomNamePairs_2_atomIdPairs(
 
 template<typename KEnRef_Real>
 std::tuple<KEnRef_Real, std::vector<CoordsMatrixType<KEnRef_Real> > >
-KEnRef<KEnRef_Real>::coord_array_to_energy(
-    const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array, //Every vector item is a Nx3 Matrix representing atom coordinates of a model.
-    const std::vector<std::tuple<std::string, std::string> > &atomName_pairs, // Matrix with each row having the names of an atom pair (related to first dimension in `coord_array` matrices)
-    const std::vector<std::vector<std::vector<int> > > &grouping_list, // list of lists of integer vectors giving groupings of models to average interaction tensors
-    const Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> &g0,
+KEnRef<KEnRef_Real>::coord_array_to_g_energy(
+    const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array,
+    //Every vector item is a Nx3 Matrix representing atom coordinates of a model.
+    const std::vector<std::tuple<std::string, std::string> > &atomName_pairs,
+    // Matrix with each row having the names of an atom pair (related to first dimension in `coord_array` matrices)
+    const std::vector<std::vector<std::vector<int> > > &grouping_list,
+    // list of lists of integer vectors giving groupings of models to average interaction tensors
+    const Eigen::MatrixX<KEnRef_Real> &g0,
     std::map<std::string, int> atomNames_2_atomIds,
-    KEnRef_Real k, KEnRef_Real n, bool gradient, int numOmpThreads) {
+    KEnRef_Real k, KEnRef_Real n, const bool gradient, const int numOmpThreads) {
     //	std::cout << "coord_array_to_energy(atomName_pairs_) called" << std::endl;
     const auto &atomId_pairs = atomNamePairs_2_atomIdPairs(atomName_pairs, atomNames_2_atomIds);
-    return KEnRef::coord_array_to_energy(coord_array, *atomId_pairs, grouping_list, g0, k, n, gradient, numOmpThreads);
+    return KEnRef::coord_array_to_g_energy(coord_array, *atomId_pairs, grouping_list, g0, k, n, gradient,
+                                           numOmpThreads);
 }
 
 template<typename KEnRef_Real>
@@ -522,18 +528,21 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy(
 
 
 template<typename KEnRef_Real>
-Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>
-KEnRef<KEnRef_Real>::coord_array_to_g(
-    const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array, //Every vector item is a Nx3 Matrix representing atom coordinates of a model.
-    const std::vector<std::tuple<int, int> > &atomId_pairs, // Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
-    const std::vector<std::vector<std::vector<int> > > &grouping_list, // list of lists of integer vectors giving groupings of models to average interaction tensors
+Eigen::MatrixX<KEnRef_Real>
+KEnRef<KEnRef_Real>::coord_array_to_g_matrix(
+    const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array,
+    //Every vector item is a Nx3 Matrix representing atom coordinates of a model.
+    const std::vector<std::tuple<int, int> > &atomId_pairs,
+    // Matrix with each row having the indices of an atom pair (first dimension in `coord_array` matrices)
+    const std::vector<std::vector<std::vector<int> > > &grouping_list,
+    // list of lists of integer vectors giving groupings of models to average interaction tensors
     int numOmpThreads) {
-    //	std::cout << "coord_array_to_g() called" << std::endl;
+    //	std::cout << "coord_array_to_g_matrix() called" << std::endl;
     // calculate internuclear vectors
     const auto &r_arrays = coord_array_to_r_array(coord_array, atomId_pairs, numOmpThreads);
 
     // calculate dipole-dipole interaction tensors [and their derivatives]
-    auto [d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, numOmpThreads);
+    auto [d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, false, false, numOmpThreads);
 
     // calculate norm squared for different groupings of dipole-dipole interaction tensors
     //		g_list <- lapply(grouping_list, function(grouping) d_array_to_g(d_array, grouping, gradient=FALSE))
@@ -613,8 +622,8 @@ KEnRef<KEnRef_Real>::s2OrderParams(
     // group_d_array <- ke::r_array_to_d_array(group_r_array)
     // group_dnorm_array_alt <- group_d_array/as.vector(sqrt(rowSums(group_d_array^2, dims=2)))
     // group_s2_alt <- rowSums(colMeans(aperm(group_dnorm_array_alt, c(2,1,3)))^2)
-    std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>> group_d_array =
-            std::get<0>(KEnRef<KEnRef_Real>::r_array_to_d_array(group_r_array, false, numOmpThreads));
+    std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > group_d_array =
+            std::get<0>(r_array_to_d_array(group_r_array, false, false, numOmpThreads));
 
     std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>> group_dnorm_array_alt;
     group_dnorm_array_alt.reserve(numModels);

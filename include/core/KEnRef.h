@@ -39,7 +39,12 @@ public:
 //	KEnRef& operator=(const KEnRef &other);
 //	KEnRef& operator=(KEnRef &&other);
 
-    enum lossFunction{SQRT_ABS_POWER_N, LOG_ABS_DIFFERENCE_OVER_NOE0};
+    enum lossFunction{POWER_SCALED_LOSS_FUNCTION, LOG_ABS_DIFFERENCE_OVER_OPTIMUM_LOSS_FUNCTION};
+    inline static const std::string KC = "kc";
+
+    static std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> >
+    array_shift(const std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > &arrays_to_shift, uint nShift,
+                int numOmpThreads = 0);
 
     //First element of the returned tuple is (numPairs, <d_1,d_2,d_3,d_4,d_5,>)
     //Second element of the returned tuple is (numPairs, <  x1d1,x2d1,x3d1,
@@ -47,15 +52,15 @@ public:
     //                                                      x1d3,x2d3,x3d3,
     //                                                      x1d4,x2d4,x3d4,
     //                                                      x1d5,x2d5,x3d5>)
-	static std::tuple<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15>>
-	r_array_to_d_array(const CoordsMatrixType<KEnRef_Real> &Nxyz, bool gradient=false, int numOmpThreads = 0);
+	static std::tuple<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15> >
+	r_array_to_d_array(const CoordsMatrixType<KEnRef_Real> &Nxyz, bool gradient = false, bool addEpsilon = false, int numOmpThreads = 0);
 
-	//return tuple where item0 is dipole-dipole interaction tensors (model<pairs, 5_tensor_elements>)
-	//item1 is derivatives (It is a vector of 2D Matrix (models<pairId, (5_tensor_elements * XYZ)>).
-	static std::tuple<std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>>, std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15>>>
-	r_array_to_d_array(
-			const std::vector<CoordsMatrixType<KEnRef_Real>>& models_Nxyz,	//model<pairID, XYZ>
-			bool gradient=false, int numOmpThreads = 0
+    //return tuple where item0 is dipole-dipole interaction tensors (model<pairs, 5_tensor_elements>)
+    //item1 is derivatives (It is a vector of 2D Matrix (models<pairId, (5_tensor_elements * XYZ)>).
+    static std::tuple<std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> >, std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15> > >
+    r_array_to_d_array(
+        const std::vector<CoordsMatrixType<KEnRef_Real> > &models_Nxyz, //model<pairID, XYZ>
+        bool gradient = false, bool addEpsilon = false, int numOmpThreads = 0
 			);
 
 
@@ -189,23 +194,20 @@ public:
             int numOmpThreads = 0
             );
 
-    // Calculate restraint energy from group norm squared values
-    // returns restraint energy calculated using \eqn{k*(g^n -g0^n)^2}
-    static std::tuple<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>>
-    g_to_energy(
-            Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> g_list,	// current group norm squared values
-            Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> g0,	// target group norm squared values
-            KEnRef_Real k = 1.0,	// force constant
-            KEnRef_Real n = 0.25,    // correction power
-            bool gradient = false  // whether to calculate the derivative
-            ,
-            int numOmpThreads = 0, lossFunction lossFunc = KEnRef::SQRT_ABS_POWER_N
+    static std::tuple<Eigen::MatrixX<KEnRef_Real>, std::optional<Eigen::MatrixX<KEnRef_Real> > >
+    log_abs_diff_over_optimum_loss_function(
+    Eigen::MatrixX<KEnRef_Real> g, // current group norm squared values
+    Eigen::MatrixX<KEnRef_Real> g0, // target group norm squared values.
+    KEnRef_Real k = 1.0, // force constant
+    bool gradient = false,
+    int numOmpThreads = 0
     );
-	//Collects list/vector of norm squared of all groups in a single matrix (num_pairIds, num_models (or num of grouping vectors?))
-	static Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic>
-	vectorOfVectors_to_Matrix(std::vector<Eigen::VectorX<KEnRef_Real>> g_vect/*, int numOmpThreads = 0*/);
-    static void saturate(CoordsMatrixType<KEnRef_Real> &derivatives_rectified, KEnRef_Real thresholdSquared,
-                         int numOmpThreads = 0);
+
+    //Collects list/vector of norm squared of all groups in a single matrix (num_pairIds, num_models (or num of grouping vectors?))
+    static Eigen::MatrixX<KEnRef_Real>
+    vectorOfVectors_to_Matrix(std::vector<Eigen::VectorX<KEnRef_Real> > g_vect, int numOmpThreads = 0);
+
+    static void saturate(CoordsMatrixType<KEnRef_Real> &derivatives_rectified, KEnRef_Real thresholdSquared, int numOmpThreads = 0);
 
     static Eigen::VectorX<KEnRef_Real>
     s2OrderParams(

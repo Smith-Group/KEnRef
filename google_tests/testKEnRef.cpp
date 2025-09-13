@@ -32,7 +32,7 @@ TEST(KEnRefTestSuite, TestRArrayToDArray1) {
     std::cout << "toy_r_mat" << std::endl << toy_r_mat.format(fullPrecisionFmt) << std::endl;
     EXPECT_EQ(toy_r_mat, expected_toy_r_mat);
 
-    const auto& [toy_d_array, toy_d_array_grad] = KEnRef<KEnRef_Real_t>::r_array_to_d_array(toy_r_mat, true);
+    const auto &[toy_d_array, toy_d_array_grad] = KEnRef<KEnRef_Real_t>::r_array_to_d_array(toy_r_mat, true);
     Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, 5> expected_toy_d_array(4, 5);
     Eigen::Matrix<KEnRef_Real_t, 5, Eigen::Dynamic> temp(5, 4);
     temp <<
@@ -90,7 +90,7 @@ TEST(KEnRefTestSuite, testDArrayToG){
             -0.777942778404335, 0.431548372230798, -0.431548372230798, 0.777942778404335;
     toy_d_array = temp.transpose();
 
-//    auto [toy_d_array, toy_d_array_grad] = KEnRef<KEnRef_Real_t>::r_array_to_d_array(toy_r_mat, true);
+    //    auto [toy_d_array, toy_d_array_grad] = KEnRef<KEnRef_Real_t>::r_array_to_d_array(toy_r_mat, true);
 
     std::vector<Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, 5>> toy_d_array_vec;
     toy_d_array_vec.reserve((toy_d_array.rows()));
@@ -255,7 +255,8 @@ TEST(KEnRefTestSuite, testRestOfTestsToWrite){
         const auto &r_array = eros3_sub_r_array[i];
         std::cout << "Model " << i+1 << std::endl << r_array << std::endl;
     }
-    auto [eros3_sub_d_array, eros3_sub_d_array_grad] = KEnRef<KEnRef_Real_t>::r_array_to_d_array(eros3_sub_r_array, true);
+    auto [eros3_sub_d_array, eros3_sub_d_array_grad] = KEnRef<KEnRef_Real_t>::r_array_to_d_array(
+        eros3_sub_r_array, true);
     std::cout << "eros3_sub_d_array" << std::endl;
     for(int i = 0; i < eros3_sub_d_array.size(); i++){
         auto matrix = eros3_sub_d_array[i];
