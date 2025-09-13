@@ -18,7 +18,7 @@ TEST(KEnRefForceProviderTestSuite, TestRestoreNoJump){
     coordsVector.reserve(files.size());
 //    float f;
     for (int i = 0; i < files.size(); ++i) {
-        auto tempCoordsData = std::get<1>(IoUtils::readTable(files[i], false, ","));
+        auto tempCoordsData = std::get<1>(IoUtils::readTable_old(files[i], false, ","));
         coordsVector.emplace_back(tempCoordsData.size(), 3);
         for (int j = 0; j < tempCoordsData.size(); ++j) {
             for (int k = 0; k < 3; ++k) {
