@@ -18,6 +18,7 @@
 #include "gromacs/domdec/domdec_struct.h"
 #include "gromacs/domdec/ga2la.h"
 #include "gromacs/mdlib/gmx_omp_nthreads.h"
+#include "gromacs/mdtypes/forceoutput.h"
 #include "core/KEnRef.h"
 #include "core/kabsch.h"
 #include "gmxinterface/KEnRefForceProvider.h"

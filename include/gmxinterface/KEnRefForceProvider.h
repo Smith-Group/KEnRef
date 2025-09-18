@@ -10,14 +10,14 @@
 #include <map>
 #include <memory>
 #include <gromacs/mdtypes/iforceprovider.h>
-#include <gromacs/mdtypes/forceoutput.h>
 #include <gromacs/mdrun/simulationcontext.h>
 #include <gromacs/selection/selection.h>
 #include <chrono>
 #include "core/KEnRef.h"
 
 
-class KEnRefForceProvider : public gmx::IForceProvider {
+class KEnRefForceProvider final : public gmx::IForceProvider {
+
 	//	gmx::Selection* selection = nullptr;
 	//	std::string selectionString = "resid 16 to 20 and pdbname CB"; // "distance from [3., 3., 3.] < 5.0";//"atomnr 6";
 	//	bool *selectionMask = nullptr;

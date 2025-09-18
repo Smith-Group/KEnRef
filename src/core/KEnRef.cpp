@@ -72,6 +72,7 @@ KEnRef<KEnRef_Real>::array_shift(const std::vector<Eigen::Matrix<KEnRef_Real, Ei
                 // std::cout << "from arrays_to_shift["<<modelNo<<"]("<<(interactionId + interactionComponent * numInteractions)<<", Eigen::all)" << std::endl;
                 ret[modelNo * nShift + interactionComponent](interactionId, Eigen::all) =
                         arrays_to_shift[modelNo](interactionId + interactionComponent * numInteractions, Eigen::all);
+                //TODO is there a way other than copying with "="?
             }
         }
     }
@@ -460,7 +461,7 @@ template<typename KEnRef_Real>
 std::shared_ptr<std::vector<std::tuple<int, int> > >
 KEnRef<KEnRef_Real>::atomNamePairs_2_atomIdPairs(
     const std::vector<std::tuple<std::string, std::string> > &atomName_pairs,
-    std::map<std::string, int> &atomNames_2_atomIds, int numOmpThreads) {
+    const std::map<std::string, int> &atomNames_2_atomIds, int numOmpThreads) {
     auto atomId_pairs = std::make_shared<std::vector<std::tuple<int, int> > >(atomName_pairs.size());
     // Fill the vector using atomNames_2_atomIds
 #pragma omp parallel for num_threads(numOmpThreads)
@@ -482,7 +483,7 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy(
     const std::vector<std::vector<std::vector<int> > > &grouping_list,
     // list of lists of integer vectors giving groupings of models to average interaction tensors
     const Eigen::MatrixX<KEnRef_Real> &g0,
-    std::map<std::string, int> atomNames_2_atomIds,
+    const std::map<std::string, int> &atomNames_2_atomIds,
     KEnRef_Real k, KEnRef_Real n, const bool gradient, const int numOmpThreads) {
     //	std::cout << "coord_array_to_energy(atomName_pairs_) called" << std::endl;
     const auto &atomId_pairs = atomNamePairs_2_atomIdPairs(atomName_pairs, atomNames_2_atomIds);
