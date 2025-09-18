@@ -116,6 +116,8 @@ public:
 
     static bool isNotPrepared(const std::string &atomName);
 
+    static bool should_handleNames(const std::map<std::string, int> &atomNameMapping);
+
     inline const static auto HB2_MET = std::regex("HB2.MET");
     inline const static auto HB3_MET = std::regex("HB3.MET");
     inline const static auto HG2_MET = std::regex("HG2.MET");

@@ -294,20 +294,6 @@ std::vector<SpecDenData<KEnRef_Real>> getSpecDenData(const bool handleNames) {
 }
 
 template <typename KEnRef_Real>
-bool should_handleNames(const std::map<std::string, int> &atomNameMapping_to1) {
-    bool handleNames = false;
-    for (const auto &[atomName, id1]: atomNameMapping_to1) {
-        if (IoUtils::isNotPrepared(atomName)) {
-            std::cerr << "WARNING: It seems that your data is from an unprepared file. "
-                    "We will try to handle it, but we can not guarantee the results." << std::endl;
-            handleNames = true;
-            break;
-        }
-    }
-    return handleNames;
-}
-
-template <typename KEnRef_Real>
 std::map<std::string, int> get_atomNameMapping(const std::map<std::string, int>& atomNameMapping_to1, bool handleNames) {
     std::map<std::string, int> atomNameMapping = {};
     int maxId0 = -1;
@@ -333,8 +319,7 @@ std::vector<CoordsMatrixType<KEnRef_Real>> getAllModels_allAtomCoordsMatrix(cons
         FILENAME, IoUtils::fill_atomIndex1_to_coords_Map<double>);
 
     // allAtomCoordsMap_raw_vector.resize(numModels); //replaced with [first, last]
-
-    const bool handleNames = should_handleNames<KEnRef_Real>(atomNameMapping_to1);
+    // const bool handleNames = IoUtils::should_handleNames(atomNameMapping_to1);
 
     int maxId0 = -1;
     for (const auto &[atomName, id1]: atomNameMapping_to1) {
@@ -743,7 +728,7 @@ TEST(KEnRefTestSuite, testGB3) {
 
     const auto& dipole_kinetic_data = getSpecDenData<double>(true); //handleNames);
 
-    bool handleNames = should_handleNames<double>(atomNameMapping_to1);
+    bool handleNames = IoUtils::should_handleNames(atomNameMapping_to1);
     const auto & atomNameMapping = get_atomNameMapping<double>(atomNameMapping_to1, handleNames);
     int maxId0 = -1;
     for (const auto &[atomName, id1]: atomNameMapping_to1) {
@@ -844,7 +829,7 @@ TEST(KEnRefTestSuite, testCoordArrayToSigmaEnergy) {
     static const auto FILENAME = "../../res/google_tests/2lum.pdb";
 
     const std::map<std::string, int> atomNameMapping_to1 = IoUtils::getAtomMappingFromPdb<std::string, int>( FILENAME, IoUtils::fill_atomId_to_index_Map);
-    const bool handleNames = should_handleNames<double>(atomNameMapping_to1);
+    const bool handleNames = IoUtils::should_handleNames(atomNameMapping_to1);
     const std::map<std::string, int>& atomNameMapping = get_atomNameMapping<double>(atomNameMapping_to1, handleNames);
 
     auto spec_den_data_list = getSpecDenData<double>(handleNames);

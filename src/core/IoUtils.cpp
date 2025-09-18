@@ -308,6 +308,16 @@ bool IoUtils::isNotPrepared(const std::string &atomName) {
     return std::regex_search(atomName, IoUtils::UNPREPARED_NAMES_MASK);
 }
 
+bool IoUtils::should_handleNames(const std::map<std::string, int> &atomNameMapping) {
+    for (const auto &[atomName, id]: atomNameMapping)
+        if (isNotPrepared(atomName)) {
+            std::cerr << "WARNING: It seems that your data is from an unprepared file. "
+                    "We will try to handle it, but we can not guarantee the results." << std::endl;
+            return true;
+        }
+    return false;
+}
+
 /**
  * IMPORTANT: Notice that we assume for this function to lower name ranks correctly that the function is called
  * sequentially with atom names in lexical order (e.g. "HB2 MET" is called before "HB3 MET" and not vise versa).
