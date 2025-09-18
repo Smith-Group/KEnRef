@@ -872,34 +872,32 @@ KEnRef<KEnRef_Real>::coord_array_to_sigma_energy(
     const std::vector<SpecDenData<KEnRef_Real> > &spec_den_data_list,
     KEnRef_Real proton_mhz,
     KEnRef_Real k, KEnRef_Real n,
-    std::map<std::string, int> atomNames_2_atomIds, bool gradient, int numOmpThreads /*, lossFunction lossFunc*/) {
+    const std::map<std::string, int>& atomNames_2_atomIds, bool gradient, int numOmpThreads /*, lossFunction lossFunc*/) {
 
     if (!rates.hasColNames()) {
         throw std::runtime_error("rates has no column names");
     }
 
-    std::vector<std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15> > > d_arrays_grad_list(spec_den_data_list.size());
-    std::vector<std::vector<std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > > > g_matrix_grad_list(spec_den_data_list.size());
-
-    std::vector<NamedVector<KEnRef_Real>> sigma_vector_list(spec_den_data_list.size());
+    auto specDenDataSize = spec_den_data_list.size();
+    std::vector<std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15> > > d_arrays_grad_list(specDenDataSize);
+    std::vector<std::vector<std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > > > g_matrix_grad_list(specDenDataSize);
+    std::vector<NamedVector<KEnRef_Real>> sigma_vector_list(specDenDataSize);
     std::vector<Eigen::MatrixX<KEnRef_Real> > sigma_grad_vector_list;
     if (gradient) {
-        sigma_grad_vector_list = std::vector<Eigen::MatrixX<KEnRef_Real> >(spec_den_data_list.size());
+        sigma_grad_vector_list = std::vector<Eigen::MatrixX<KEnRef_Real> >(specDenDataSize);
     }
-
     const int numModels = coord_array.size();
 
-    for (int i = 0; i < spec_den_data_list.size(); ++i) {
-
+    for (int i = 0; i < specDenDataSize; ++i) {
         std::vector<CoordsMatrixType<KEnRef_Real> > coord_array_meter(numModels);
         for (int m = 0; m < numModels; ++m)
             coord_array_meter[m] = coord_array[m] * 1e-10;
 
         auto &currentSpecDenData = spec_den_data_list[i];
+        std::shared_ptr<std::vector<std::tuple<int, int>>> atom_id_pairs = atomNamePairs_2_atomIdPairs(currentSpecDenData.get_atom_pairs(), atomNames_2_atomIds);
         // calculate inter nuclear vectors
         const auto &r_arrays =
-            coord_array_to_r_array(coord_array_meter,
-                *atomNamePairs_2_atomIdPairs(currentSpecDenData.get_atom_pairs(), atomNames_2_atomIds), numOmpThreads);
+            coord_array_to_r_array(coord_array_meter, *atom_id_pairs, numOmpThreads);
 
         // calculate dipole-dipole interaction tensors [and their derivatives]
         auto &&[d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, gradient, false, numOmpThreads);
@@ -952,8 +950,8 @@ KEnRef<KEnRef_Real>::coord_array_to_sigma_energy(
         totalNumSigmas += sigma_vector_list.at(i).size();
     Eigen::MatrixX<KEnRef_Real> sigma(totalNumSigmas, 1);
 
-    std::vector<int> indexes(spec_den_data_list.size());
-    for (int i = 0, index = 0; i < spec_den_data_list.size(); ++i) {
+    std::vector<int> indexes(specDenDataSize);
+    for (int i = 0, index = 0; i < specDenDataSize; ++i) {
         indexes.at(i) = index;
         const auto &sigmas = spec_den_data_list.at(i).sigmas();
         sigma(Eigen::seqN(index, sigmas.rows()), Eigen::all) = sigma_vector_list[i];
@@ -962,7 +960,7 @@ KEnRef<KEnRef_Real>::coord_array_to_sigma_energy(
 
     //unlist spec_den_data_list sigmas
     int totalSigma0Values=0;
-    for (int i = 0; i < spec_den_data_list.size(); ++i) {
+    for (int i = 0; i < specDenDataSize; ++i) {
         const auto &specDenData = spec_den_data_list.at(i);
         const auto& sigmas = specDenData.sigmas();
 
@@ -979,7 +977,7 @@ KEnRef<KEnRef_Real>::coord_array_to_sigma_energy(
     assert(totalNumSigmas == totalSigma0Values);
 
     Eigen::MatrixX<KEnRef_Real> sigma0(totalSigma0Values, 1);
-    for (int i = 0, index = 0; i < spec_den_data_list.size(); ++i) {
+    for (int i = 0, index = 0; i < specDenDataSize; ++i) {
         const auto &sigma0s = spec_den_data_list.at(i).sigmas();
         sigma0(Eigen::seqN(index, sigma0s.rows()), Eigen::all) = sigma0s;
         index += sigma0s.rows();
@@ -995,7 +993,7 @@ KEnRef<KEnRef_Real>::coord_array_to_sigma_energy(
             d_energy_d_coord_array->at(i) = std::move(CoordsMatrixType<KEnRef_Real>::Zero(coord_array[0 /*i*/].rows(), 3));
         }
 
-        for (int i = 0 ; i < spec_den_data_list.size(); ++i) {
+        for (int i = 0 ; i < specDenDataSize; ++i) {
             const auto &currentSpecDenData = spec_den_data_list[i];
 
             // extract particular segment of energy gradient
@@ -1032,8 +1030,12 @@ KEnRef<KEnRef_Real>::coord_array_to_sigma_energy(
             //     std::cout << d_energy_d_r_array.at(j) << std::endl;
             // }
 
+            //TODO Cache the use the first call to this function and use it directly.
+            std::shared_ptr<std::vector<std::tuple<int, int>>> atom_id_pairs = atomNamePairs_2_atomIdPairs(currentSpecDenData.get_atom_pairs(), atomNames_2_atomIds);
             // accumulate back-propagated derivatives from r array into coord array gradient
-            const auto & gradients = coord_array_to_r_array_backprop(coord_array, *atomNamePairs_2_atomIdPairs(currentSpecDenData.get_atom_pairs(), atomNames_2_atomIds), d_energy_d_r_array,0);
+            const auto & gradients =
+                coord_array_to_r_array_backprop(
+                    coord_array, *atom_id_pairs, d_energy_d_r_array,0);
             for (int j = 0; j < numModels; ++j)
                 d_energy_d_coord_array->at(j) += gradients.at(j);
         }

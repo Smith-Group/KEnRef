@@ -189,7 +189,7 @@ public:
 
     static std::shared_ptr<std::vector<std::tuple<int, int> > >
     atomNamePairs_2_atomIdPairs(const std::vector<std::tuple<std::string, std::string> > &atomName_pairs,
-                                std::map<std::string, int> &atomNames_2_atomIds, int numOmpThreads = 0);
+                                const std::map<std::string, int> &atomNames_2_atomIds, int numOmpThreads = 0);
 
     //Calculate g value restraint energy from atomic coordinates
     static std::tuple<KEnRef_Real, std::vector<CoordsMatrixType<KEnRef_Real> > >
@@ -201,7 +201,7 @@ public:
         const std::vector<std::vector<std::vector<int> > > &grouping_list,
         // list of lists of integer vectors giving groupings of models to average interaction tensors
         const Eigen::MatrixX<KEnRef_Real> &g0, //target group norm squared values
-        std::map<std::string, int> atomNames_2_atomIds,
+        const std::map<std::string, int> &atomNames_2_atomIds,
         KEnRef_Real k = 1.0, //force constant
         KEnRef_Real n = 0.25,
         bool gradient = false, int numOmpThreads = 0
@@ -332,7 +332,7 @@ public:
         const std::vector<SpecDenData<KEnRef_Real> > &spec_den_data_list,
         KEnRef_Real proton_mhz,
         KEnRef_Real k,
-        KEnRef_Real n, std::map<std::string, int> atomNames_2_atomIds, bool gradient, int numOmpThreads = 0 /*,
+        KEnRef_Real n, const std::map<std::string, int> &atomNames_2_atomIds, bool gradient, int numOmpThreads = 0 /*,
         lossFunction lossFunc = POWER_SCALED_LOSS_FUNCTION*/);
 
     /**Calculate sigma from a matrix of a values

@@ -51,10 +51,8 @@ public:
     [[nodiscard]] size_t getColIndex(const std::string& name) const;
 
     // Data modification
-    void addRow(const std::vector<std::string>& row,
-                const std::optional<std::string>& rowName = std::nullopt);
-    void addColumn(const std::vector<std::string>& col,
-                   const std::optional<std::string>& colName = std::nullopt);
+    void addRow(const std::vector<std::string>& row, const std::optional<std::string>& rowName = std::nullopt);
+    void addColumn(const std::vector<std::string>& col, const std::optional<std::string>& colName = std::nullopt);
 
 
 

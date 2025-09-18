@@ -25,8 +25,7 @@ struct t_file_state{
 
 Eigen::IOFormat insideCsvLineFormat(Eigen::StreamPrecision, Eigen::DontAlignCols, ", ", "", "", "", "", "");
 
-void fillX(CoordsMatrixType<KEnRef_Real_t> &targetAtomsX, const std::vector<int> &idxes0,
-           const rvec *x, bool toAngstrom) {
+void fillX(CoordsMatrixType<KEnRef_Real_t> &targetAtomsX, const std::vector<int> &idxes0, const rvec *x, const bool toAngstrom) {
     for (int i = 0; i < targetAtomsX.rows(); i++) {
 //        const int *piGlobal = new int{sub0Id_to_global1Id[i] - 1};
 //        const int *piLocal = forceProviderInput.cr_.dd->ga2la->findHome(*piGlobal);
@@ -102,7 +101,7 @@ public:
         const std::vector<int> &guideAtom0Indices = GmxKEnRefInitializer::loadGmxIndexGroup(GUIDE_C_ALPHA, INDEX_FILE_LOCATION);
         IoUtils::printVector(guideAtom0Indices);
         //Total number of atoms in the system
-        long homenr = GmxKEnRefInitializer::loadGmxIndexGroup("System", INDEX_FILE_LOCATION).size();
+        size_t homenr = GmxKEnRefInitializer::loadGmxIndexGroup("System", INDEX_FILE_LOCATION).size();
         assert(homenr > 0 && "No group named \"System\" found in index file.");
 
         //Guide atoms X

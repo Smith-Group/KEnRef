@@ -29,6 +29,8 @@
 #define VERBOSE false
 #define VALIDATE_VECTORS false
 
+static constexpr auto singleStr = "single";
+
 KEnRefForceProvider::KEnRefForceProvider() = default;
 
 KEnRefForceProvider::~KEnRefForceProvider() = default;
@@ -60,7 +62,6 @@ void KEnRefForceProvider::setGuideAtomsReferenceCoords(
             this->guideAtomsReferenceCoords_->rows(), this->guideAtomsReferenceCoords_->cols());
 }
 
-static constexpr const char *const singleStr = "single";
 
 void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forceProviderInput,
                                           gmx::ForceProviderOutput *forceProviderOutput) {
@@ -81,8 +82,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     int numSimulations = isMultiSimulation ? this->simulationContext_->multiSimulation_->numSimulations_ : 1;
     int simulationIndex = isMultiSimulation ? this->simulationContext_->multiSimulation_->simulationIndex_ : 0;
     MPI_Comm mainRanksComm = isMultiSimulation
-                             ? this->simulationContext_->multiSimulation_->mainRanksComm_
-                             : MPI_COMM_NULL;
+                             ? this->simulationContext_->multiSimulation_->mainRanksComm_ : MPI_COMM_NULL;
     if (!paramsInitialized) {
         std::string alt_out_path = IoUtils::strip_enclosing_quotes(IoUtils::getEnvParam("KENREF_ALT_OUT_PATH", std::string("")));
         if (!alt_out_path.empty()) {
@@ -154,8 +154,8 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 #endif
 
     // ================= fit all models to reference ====================
-    const CoordsMatrixType<KEnRef_Real_t> &guideAtomsX_ZEROIndexed = getGuideAtomsX(*this->guideAtom0Indices_,
-                                                                                    forceProviderInput, true);
+    const CoordsMatrixType<KEnRef_Real_t> &guideAtomsX_ZEROIndexed =
+        getGuideAtomsX(*this->guideAtom0Indices_, forceProviderInput, true);
     restoreNoJump(const_cast<CoordsMatrixType<KEnRef_Real_t> &>(guideAtomsX_ZEROIndexed),
                   *this->lastFrameGuideAtomsX_ZEROIndexed_, forceProviderInput.box_, true,
                   gmx_omp_nthreads_get(ModuleMultiThread::Default), (step % 10 == 0));
@@ -382,7 +382,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
 void KEnRefForceProvider::fillSubAtomsX(CoordsMatrixType<KEnRef_Real_t> &subAtomsX,
                                         const std::vector<int> &sub0Id_to_global1Id,
-                                        const gmx::ForceProviderInput &forceProviderInput, bool toAngstrom) {
+                                        const gmx::ForceProviderInput &forceProviderInput, const bool toAngstrom) {
     for (int i = 0; i < subAtomsX.rows(); i++) {
         const int *piGlobal = new int{sub0Id_to_global1Id[i] - 1};
         const int *piLocal = forceProviderInput.cr_.dd->ga2la->findHome(*piGlobal);
@@ -407,7 +407,7 @@ void KEnRefForceProvider::fillSubAtomsX(CoordsMatrixType<KEnRef_Real_t> &subAtom
 
 CoordsMatrixType<KEnRef_Real_t> KEnRefForceProvider::getGuideAtomsX(const std::vector<int> &guideAtom0Indices,
                                                                     const gmx::ForceProviderInput &forceProviderInput,
-                                                                    bool toAngstrom) {
+                                                                    const bool toAngstrom) {
     long guideAtom0IndicesSize = static_cast<long>(guideAtom0Indices.size());
     auto guideAtomsX_ZEROIndexed = CoordsMatrixType<KEnRef_Real_t>(guideAtom0IndicesSize, 3);
     KEnRef_Real_t *guideAtomsX_ZEROIndexed_buffer = guideAtomsX_ZEROIndexed.data();
@@ -436,7 +436,7 @@ CoordsMatrixType<KEnRef_Real_t> KEnRefForceProvider::getGuideAtomsX(const std::v
 
 void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
                                         const CoordsMatrixType<KEnRef_Real_t> &reference,
-                                        const matrix &box_, bool toAngstrom, int numOmpThreads, bool printStatistics) {
+                                        const matrix &box_, const bool toAngstrom, int numOmpThreads, const bool printStatistics) {
     auto box = new matrix;
     if (toAngstrom)
         msmul(box_, 10, box);
@@ -498,7 +498,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
     this->maxForceSquared_ = std::pow(IoUtils::getEnvParam("KENREF_MAXFORCE", std::sqrt(this->maxForceSquared_)), 2.f);
     this->k_ = IoUtils::getEnvParam("KENREF_K", this->k_);
     this->n_ = IoUtils::getEnvParam("KENREF_N", this->n_);
-    int maxAtomPairsToRead = IoUtils::getEnvParam("KENREF_MAX_ATOMPAIRS_TO_READ", -1);
+    int maxAtomPairsToRead = IoUtils::getEnvParam("KENREF_MAX_ATOMPAIRS_TO_READ", -1); //TODO remove
 
     std::cout << "KEnRef_Real_t type is: " << typeid(KEnRef_Real_t).name() << '\n';
 

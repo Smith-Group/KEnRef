@@ -82,13 +82,13 @@ public:
      */
     static void restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
                        const CoordsMatrixType<KEnRef_Real_t> &reference,
-                       const matrix &box, bool toAngstrom, int numOmpThreads, bool printStatistics);
+                       const matrix &box_, bool toAngstrom, int numOmpThreads, bool printStatistics);
 
-    void fillParamsStep0(size_t homenr, int numSimulations, const gmx::ForceProviderInput &subAtomsXRef);
+    void fillParamsStep0(size_t homenr, int numSimulations, const gmx::ForceProviderInput &forceProviderInput);
 
 	static CoordsMatrixType<KEnRef_Real_t>
 	getGuideAtomsX(const std::vector<int> &guideAtom0Indices,
-                   const gmx::ForceProviderInput &forceProviderInput, bool toAngstrom);
+                    const gmx::ForceProviderInput &forceProviderInput, bool toAngstrom);
 
     static void fillSubAtomsX(CoordsMatrixType<KEnRef_Real_t> &subAtomsX, const std::vector<int> &sub0Id_to_global1Id,
                               const gmx::ForceProviderInput &forceProviderInput, bool toAngstrom);
