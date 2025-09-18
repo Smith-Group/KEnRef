@@ -452,8 +452,10 @@ void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
     updatedLocations.setZero();
     bool updated = false;
 
-#pragma omp parallel for num_threads(numOmpThreads)
+#pragma omp parallel for num_threads(numOmpThreads) default(none) reduction(||:updated) \
+    shared(atoms, box, box_half, reference, updatedLocations, printStatistics)
     for (int i = 0; i < atoms.rows(); ++i) {
+        bool local_updated = false;
         for (int m = DIM - 1; m >= 0; --m) {
             if (box_half[m] == 0)
                 continue;
@@ -467,7 +469,7 @@ void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
                 }
                 if (printStatistics) {
                     updatedLocations(i) = 1;
-                    updated = true;
+                    local_updated = true;
                 }
             }
             while ((atom[m] - refAtom[m]) > box_half[m]) {
@@ -477,10 +479,11 @@ void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
                 }
                 if (printStatistics) {
                     updatedLocations(i) = 1;
-                    updated = true;
+                    local_updated = true;
                 }
             }
         }
+        updated = updated || local_updated; // this is faster than `updated |= local_updated`
     }
     if (updated)
         std::cout << "INFO: Restored NoJump in these atoms:\n" << updatedLocations << std::endl;
