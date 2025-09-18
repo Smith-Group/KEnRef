@@ -873,6 +873,14 @@ TEST(KEnRefTestSuite, testCoordArrayToSigmaEnergy) {
         }
         auto& data = spec_den_data_list[i];
         data.setAtomPairs(atomPairs);
+        NamedVector<double> sigmas(table.rowCount());
+        for (int j = 0; j < sigmas.size(); ++j) {
+            std::istringstream iss(table.at(j, 0));
+            double value;
+            iss >> value;
+            sigmas(j, 0) = value;
+        }
+        data.set_sigmas(sigmas);
         tables.push_back(table);
     }
 
@@ -881,10 +889,6 @@ TEST(KEnRefTestSuite, testCoordArrayToSigmaEnergy) {
     // pass coords_synthetic to coord_array_to_sigma to generate sigma0
     const auto &[sigma0, sigma0_grad] =
         KEnRef<double>::coord_array_to_sigma(coords_synthetic, rates, spec_den_data_list, proton_mhz, atomNameMapping, true,0);
-    //set sigma0 in spec_den_data_list atom pairs
-    for (int i = 0; i < spec_den_data_list.size(); ++i) {
-        spec_den_data_list[i].set_sigmas(sigma0.at(i));
-    }
 
     // verify that sigma0 is as expected from the files. No need to validate sigma0_grad.
     for (int i = 0; i < spec_den_data_list.size(); ++i) {
@@ -892,8 +896,14 @@ TEST(KEnRefTestSuite, testCoordArrayToSigmaEnergy) {
         const auto &atomPairs = specDenData.get_atom_pairs();
         for (int j = 0; j < sigma0[i].rows(); ++j) {
             // std::cout << i << ", " << j << "\t"<< sigma0[i](j,0) << "\t" << specDenData.getSigma(atomPairs.at(j)) << std::endl;
-            EXPECT_EQ(sigma0[i](j,0), specDenData.getSigma(atomPairs.at(j)));
+            double expectedValue = std::stod(tables[i].at(j,2));
+            EXPECT_NEAR(sigma0[i](j,0), expectedValue, std::pow(10, static_cast<int>(log10(abs(expectedValue))) - 5));
         }
+    }
+
+    //set sigma0 in spec_den_data_list atom pairs
+    for (int i = 0; i < spec_den_data_list.size(); ++i) {
+        spec_den_data_list[i].set_sigmas(sigma0.at(i));
     }
 
     const auto& allModels_allAtomCoordsMap = getAllModels_allAtomCoordsMatrix<double>(FILENAME, {0,2});
