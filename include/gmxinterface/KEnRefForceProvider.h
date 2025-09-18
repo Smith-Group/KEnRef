@@ -32,7 +32,7 @@ class KEnRefForceProvider : public gmx::IForceProvider {
 	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t> const> guideAtomsReferenceCoordsCentered_; //ZERO indexed. Cashed for faster Kabsch Algorithm
 	std::shared_ptr<std::map<std::string, int> const> atomName_to_atomGlobalId_map_; //TODO later you may remove this and keep atomName_to_atomSubId_map_, or update it and delete atomName_to_atomSubId_map_
 	std::shared_ptr<std::map<std::string, int> > atomName_to_atomSub0Id_map_; //atomName is normalized string. SubId is a small subset and is ZERO based
-	std::shared_ptr<std::tuple<std::vector<std::string>, std::vector<std::vector<std::string> > > > experimentalData_table_ = nullptr; //TODO remove this pointer when it is no longer needed
+	std::shared_ptr<Table> experimentalData_table_ = nullptr; //TODO remove this pointer when it is no longer needed
 	std::vector<std::tuple<std::string, std::string> > *atomName_pairs_ = nullptr;
 	Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, Eigen::Dynamic> *g0_ = nullptr;
 	std::shared_ptr<std::vector<std::tuple<int, int> > > atomId_pairs_;

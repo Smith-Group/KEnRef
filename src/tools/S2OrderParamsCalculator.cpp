@@ -114,15 +114,13 @@ public:
         //const auto &guideAtomsReferenceCoordsCentered = Kabsch_Umeyama<KEnRef_Real_t>::translateCenterOfMassToOrigin(
         //        IoUtils::extractCoords(guideAtom0Indices, false, referenceStructureAllAtomCoordsMap, true));
         const auto &guideAtomsReferenceCoords = IoUtils::extractCoords(guideAtom0Indices, false, referenceStructureAllAtomCoordsMap, true);
-        auto experimentalData_table = IoUtils::readTable_old(experimentalDataFileName, true, ",");
-        std::vector<std::vector<std::string> > experimentalData_tableData = std::get<1>(experimentalData_table);
+        auto experimentalData_table = IoUtils::readTable(experimentalDataFileName, true, false, ",");
 
         std::vector<std::tuple<int, int>> atomIdPairs;
-        Eigen::VectorX<KEnRef_Real_t> referenceS2OrderParams(experimentalData_tableData.size());
+        Eigen::VectorX<KEnRef_Real_t> referenceS2OrderParams(experimentalData_table.rowCount());
 
-        for (int i = 0; i < experimentalData_tableData.size(); ++i) {
-            const auto & record = experimentalData_tableData[i];
-            std::istringstream temp1(record[3]), temp2(record[4]), temp3(record[7]);
+        for (int i = 0; i < experimentalData_table.rowCount(); ++i) {
+            std::istringstream temp1(experimentalData_table(i, "i1")), temp2(experimentalData_table(i, "i2")), temp3(experimentalData_table(i, "s2"));
             int i1, i2; KEnRef_Real_t f;
             temp1 >> i1;
             temp2 >> i2;

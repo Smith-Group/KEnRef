@@ -18,11 +18,11 @@ TEST(KEnRefForceProviderTestSuite, TestRestoreNoJump){
     coordsVector.reserve(files.size());
 //    float f;
     for (int i = 0; i < files.size(); ++i) {
-        auto tempCoordsData = std::get<1>(IoUtils::readTable_old(files[i], false, ","));
-        coordsVector.emplace_back(tempCoordsData.size(), 3);
-        for (int j = 0; j < tempCoordsData.size(); ++j) {
+        auto tempCoordsTable = IoUtils::readTable(files[i], false, false, ",");
+        coordsVector.emplace_back(tempCoordsTable.rowCount(), 3);
+        for (int j = 0; j < tempCoordsTable.rowCount(); ++j) {
             for (int k = 0; k < 3; ++k) {
-                std::istringstream temp(tempCoordsData[j][k]);
+                std::istringstream temp(tempCoordsTable(j, k));
                 temp >> coordsVector[i](j, k);
             }
         }

@@ -511,12 +511,12 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
 //            std::cout << "[" << name << "]\t:" << globalId << std::endl;
 //        }
 #endif
-    this->experimentalData_table_ = std::make_shared<std::tuple<std::vector<std::string>, std::vector<std::vector<
-            std::string> > > >
-            (IoUtils::readTable_old(KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME, true, "\\s*,\\s*", maxAtomPairsToRead));
+    this->experimentalData_table_ = std::make_shared<Table>(
+        IoUtils::readTable(KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME, true, false,
+            "\\s*,\\s*", maxAtomPairsToRead));
     //TODO check number of atom pairs
-    GMX_ASSERT(experimentalData_table_ && !(maxAtomPairsToRead && std::get<1>(*experimentalData_table_).empty()),
-               "No simulated data found");
+    GMX_ASSERT(experimentalData_table_ && !(maxAtomPairsToRead && experimentalData_table_->rowCount() > 0), "No simulated data found");
+    const Table &table = *experimentalData_table_;
 #if VERBOSE
     const auto& [table_header, table_data] = *experimentalData_table_;
         IoUtils::printVector(table_header);
@@ -524,12 +524,11 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
             IoUtils::printVector(record);
         }
 #endif
-    std::vector<std::vector<std::string> > data = std::get<1>(*this->experimentalData_table_);
     //First confirm whether we should handle the atom names
     bool handleUnpreparedAtomNames = false;
-    for (auto record: data) {
+    for (int row = 0; row <table.rowCount(); row++) {
         //        std::cout << "checking [" << record[1] <<"] and [" << record[2] << "]: ";
-        if (IoUtils::isNotPrepared(record[1]) || IoUtils::isNotPrepared(record[2])) {
+        if (IoUtils::isNotPrepared(table(row,"atom1")) || IoUtils::isNotPrepared(table(row, "atom2"))) {
             //            std::cout << "TRUE, Exiting" << std::endl;
             std::cerr << "WARNING: It seems that your data is from an unprepared file. We will try to handle it, but we can not guarantee the results."
                       << std::endl;
@@ -540,9 +539,9 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
     }
     //TODO if handleUnpreparedAtomNames is false, we need to simplify the code
     this->atomName_pairs_ = new std::vector<std::tuple<std::string, std::string> >();
-    for (auto record: data) {
-        std::string atom1 = IoUtils::normalizeName(record[1], handleUnpreparedAtomNames);
-        std::string atom2 = IoUtils::normalizeName(record[2], handleUnpreparedAtomNames);
+    for (int row = 0; row < table.rowCount(); row++) {
+        std::string atom1 = IoUtils::normalizeName(table(row, "atom1"), handleUnpreparedAtomNames);
+        std::string atom2 = IoUtils::normalizeName(table(row, "atom2"), handleUnpreparedAtomNames);
         this->atomName_pairs_->emplace_back(std::make_tuple(atom1, atom2));
     }
 #if VERBOSE
@@ -550,11 +549,10 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
             std::cout << "[" << atom1 << "], [" << atom2 << "]" << std::endl;
         }
 #endif
-    this->g0_ = new Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, Eigen::Dynamic>(data.size(), 2);
+    this->g0_ = new Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, Eigen::Dynamic>(table.rowCount(), 2);
     auto &g0 = *g0_;
-    for (int i = 0; i < data.size(); ++i) {
-        const auto &record = data[i];
-        std::istringstream temp1(record[5]), temp2(record[6]);
+    for (int i = 0; i < g0.rows(); ++i) {
+        std::istringstream temp1(table(i,"g1")), temp2(table(i, "g2"));
         temp1 >> g0(i, 0);
         temp2 >> g0(i, 1);
     }

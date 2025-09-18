@@ -501,7 +501,7 @@ TEST(KEnRefTestSuite, TestCoordArrayToEnergyFiniteDifferenceMethodTest) {
     auto coordsArray_base = CoordsMatrixType<double>(409, 3);
 
     std::ifstream coordsFileStream("../../res/google_tests/coords.txt");
-    auto experimentalData_table = IoUtils::readTable_old(
+    auto experimentalData_table = IoUtils::readTable(
         "../../res/10nsstart+fitting/singleton_data_10nsstart+fit_3-5_1977pairs_80_A.csv", true);
 
     auto tempCoordsTable = IoUtils::read_uniform_table_of<double>(coordsFileStream);
@@ -520,11 +520,9 @@ TEST(KEnRefTestSuite, TestCoordArrayToEnergyFiniteDifferenceMethodTest) {
     }
     std::cout << atomIdPairsMatrix.transpose() << std::endl;
 
-    std::vector<std::vector<std::string> > data = std::get<1>(experimentalData_table);
-    auto g0 = Eigen::Matrix<double, Eigen::Dynamic, 2>(data.size(), 2);
-    for (int i = 0; i < data.size(); ++i) {
-        const auto& record = data[i];
-        std::istringstream temp1(record[5]), temp2(record[6]);
+    auto g0 = Eigen::Matrix<double, Eigen::Dynamic, 2>(experimentalData_table.rowCount(), 2);
+    for (int i = 0; i < experimentalData_table.rowCount(); ++i) {
+        std::istringstream temp1(experimentalData_table(i, "g1")), temp2(experimentalData_table(i, "g2"));
         temp1 >> g0(i, 0);
         temp2 >> g0(i, 1);
     }
@@ -944,25 +942,23 @@ TEST(KEnRefTestSuite, TestS2OrderParameters) {
     coordsVector.reserve(files.size());
 
     for (int i = 0; i < files.size(); ++i) {
-        auto tempCoordsData = std::get<1>(IoUtils::readTable_old(files[i], false, ","));
-        coordsVector.emplace_back(tempCoordsData.size(), 3);
-        for (int j = 0; j < tempCoordsData.size(); ++j) {
+        auto tempCoordsData = IoUtils::readTable(files[i], false, false, ",");
+        coordsVector.emplace_back(tempCoordsData.rowCount(), 3);
+        for (int j = 0; j < tempCoordsData.rowCount(); ++j) {
             for (int k = 0; k < 3; ++k) {
-                std::istringstream temp(tempCoordsData[j][k]);
+                std::istringstream temp(tempCoordsData(j, k));
                 temp >> coordsVector[i](j, k);
             }
         }
     }
-    auto experimentalData_table = IoUtils::readTable_old(
-        "../../res/google_tests/singleton_data_10nsstart+fit_0+10.csv", true, ",");
+    auto experimentalData_table = IoUtils::readTable(
+        "../../res/google_tests/singleton_data_10nsstart+fit_0+10.csv", true, false, ",");
 
-    std::vector<std::vector<std::string> > data = std::get<1>(experimentalData_table);
     std::vector<std::tuple<int, int> > atomIdPairs;
-    auto expectedS2 = Eigen::VectorX<KEnRef_Real_t>(data.size());
+    auto expectedS2 = Eigen::VectorX<KEnRef_Real_t>(experimentalData_table.rowCount());
     int i1, i2;
-    for (int i = 0; i < data.size(); ++i) {
-        const auto &record = data[i];
-        std::istringstream temp1(record[3]), temp2(record[4]), temp3(record[7]);
+    for (int i = 0; i < experimentalData_table.rowCount(); ++i) {
+        std::istringstream temp1(experimentalData_table(i, "i1")), temp2(experimentalData_table(i, "i2")), temp3(experimentalData_table(i, "s2"));
         temp1 >> i1;
         temp2 >> i2;
         atomIdPairs.emplace_back(i1 - 1, i2 - 1);

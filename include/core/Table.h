@@ -19,12 +19,20 @@ public:
                    bool tolerateMissingLastColumn = false);
 
     // Accessors
-    std::string& at(size_t row, size_t col);
-    [[nodiscard]] const std::string& at(size_t row, size_t col) const;
     std::string& operator()(size_t row, size_t col);
     const std::string& operator()(size_t row, size_t col) const;
+    std::string& operator()(size_t row, const std::string &colName);
+    const std::string& operator()(size_t row, const std::string &colName) const;
+    std::string& operator()(const std::string &rowName, size_t col);
+    const std::string& operator()(const std::string &rowName, size_t col) const;
+    std::string& at(size_t row, size_t col);
+    [[nodiscard]] const std::string& at(size_t row, size_t col) const;
     std::string& at(const std::string& rowName, const std::string& colName);
     [[nodiscard]] const std::string& at(const std::string& rowName, const std::string& colName) const;
+    std::string& at(size_t row, const std::string& colName);
+    [[nodiscard]] const std::string& at(size_t row, const std::string& colName) const;
+    std::string& at(const std::string& rowName, size_t col);
+    [[nodiscard]] const std::string& at(const std::string& rowName, size_t col) const;
 
     // Dimension accessors
     [[nodiscard]] size_t rowCount() const;

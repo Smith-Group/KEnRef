@@ -38,9 +38,6 @@ public:
     static std::vector<std::vector<T> >
     read_uniform_table_of(std::istream &ins);
 
-    static std::tuple<std::vector<std::string>, std::vector<std::vector<std::string> > >
-    readTable_old(const std::string &fileName, bool has_header = true, const std::string &delimiter = "\\s*",
-              int max_rows = -1);
 
     static Table
     readTable(const std::string &fileName, bool has_columnNames = true, bool has_rowNames = false,
@@ -188,9 +185,6 @@ public:
         const std::vector<std::tuple<std::string, std::string>> &atomName_pairs,
         const std::map<std::string, int> &atomNames_2_atomIds);
 
-    static std::tuple<std::vector<std::string>, std::vector<std::vector<std::string> > >
-    readTable_old(std::ifstream &instream, bool has_header = true, const std::string &delimiter = "\\s*",
-              int max_rows = -1);
 
     static std::vector<std::tuple<int, int> >
     readAtomIdPairs(const std::string &fileName);

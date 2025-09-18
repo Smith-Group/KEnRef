@@ -25,14 +25,29 @@ std::string &Table::at(size_t row, size_t col) {
 
 std::string &Table::operator()(const size_t row, const size_t col) { return at(row, col); }
 const std::string &Table::operator()(const size_t row, const size_t col) const { return at(row, col); }
+std::string &Table::operator()(const size_t row, const std::string &colName) { return at(row, colName); }
+const std::string &Table::operator()(const size_t row, const std::string &colName) const { return at(row, colName); }
+std::string &Table::operator()(const std::string &rowName, const size_t col) { return at(rowName, col); }
+const std::string &Table::operator()(const std::string &rowName, const size_t col) const { return at(rowName, col); }
 
 // Named access (throws if names not available)
 std::string &Table::at(const std::string &rowName, const std::string &colName) {
     return at(getRowIndex(rowName), getColIndex(colName));
 }
-
 [[nodiscard]] const std::string &Table::at(const std::string &rowName, const std::string &colName) const {
     return at(getRowIndex(rowName), getColIndex(colName));
+}
+std::string &Table::at(const size_t row, const std::string &colName) {
+    return at(row, getColIndex(colName));
+}
+[[nodiscard]] const std::string &Table::at(const size_t row, const std::string &colName) const {
+    return at(row, getColIndex(colName));
+}
+std::string &Table::at(const std::string &rowName, const size_t col) {
+    return at(getRowIndex(rowName), col);
+}
+[[nodiscard]] const std::string &Table::at(const std::string &rowName, const size_t col) const {
+    return at(getRowIndex(rowName), col);
 }
 
 // Dimension accessors

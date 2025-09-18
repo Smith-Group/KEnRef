@@ -22,16 +22,6 @@ std::vector<std::vector<T> > IoUtils::read_uniform_table_of(std::istream &ins) {
     return result;
 }
 
-//caution: this method does not handle the case when there is a comma inside a string
-std::tuple<std::vector<std::string>, std::vector<std::vector<std::string> > >
-IoUtils::readTable_old( const std::string &fileName, bool has_header, const std::string &delimiter, int max_rows) {
-    std::ifstream instream(fileName);
-    if (!instream.is_open()) {
-        std::cerr << "Error opening file: " << fileName << std::endl;
-        throw std::runtime_error(std::string("Can't open file:").append(fileName));
-    }
-    return readTable_old(instream, has_header, delimiter, max_rows);
-}
 
 std::vector<std::tuple<int, int>> IoUtils::atomNamePairs_2_atomIdPairs(
     const std::vector<std::tuple<std::string, std::string>> &atomName_pairs,
@@ -48,38 +38,6 @@ std::vector<std::tuple<int, int>> IoUtils::atomNamePairs_2_atomIdPairs(
 }
 
 
-std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>>
-IoUtils::readTable_old(std::ifstream &instream, bool has_header, const std::string &delimiter, int max_rows) {
-    std::vector<std::string> header{};
-    std::vector<std::vector<std::string> > data{};
-    bool header_consumed = false;
-    std::string line;
-    int counter = 0;
-    //TODO create a unit test to validate the effect when max_rows is 0, -1, or a positive int
-    while (instream.peek() != EOF && max_rows == -1 || counter < max_rows) {
-        std::getline(instream, line);
-        auto tokens = split(line, delimiter);
-        for (size_t i = 0; i < tokens.size(); ++i) { // NOLINT(modernize-loop-convert)
-            tokens[i] = strip_enclosing_quotes(tokens[i], '\"');
-        }
-        if (has_header && !header_consumed) {
-            //use consumed header
-            header = tokens;
-            //			for(auto colName: header){std::cout << colName << '\t';} std::cout << std::endl;
-            header_consumed = true;
-        } else {
-            data.emplace_back(tokens);
-            //			for(std::string value: data.back()){std::cout << value << '\t';} std::cout << std::endl;
-            counter++;
-        }
-    }
-
-    //    std::cerr << "------- before table tuple" << std::endl;
-    //    std::tuple<std::vector<std::string>, std::vector<std::vector<std::string>>> ret = std::make_tuple(header, data);
-    //    std::cerr << "------- after table tuple" << std::endl;
-    //    return std::move(& ret);
-    return {header, data};
-}
 
 std::string IoUtils::strip_enclosing_quotes(const std::string &str, char delim) {
     // unfortunately, lookbehind does not work
@@ -93,51 +51,6 @@ std::string IoUtils::strip_enclosing_quotes(const std::string &str, char delim) 
         return str.substr(1, str.length() - 2);
 }
 
-// std::vector<std::string>
-// IoUtils::splitCSVLine(const std::string &line, const std::string &delimiter_pattern, const char quote_char) {
-//
-//     std::vector<std::string> tokens;
-//     bool inQuotes = false;
-//     std::string currentToken;
-//     const std::regex delimiter_regex(delimiter_pattern);
-//     auto token_start = line.begin();
-//
-//     for (auto it = line.begin(); it != line.end(); ++it) {
-//         const char c = *it;
-//
-//         if (c == quote_char) {
-//             // Handle escaped quotes
-//             if (it != line.begin() && *(it-1) == '\\') {
-//                 currentToken.back() = quote_char; // replace \ with "
-//             }
-//             else {
-//                 inQuotes = !inQuotes;
-//             }
-//         } else if (!inQuotes) {
-//             std::string remaining(it, line.end());
-//             if (std::smatch match; std::regex_search(remaining, match, delimiter_regex, std::regex_constants::match_continuous)) {
-//                 if (!currentToken.empty() || match.position() > 0) {
-//                     tokens.push_back(strip_enclosing_quotes(currentToken + std::string(token_start, it), quote_char));
-//                 }
-//                 currentToken.clear();
-//                 it += match.length() - 1; // skip delimiter
-//                 token_start = it + 1;
-//                 continue;
-//             }
-//         }
-//
-//         if (!inQuotes || c != quote_char) {
-//             currentToken += c;
-//         }
-//     }
-//
-//     // Add the last token
-//     if (token_start != line.end() || !currentToken.empty()) {
-//         tokens.push_back(strip_enclosing_quotes(currentToken + std::string(token_start, line.end()), quote_char));
-//     }
-//
-//     return tokens;
-// }
 std::vector<std::string>
 IoUtils::splitCSVLine(const std::string &line, const std::string &delimiter_pattern, const char quote_char) {
     std::vector<std::string> tokens;
