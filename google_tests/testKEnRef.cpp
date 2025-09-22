@@ -27,13 +27,14 @@ std::vector<SpecDenData<KEnRef_Real>> getSpecDenData(const bool handleNames) {
             {{0}, {1}, {2}}
         },
         NamedMatrix<double>{(Eigen::Matrix<double, 2, 2>() <<
-         1, -1,
-         0, 1
+        1, -1,
+        0, 1
         ).finished(), {{"0", "kens"}}},
-        Table{
-            {{"0", "1"}},
-            {{"0","kens"}},
-            {{"kens"}}
+        NamedMatrix<double>{(Eigen::Matrix<double, 1, 2>() <<
+        0, 1
+        ).finished(),
+        {{"0","kens"}},
+        {{"kens"}}
         }
     });
     dipole_kinetic_data.emplace_back(SpecDenData<double>{
@@ -60,11 +61,9 @@ std::vector<SpecDenData<KEnRef_Real>> getSpecDenData(const bool handleNames) {
          0, 0, 1, -1,
          0, 0, 0, 1
         ).finished(), {{"0","karo","kens","kens+karo"}}},
-        Table{
-            {
-                {"0", "0", "1", "1"},
-                {"0", "1", "0", "1"}
-            },
+        NamedMatrix<double> { (Eigen::Matrix<double, 2, 4>() <<
+                0, 0, 1, 1,
+                0, 1, 0, 1).finished(),
             {{"0", "karo", "kens", "kens+karo"}},
             {{"kens", "karo"}}
         }
@@ -97,11 +96,10 @@ std::vector<SpecDenData<KEnRef_Real>> getSpecDenData(const bool handleNames) {
          0, 0, 1, -1,
          0, 0, 0, 1
         ).finished(), {{"0","kens","kmethyl","kens+kmethyl"}}},
-        Table{
-            {
-                {"0", "1", "0", "1"},
-                {"0", "0", "1", "1"}
-            },
+        NamedMatrix<double>{ (Eigen::Matrix<double, 2, 4>() <<
+             0, 1, 0, 1,
+             0, 0, 1, 1
+            ).finished(),
             {{"0", "kens", "kmethyl", "kens+kmethyl"}},
             {{"kens", "kmethyl"}}
         }
@@ -137,20 +135,19 @@ std::vector<SpecDenData<KEnRef_Real>> getSpecDenData(const bool handleNames) {
             {{0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}, {8}, {9}, {10}, {11}},
         },
         NamedMatrix<double>{(Eigen::Matrix<double, 8, 6>() <<
-         1, -2, 1, -1, 2, -1,
-         0, 1, -1, 0, -1, 1,
-         0, 1, -1, 0, -1, 1,
-         0, 0, 1, 0, 0, -1,
-         0, 0, 0, 1, -2, 1,
-         0, 0, 0, 0, 1, -1,
-         0, 0, 0, 0, 1, -1,
-         0, 0, 0, 0, 0, 1
+            1, -2, 1, -1, 2, -1,
+            0, 1, -1, 0, -1, 1,
+            0, 1, -1, 0, -1, 1,
+            0, 0, 1, 0, 0, -1,
+            0, 0, 0, 1, -2, 1,
+            0, 0, 0, 0, 1, -1,
+            0, 0, 0, 0, 1, -1,
+            0, 0, 0, 0, 0, 1
         ).finished(), {{"0","karo","2karo","kens","kens+karo","kens+2karo"}}},
-        Table{
-            {
-                {"0","0","0","1","1","1"},
-                {"0","1","2","0","1","2"}
-            },
+        NamedMatrix<double> { (Eigen::Matrix<double, 2, 6>() <<
+            0, 0, 0, 1, 1, 1,
+            0, 1, 2, 0, 1, 2
+            ).finished(),
             {{"0","karo","2karo","kens","kens+karo","kens+2karo"}},
             {{"kens","karo"}}
         }
@@ -199,12 +196,11 @@ std::vector<SpecDenData<KEnRef_Real>> getSpecDenData(const bool handleNames) {
          0,  0, 0, 0, 1, -1,
          0,  0, 0, 0, 0, 1
         ).finished(), {{"0","karo","kens","kens+karo","kmethyl","kens+kmethyl"}}},
-        Table{
-            {
-                {"0","0","1","1","0","1"},
-                {"0","0","0","0","1","1"},
-                {"0","1","0","1","0","0"},
-            },
+        NamedMatrix<double> { (Eigen::Matrix<double, 3, 6>() <<
+                0, 0, 1, 1, 0, 1,
+                0, 0, 0, 0, 1, 1,
+                0, 1, 0, 1, 0, 0
+            ).finished(),
             std::optional<std::vector<std::string>>{{"0","karo","kens","kens+karo","kmethyl","kens+kmethyl"}},
             std::optional<std::vector<std::string>>{{"kens","kmethyl", "karo"}}
         }
@@ -281,11 +277,10 @@ std::vector<SpecDenData<KEnRef_Real>> getSpecDenData(const bool handleNames) {
          0,  0,  0,  0,  1, -1,
          0,  0,  0,  0,  0,  1
         ).finished(), {{"0","kens","kmethyl","kens+kmethyl","2kmethyl","kens+2kmethyl"}}},
-        Table{
-            {
-                {"0","1","0","1","0","1"},
-                {"0","0","1","1","2","2"}
-            },
+        NamedMatrix<double> { (Eigen::Matrix<double, 2, 6>() <<
+                0, 1, 0, 1, 0, 1,
+                0, 0, 1, 1, 2, 2
+            ).finished(),
             {{"0","kens","kmethyl","kens+kmethyl","2kmethyl","kens+2kmethyl"}},
             {{"kens","kmethyl"}}
         }

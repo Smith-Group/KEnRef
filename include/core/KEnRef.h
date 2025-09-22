@@ -38,7 +38,7 @@ class SpecDenData {
     std::optional<NamedVector<KEnRef_Real>> sigma = std::nullopt;
     std::vector<std::vector<std::vector<int> > > multiple_grouping{};
     NamedMatrix<KEnRef_Real> a_coef;
-    Table lambda_coef;
+    NamedMatrix<KEnRef_Real> lambda_coef;
     std::map<std::tuple<std::string, std::string>, size_t> atomNamePairs_to_atomPairIndex;
 
     KEnRef_Real getSigma(size_t atomPairId) const;
@@ -48,7 +48,7 @@ public:
                 const std::optional<NamedVector<KEnRef_Real> > &sigma,
                 const std::vector<std::vector<std::vector<int> > > &multiple_grouping,
                 const NamedMatrix<KEnRef_Real> &a_coef,
-                Table lambda_coef)
+                const NamedMatrix<KEnRef_Real> &lambda_coef)
         : atom_pairs(atom_pairs), sigma(sigma), multiple_grouping(multiple_grouping), a_coef(a_coef),
         lambda_coef(std::move(lambda_coef)) {
 
@@ -65,8 +65,8 @@ public:
     void setAtomPairs(std::vector<std::tuple<std::string, std::string>> &atomPairs);
 
     [[nodiscard]] const std::vector<std::tuple<std::string, std::string>> & get_atom_pairs() const { return atom_pairs; }
-    [[nodiscard]] const NamedMatrix<KEnRef_Real> & get_a_coef() const { return a_coef; }
-    [[nodiscard]] const Table & get_lambda_coef() const { return lambda_coef; }
+    [[nodiscard]] const NamedMatrix<KEnRef_Real> &get_a_coef() const { return a_coef; }
+    [[nodiscard]] const NamedMatrix<KEnRef_Real> &get_lambda_coef() const { return lambda_coef; }
     [[nodiscard]] const std::vector<std::vector<std::vector<int> > > &get_multiple_grouping() const { return multiple_grouping; }
 };
 

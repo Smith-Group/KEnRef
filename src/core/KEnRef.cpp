@@ -635,8 +635,8 @@ NamedRowVector<KEnRef_Real>
 KEnRef<KEnRef_Real>::calculateLambdaVector(const SpecDenData<KEnRef_Real> &currentSpecDenData,
                                            const NamedRowVector<KEnRef_Real> &rates, int numOmpThreads) {
     // lambda_vector <- -colSums(rates[rownames(spec_den_data_list[[i]][["lambda_coef"]])]*spec_den_data_list[[i]][["lambda_coef"]])
-    const auto &lambda_coef_matrix = currentSpecDenData.get_lambda_coef().template toNamedMatrix<KEnRef_Real>();
-    const auto &rowNames = currentSpecDenData.get_lambda_coef().getRowNames();
+    const auto &lambda_coef_matrix = currentSpecDenData.get_lambda_coef();
+    const auto &rowNames = currentSpecDenData.get_lambda_coef().rowNames();
     NamedRowVector<KEnRef_Real> lambda_vector(lambda_coef_matrix.cols());
     lambda_vector.setZero();
     lambda_vector.setColNames(lambda_coef_matrix.colNames());
