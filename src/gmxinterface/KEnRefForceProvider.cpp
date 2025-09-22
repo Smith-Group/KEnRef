@@ -457,7 +457,7 @@ void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
             auto atom = atoms.row(i);
             auto refAtom = reference.row(i);
             // Check if atom jumped across the box in this dimension
-            while ((atom[m] - refAtom[m]) <= -box_half[m]) {
+            while (atom[m] - refAtom[m] <= -box_half[m]) {
                 // Jumped to negative image, correct by adding box size
                 for (int d = 0; d <= m; ++d) {
                     atom[d] += box[m][d];

@@ -232,7 +232,7 @@ public:
         const std::vector<std::vector<std::vector<int> > > &grouping_list,
         // list of lists of integer vectors giving groupings of models to average interaction tensors
         const Eigen::MatrixX<KEnRef_Real> &g0, //target group norm squared values
-        std::map<std::string, int> atomNames_2_atomIds,
+        const std::map<std::string, int> &atomNames_2_atomIds,
         KEnRef_Real k = 1.0, //force constant
         KEnRef_Real n = 0.25,
         bool gradient = false, int numOmpThreads = 0

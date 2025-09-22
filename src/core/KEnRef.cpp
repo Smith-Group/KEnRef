@@ -620,7 +620,7 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy_refactored(
     const std::vector<std::vector<std::vector<int> > > &grouping_list,
     // list of lists of integer vectors giving groupings of models to average interaction tensors
     const Eigen::MatrixX<KEnRef_Real> &g0,
-    std::map<std::string, int> atomNames_2_atomIds,
+    const std::map<std::string, int> &atomNames_2_atomIds,
     KEnRef_Real k, KEnRef_Real n, const bool gradient, const int numOmpThreads) {
 
     //	std::cout << "coord_array_to_energy(atomName_pairs_) called" << std::endl;

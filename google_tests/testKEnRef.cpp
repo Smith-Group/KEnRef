@@ -319,7 +319,6 @@ std::vector<CoordsMatrixType<KEnRef_Real>> getAllModels_allAtomCoordsMatrix(cons
     int maxId0 = -1;
     for (const auto &[atomName, id1]: atomNameMapping_to1) {
         std::string tempName = atomName;
-        std::string atomNameNormalized = IoUtils::normalizeName(tempName, handleNames);
         const int id0 = id1 - 1;
         if (id0 > maxId0) {
             maxId0 = id0;
