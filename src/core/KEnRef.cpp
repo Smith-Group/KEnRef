@@ -239,10 +239,9 @@ KEnRef<KEnRef_Real>::d_array_to_g_matrix(
     std::vector<std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > > ret2;
     ret1.reserve(d_array.size());
 
+    const auto &groupings = IoUtils::grouping_mat_to_subset_idx(grouping_mat);
     for (int row = 0; row < grouping_mat.rows(); ++row) {
-        Eigen::RowVectorX<int> grouping_row = grouping_mat.row(row);
-        // std::cout << "grouping_row " << grouping << std::endl;
-        const auto &grouping = IoUtils::grouping_mat_to_subset_idx(grouping_row);
+        const auto& grouping = groupings[row];
         const auto &[ret1_temp, ret2_temp] = d_array_to_g(d_array, grouping, gradient, numOmpThreads);
         ret1.emplace_back(ret1_temp);
         if (gradient)

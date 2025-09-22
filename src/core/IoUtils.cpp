@@ -540,8 +540,20 @@ IoUtils::subset_idx_to_grouping_mat(const std::vector<std::vector<std::vector<in
     return ret;
 }
 
-std::vector<std::vector<int>>
+std::vector<std::vector<std::vector<int>>>
 IoUtils::grouping_mat_to_subset_idx(const Eigen::Matrix<int, Eigen::Dynamic, Eigen::Dynamic>& grouping_matrix) {
+    auto rows = grouping_matrix.rows();
+    std::vector<std::vector<std::vector<int>>> ret(rows);
+    for (int row = 0; row < rows; ++row) {
+        Eigen::RowVectorX<int> grouping_row = grouping_matrix.row(row);
+        // std::cout << "grouping_row " << grouping << std::endl;
+        ret.at(row) = std::move(grouping_mat_row_to_subset_idx(grouping_row));
+    }
+    return ret;
+}
+
+std::vector<std::vector<int>>
+IoUtils::grouping_mat_row_to_subset_idx(const Eigen::RowVectorX<int>& grouping_matrix) {
     std::map<int, std::vector<int>> group_map;
     // Iterate through the grouping vector (0-based or 1-based)
     for (int i = 0; i < grouping_matrix.size(); ++i) {

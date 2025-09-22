@@ -31,6 +31,9 @@ class IoUtils final {
         {"N", "ASN"}, {"Q", "GLN"}, {"D", "ASP"}, {"E", "GLU"}, {"P", "PRO"}, {"C", "CYS"},
     };
 
+    static std::vector<std::vector<int> >
+    grouping_mat_row_to_subset_idx(const Eigen::RowVectorX<int> &grouping_matrix);
+
 public:
     IoUtils() = delete;
 
@@ -55,7 +58,7 @@ public:
     static Eigen::Matrix<int, Eigen::Dynamic, Eigen::Dynamic>
     subset_idx_to_grouping_mat(const std::vector<std::vector<std::vector<int> > > &multipleGroupings);
 
-    static std::vector<std::vector<int> >
+    static std::vector<std::vector<std::vector<int> > >
     grouping_mat_to_subset_idx(const Eigen::Matrix<int, Eigen::Dynamic, Eigen::Dynamic> &grouping_matrix);
 
     static std::map<std::string, std::string>
