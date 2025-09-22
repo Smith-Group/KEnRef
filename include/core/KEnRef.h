@@ -192,7 +192,7 @@ public:
                                 const std::map<std::string, int> &atomNames_2_atomIds, int numOmpThreads = 0);
 
     //Calculate g value restraint energy from atomic coordinates
-    static std::tuple<KEnRef_Real, std::vector<CoordsMatrixType<KEnRef_Real> > >
+    static std::tuple<KEnRef_Real, std::optional<std::vector<CoordsMatrixType<KEnRef_Real> > > >
     coord_array_to_g_energy(
         const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array,
         //Every vector item is Nx3 Matrix representing atom coordinates of a model.
@@ -208,7 +208,7 @@ public:
     );
 
     //Calculate g value restraint energy from atomic coordinates
-    static std::tuple<KEnRef_Real, std::vector<CoordsMatrixType<KEnRef_Real> > >
+    static std::tuple<KEnRef_Real, std::optional<std::vector<CoordsMatrixType<KEnRef_Real> > > >
     coord_array_to_g_energy(
         const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array,
         //Every vector item is Nx3 Matrix representing atom coordinates of a model.

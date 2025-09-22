@@ -474,7 +474,7 @@ KEnRef<KEnRef_Real>::atomNamePairs_2_atomIdPairs(
 }
 
 template<typename KEnRef_Real>
-std::tuple<KEnRef_Real, std::vector<CoordsMatrixType<KEnRef_Real> > >
+std::tuple<KEnRef_Real, std::optional<std::vector<CoordsMatrixType<KEnRef_Real> > > >
 KEnRef<KEnRef_Real>::coord_array_to_g_energy(
     const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array,
     //Every vector item is a Nx3 Matrix representing atom coordinates of a model.
@@ -487,12 +487,11 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy(
     KEnRef_Real k, KEnRef_Real n, const bool gradient, const int numOmpThreads) {
     //	std::cout << "coord_array_to_energy(atomName_pairs_) called" << std::endl;
     const auto &atomId_pairs = atomNamePairs_2_atomIdPairs(atomName_pairs, atomNames_2_atomIds);
-    return KEnRef::coord_array_to_g_energy(coord_array, *atomId_pairs, grouping_list, g0, k, n, gradient,
-                                           numOmpThreads);
+    return KEnRef::coord_array_to_g_energy(coord_array, *atomId_pairs, grouping_list, g0, k, n, gradient, numOmpThreads);
 }
 
 template<typename KEnRef_Real>
-std::tuple<KEnRef_Real, std::vector<CoordsMatrixType<KEnRef_Real> > >
+std::tuple<KEnRef_Real, std::optional<std::vector<CoordsMatrixType<KEnRef_Real> > > >
 KEnRef<KEnRef_Real>::coord_array_to_g_energy(
     const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array,
     //Every vector item is a Nx3 Matrix representing atom coordinates of a model.
@@ -606,9 +605,9 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy(
         //            std::cout << "model " << m << " first 100 rows" << std::endl;
         //            std::cout << gradients[m].topRows(100) << std::endl;
         //        }
-        return {sum, gradients};
+        return {sum, {gradients}};
     }
-    return {sum, std::vector<CoordsMatrixType<KEnRef_Real> >{}};
+    return {sum, std::nullopt};
 }
 
 

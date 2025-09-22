@@ -238,7 +238,7 @@ public:
 
                     if (modelIdx == numModels - 1){
                         KEnRef_Real_t energy = 0;
-                        std::vector<CoordsMatrixType<KEnRef_Real_t> > allDerivatives_vector;
+                        std::optional<std::vector<CoordsMatrixType<KEnRef_Real_t> > > allDerivatives_vector;
                         if constexpr(std::is_same_v<KEnRef_Real_t, float>) {
                             std::tie(energy, allDerivatives_vector) =
                                     KEnRef<KEnRef_Real_t>::coord_array_to_g_energy(allSimulationsSubAtomsXVector,

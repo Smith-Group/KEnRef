@@ -540,7 +540,7 @@ TEST(KEnRefTestSuite, TestCoordArrayToEnergyFiniteDifferenceMethodTest) {
                                                                 k, n, true, 20);
 
                 double E_delta = energy_derived - energy_base;
-                auto diff_mat = allDerivatives_vector_derived[model] - allDerivatives_vector_base[model];
+                auto diff_mat = allDerivatives_vector_derived.value()[model] - allDerivatives_vector_base.value()[model];
                 std::cout << "changed (" << i << ", " << j << ")";
                 std::cout << std::scientific;
 
@@ -548,7 +548,7 @@ TEST(KEnRefTestSuite, TestCoordArrayToEnergyFiniteDifferenceMethodTest) {
                 std::cout << "\tF_delta = " << diff_mat(i, j) /*<< std::endl*/;
 
                 double d_FD = E_delta / delta;
-                double d_Anal = allDerivatives_vector_base[model](i, j);
+                double d_Anal = allDerivatives_vector_base.value()[model](i, j);
                 double method_diff = abs((d_Anal - d_FD) / d_FD);
                 //                double method_diff = abs((d_Anal - d_FD) / d_Anal);
 
@@ -655,7 +655,7 @@ TEST(KEnRefTestSuite, testEROS3) {
             KEnRef<KEnRef_Real_t>::coord_array_to_g_energy(eros3_sub_coord, eros3_sub_atom_idPairs, eros3_grouping_list,
                                                            eros3_sub_1_g, 1.0, 0.25, true);
     std::cout << "eros3_sub_energy\n" << eros3_sub_energy << std::endl;
-    for (const auto &mat: eros3_sub_energy_grad) {
+    for (const auto &mat: eros3_sub_energy_grad.value()) {
         std::cout << "eros3_sub_energy_grad" << std::endl << mat << std::endl;
     }
 
@@ -665,8 +665,8 @@ TEST(KEnRefTestSuite, testEROS3) {
                                                                       true);
 
     EXPECT_EQ(eros3_sub_energy, eros3_sub_energy_1);
-    for (int i = 0; i < eros3_sub_energy_grad.size(); ++i) {
-        TestHelper<KEnRef_Real_t>::EXPECT_MATRIX_NEAR(eros3_sub_energy_grad[i], eros3_sub_energy_grad_1[i]);
+    for (int i = 0; i < eros3_sub_energy_grad.value().size(); ++i) {
+        TestHelper<KEnRef_Real_t>::EXPECT_MATRIX_NEAR(eros3_sub_energy_grad.value()[i], eros3_sub_energy_grad_1[i]);
     }
     //	auto [g_list, eros3_sub_g_list_grad] = KEnRef::d_array_to_g(eros3_sub_d_array, eros3_grouping_list, true);
     //	KEnRef::g_to_energy(g_matrix, eros3_sub_1_g, 1.0, true);

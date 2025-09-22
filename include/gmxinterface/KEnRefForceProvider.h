@@ -59,9 +59,9 @@ public:
 
     [[maybe_unused]] [[maybe_unused]] KEnRefForceProvider(KEnRefForceProvider &&other) noexcept;
 
-	KEnRefForceProvider &operator=(const KEnRefForceProvider &other);
+	KEnRefForceProvider &operator=(const KEnRefForceProvider &other) = delete;
 
-	KEnRefForceProvider &operator=(KEnRefForceProvider &&other) noexcept;
+	KEnRefForceProvider &operator=(KEnRefForceProvider &&other) noexcept = delete;
 
 	void calculateForces(const gmx::ForceProviderInput &forceProviderInput,
 	                     gmx::ForceProviderOutput *forceProviderOutput) override;

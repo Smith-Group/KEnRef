@@ -40,10 +40,6 @@ KEnRefForceProvider::~KEnRefForceProvider() = default;
 
 [[maybe_unused]] KEnRefForceProvider::KEnRefForceProvider(const KEnRefForceProvider &other) = default;
 
-KEnRefForceProvider &KEnRefForceProvider::operator=(const KEnRefForceProvider &other) = default;
-
-KEnRefForceProvider &KEnRefForceProvider::operator=(KEnRefForceProvider &&other) noexcept = default;
-
 [[maybe_unused]] void KEnRefForceProvider::setSimulationContext(gmx::SimulationContext *simulationContext) {
     this->simulationContext_ = simulationContext;
 }
@@ -227,7 +223,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 #endif
 
     KEnRef_Real_t energy = 0;
-    std::vector<CoordsMatrixType<KEnRef_Real_t> > allDerivatives_vector;
+    std::optional<std::vector<CoordsMatrixType<KEnRef_Real_t> > > all_derivatives_vector_optional;
 
     //in the master rank
     if (!isMultiSimulation || simulationIndex == 0) {
@@ -237,8 +233,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         for (int i = 0; i < numSimulations; i++) {
             //TODO Review (and Simplify?). May need memory alignment
             allSimulationsSubAtomsX_vector.emplace_back(std::move(
-                    CoordsMapType<KEnRef_Real_t>(&allSimulationsSubAtomsX.data()[i * subAtomsX.size()],
-                                                 subAtomsX.rows(), 3)));
+                CoordsMapType<KEnRef_Real_t>(&allSimulationsSubAtomsX.data()[i * subAtomsX.size()], subAtomsX.rows(), 3)));
         }
 
         const auto &atomId_pairs = *this->atomId_pairs_;
@@ -252,9 +247,9 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
             std::cout << "Step: " << step << " Energy: " << energy << std::endl;
 #if VERBOSE
         std::cout << "energy = " << energy << ", allDerivatives_vector:" << std::endl;
-        for (int i = 0; i < allDerivatives_vector.size(); i++) {
-            std::cout << "model " << i << " shape (" << allDerivatives_vector[i].rows() << " x " << allDerivatives_vector[i].cols()
-                      << ")" << std::endl << allDerivatives_vector[i] << std::endl;
+        for (int i = 0; i < all_derivatives_vector_optional.value().size(); i++) {
+            std::cout << "model " << i << " shape (" << all_derivatives_vector_optional.value()[i].rows() << " x " << all_derivatives_vector_optional.value()[i].cols()
+                      << ")" << std::endl << all_derivatives_vector_optional.value()[i] << std::endl;
         }
 #endif
     }
@@ -266,8 +261,8 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     // First, prepare the buffer
     if (simulationIndex == 0) { //whether master rank or single simulation
         //I will use the slow method of copying data now, as it is less error-prone. TODO To change it, we need first to make sure the function returns the data contagiously.
-        for (int i = 0; i < allDerivatives_vector.size(); ++i) {
-            const auto &matrix = allDerivatives_vector[i];
+        for (int i = 0; i < all_derivatives_vector_optional.value().size(); ++i) {
+            const auto &matrix = all_derivatives_vector_optional.value()[i];
             std::copy_n(matrix.data(), subAtomsX.size(), &allDerivatives_buffer[i * subAtomsX.size()]);
         }
     }
@@ -446,8 +441,8 @@ void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
 
 
     // Calculate half the box length in each dimension
-    Eigen::RowVector3<KEnRef_Real_t> box_half = 0.5 * (Eigen::RowVector3<KEnRef_Real_t>) {box[XX][XX], box[YY][YY],
-                                                                                          box[ZZ][ZZ]};
+    Eigen::RowVector3<KEnRef_Real_t> box_half =
+        0.5 * (Eigen::RowVector3<KEnRef_Real_t>) {box[XX][XX], box[YY][YY], box[ZZ][ZZ]};
     Eigen::RowVectorXi updatedLocations(atoms.rows());
     updatedLocations.setZero();
     bool updated = false;
