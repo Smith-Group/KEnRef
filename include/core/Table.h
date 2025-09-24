@@ -37,6 +37,7 @@ public:
     // Dimension accessors
     [[nodiscard]] size_t rowCount() const;
     [[nodiscard]] size_t colCount() const;
+    [[nodiscard]] bool isRowComplete(const size_t row) const;
 
     // Name management
     [[nodiscard]] bool hasColNames() const;

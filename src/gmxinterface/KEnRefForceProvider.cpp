@@ -523,26 +523,25 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
             IoUtils::printVector(record);
         }
 #endif
-    //First confirm whether we should handle the atom names
-    bool handleUnpreparedAtomNames = false;
-    for (int row = 0; row <table.rowCount(); row++) {
-        //        std::cout << "checking [" << record[1] <<"] and [" << record[2] << "]: ";
-        if (IoUtils::isNotPrepared(table(row,"atom1")) || IoUtils::isNotPrepared(table(row, "atom2"))) {
-            //            std::cout << "TRUE, Exiting" << std::endl;
-            std::cerr << "WARNING: It seems that your data is from an unprepared file. We will try to handle it, but we can not guarantee the results."
-                      << std::endl;
-            handleUnpreparedAtomNames = true;
-            break;
+        //First confirm whether we should handle the atom names
+        bool handleUnpreparedAtomNames = false;
+        for (int row = 0; row <table.rowCount(); row++) {
+            //        std::cout << "checking [" << record[1] <<"] and [" << record[2] << "]: ";
+            if (IoUtils::isNotPrepared(table(row,"atom1")) || IoUtils::isNotPrepared(table(row, "atom2"))) {
+                //            std::cout << "TRUE, Exiting" << std::endl;
+                std::cerr << "WARNING: It seems that your data is from an unprepared file. We will try to handle it, but we can not guarantee the results." << std::endl;
+                handleUnpreparedAtomNames = true;
+                break;
+            }
+            //        std::cout << "FALSE" << std::endl;
         }
-        //        std::cout << "FALSE" << std::endl;
-    }
-    //TODO if handleUnpreparedAtomNames is false, we need to simplify the code
-    this->atomName_pairs_ = new std::vector<std::tuple<std::string, std::string> >();
-    for (int row = 0; row < table.rowCount(); row++) {
-        std::string atom1 = IoUtils::normalizeName(table(row, "atom1"), handleUnpreparedAtomNames);
-        std::string atom2 = IoUtils::normalizeName(table(row, "atom2"), handleUnpreparedAtomNames);
-        this->atomName_pairs_->emplace_back(std::make_tuple(atom1, atom2));
-    }
+        //TODO if handleUnpreparedAtomNames is false, we need to simplify the code
+        this->atomName_pairs_ = new std::vector<std::tuple<std::string, std::string> >();
+        for (int row = 0; row < table.rowCount(); row++) {
+            std::string atom1 = IoUtils::normalizeName(table(row, "atom1"), handleUnpreparedAtomNames);
+            std::string atom2 = IoUtils::normalizeName(table(row, "atom2"), handleUnpreparedAtomNames);
+            this->atomName_pairs_->emplace_back(atom1, atom2);
+        }
 #if VERBOSE
     for(auto [atom1, atom2]: *atomName_pairs_){
             std::cout << "[" << atom1 << "], [" << atom2 << "]" << std::endl;

@@ -52,7 +52,8 @@ std::string &Table::at(const std::string &rowName, const size_t col) {
 
 // Dimension accessors
 [[nodiscard]] size_t Table::rowCount() const { return data_.size(); }
-[[nodiscard]] size_t Table::colCount() const { return rowCount() > 0 ? data_[0].size() : 0; }
+[[nodiscard]] size_t Table::colCount() const { return colNames_.has_value()? colNames_->size() : rowCount() > 0 ? data_[0].size() : 0; }
+[[nodiscard]] bool Table::isRowComplete(const size_t row) const {return data_[row].size() == colCount();}
 
 // Name management
 [[nodiscard]] bool Table::hasColNames() const { return colNames_.has_value(); }
