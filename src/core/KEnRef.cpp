@@ -902,10 +902,11 @@ KEnRef<KEnRef_Real>::coord_array_to_sigma_energy(
         auto &&[d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, gradient, false, numOmpThreads);
         d_arrays_grad_list.at(i) = std::move(d_arrays_grad);
 
+        //TODO get rid of the grouping_matrix. find nShift someway else.
         const auto &grouping_matrix = IoUtils::subset_idx_to_grouping_mat(currentSpecDenData.get_multiple_grouping());
         //calculate the factor by which the number of models should be expanded
-        uint nshift = grouping_matrix.cols() / numModels;
-        const auto &d_arrays_shifted = array_shift(d_arrays, nshift);
+        uint nShift = grouping_matrix.cols() / numModels;
+        const auto &d_arrays_shifted = array_shift(d_arrays, nShift);
 
         //calculate norm squared for different groupings of dipole-dipole interaction tensors
         //g_matrix_list[[i]] <- d_array_to_g_matrix(d_array_shifted, spec_den_data_list[[i]][["groupings"]], gradient=gradient)

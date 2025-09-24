@@ -141,7 +141,6 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     CoordsMatrixType<KEnRef_Real_t> &subAtomsX = *this->subAtomsX_;
     CoordsMatrixType<KEnRef_Real_t> &allSimulationsSubAtomsX = *this->allSimulationsSubAtomsX_;
     //setting the coordinate values to ZERO (or ONE) is dangerous because it causes Invalid floating point operation
-    std::vector<std::vector<std::vector<int> > > &simulated_grouping_list = *this->simulated_grouping_list_;
 
 #if VERBOSE
     int iZero = 0;
