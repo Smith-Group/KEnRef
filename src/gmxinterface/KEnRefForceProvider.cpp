@@ -237,11 +237,21 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
         const auto &atomId_pairs = *this->atomId_pairs_;
         //do force calculations
-        std::tie(energy, allDerivatives_vector) =
-                KEnRef<KEnRef_Real_t>::coord_array_to_g_energy(allSimulationsSubAtomsX_vector, atomId_pairs,
-                                                               simulated_grouping_list, g0,
-                                                               this->k_, this->n_, true,
-                                                               gmx_omp_nthreads_get(ModuleMultiThread::Default));
+        switch (selectedEnergyModel) {
+            case PLATEAU_VALUES:
+                // std::vector<std::vector<std::vector<int> > > &simulated_grouping_list = ;
+                std::tie(energy, all_derivatives_vector_optional) =
+                    KEnRef<KEnRef_Real_t>::coord_array_to_g_energy(
+                        allSimulationsSubAtomsX_vector, atomId_pairs, *this->simulated_grouping_list_, g0, this->k_, this->n_,
+                        true, gmx_omp_nthreads_get(ModuleMultiThread::Default));
+                break;
+            case SIGMA:
+                std::tie(energy, all_derivatives_vector_optional) =
+                    KEnRef<KEnRef_Real_t>::coord_array_to_sigma_energy(allSimulationsSubAtomsX_vector,
+                        this->rates_, *this->SpecDenData_, this->proton_mhz_, this->k_, this->n_, *this->atomName_to_atomSub0Id_map_,
+                        true, gmx_omp_nthreads_get(ModuleMultiThread::Default));
+                break;
+        }
         if (step % 10 == 0)
             std::cout << "Step: " << step << " Energy: " << energy << std::endl;
 #if VERBOSE
@@ -500,23 +510,79 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
 
     std::cout << "KEnRef_Real_t type is: " << typeid(KEnRef_Real_t).name() << '\n';
 
-#if VERBOSE
-    for (const auto& [name, globalId] : atomName_to_atomGlobalId_map){
-            std::cout << "[" << name << "]\t:" << globalId << std::endl;
+    if (selectedEnergyModel == SIGMA) {
+        this->proton_mhz_ = IoUtils::getEnvParam("KENREF_PROTON_MHZ", this->proton_mhz_);
+
+        const bool handleNames = IoUtils::should_handleNames(atomName_to_atomGlobalId_map);
+
+        int maxId0 = -1;
+        for (const auto &[atomName, id1]: atomName_to_atomGlobalId_map) {
+            std::string tempName = atomName;
+            if (const int id0 = id1 - 1; id0 > maxId0) {
+                maxId0 = id0;
+            }
         }
-//        for(auto& entry: atomName_to_atomGlobalId_map_){
-//            auto[name, globalId] = entry;
-//            std::cout << "[" << name << "]\t:" << globalId << std::endl;
-//        }
-#endif
-    this->experimentalData_table_ = std::make_shared<Table>(
-        IoUtils::readTable(KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME, true, false,
-            "\\s*,\\s*", maxAtomPairsToRead));
-    //TODO check number of atom pairs
-    GMX_ASSERT(experimentalData_table_ && !(maxAtomPairsToRead && experimentalData_table_->rowCount() > 0), "No simulated data found");
-    const Table &table = *experimentalData_table_;
+
+        const std::vector<std::string> spec_den_data_prefixes  {"1-1", "1-2", "1-3", "2-2", "2-3", "3-3"};
+        std::vector<SpecDenData<KEnRef_Real_t>> spec_den_data_vector;
+        spec_den_data_vector.reserve(spec_den_data_prefixes.size());
+        //TODO unify `this->atomName_pairs_` among model cases
+        this->atomName_pairs_ = new std::vector<std::tuple<std::string, std::string> >();
+        for (int i = 0; i < spec_den_data_prefixes.size(); ++i) {
+            //AtomPairs
+            //TODO This variable usage is temporary. Create EXPERIMENTAL_DATA_FOLDER
+            std::string atomPairAndSigmaFileName = KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME + spec_den_data_prefixes[i]+"_atom_pairs.csv";
+            std::cout << atomPairAndSigmaFileName << std::endl;
+            const Table& atomPairAndSigmaTable = IoUtils::readTable(atomPairAndSigmaFileName,true,false, "\\s*,\\s*", -1, true);
+            std::vector<std::tuple<std::string, std::string>> atomPairs(atomPairAndSigmaTable.rowCount());
+            for (int j = 0; j < atomPairAndSigmaTable.rowCount(); ++j) {
+                auto atom1 = IoUtils::normalizeName(atomPairAndSigmaTable.at(j, 0), handleNames);
+                auto atom2 = IoUtils::normalizeName(atomPairAndSigmaTable.at(j, 1), handleNames);
+                atomPairs.at(j) = std::move(std::tuple<std::string, std::string>{ atom1, atom2 });
+                this->atomName_pairs_->emplace_back(atom1, atom2);
+            }
+            // sigma
+            std::vector<KEnRef_Real_t> sigmasVec{};
+            for (int row = 0; row < atomPairAndSigmaTable.rowCount(); ++row) {
+                if (! atomPairAndSigmaTable.isRowComplete(row))
+                    break;
+                const auto &valueStr = atomPairAndSigmaTable.at(row, 2);
+                std::istringstream iss(valueStr);
+                KEnRef_Real_t value;
+                iss >> value;
+                sigmasVec.emplace_back(value);
+
+            }
+            std::optional<NamedVector<KEnRef_Real_t>> sigma = NamedVector<KEnRef_Real_t>(sigmasVec.size());
+            for (int j = 0; j < sigma->rows(); ++j) {
+                sigma.value()(j, 0) = sigmasVec[j];
+            }
+            //multiple_grouping
+            std::string multiple_grouping_fileName = KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME + spec_den_data_prefixes[i]+"_groupings.csv";
+            const auto &grouping_matrix = NamedMatrix<int>(IoUtils::readTable(multiple_grouping_fileName, false, false).toNamedMatrix<int>().array() - 1);
+            const auto &multiple_grouping = IoUtils::grouping_mat_to_subset_idx(grouping_matrix);
+            //a_coef
+            std::string aCoefFileName = KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME + spec_den_data_prefixes[i]+"_a_coef.csv";
+            const auto &a_coef = IoUtils::readTable(aCoefFileName, true,false, "\\s*,\\s*", -1, false).toNamedMatrix<KEnRef_Real_t>();
+            //lambda_coef
+            std::string lambdaCoefFileName = KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME + spec_den_data_prefixes[i]+"_lambda_coef.csv";
+            const auto &lambda_coef = IoUtils::readTable(lambdaCoefFileName, true,true, "\\s*,\\s*", -1, false).toNamedMatrix<KEnRef_Real_t>();
+
+            std::map<std::tuple<std::string, std::string>, size_t> atomNamePairs_to_atomPairIndex; //TODO will we need to prepare this?????
+
+            // spec_den_data_vector.emplace_back(atomPairs, sigma, multiple_grouping, a_coef, lambda_coef);
+            spec_den_data_vector.emplace_back(std::move(SpecDenData<KEnRef_Real_t>{atomPairs, sigma, multiple_grouping, a_coef, lambda_coef}));
+        }
+        this->SpecDenData_ = std::make_shared<std::vector<SpecDenData<KEnRef_Real_t>>>(spec_den_data_vector);
+    }else /*if (selectedEnergyModel == PLATEAU_VALUES)*/ {
+
+        this->experimentalData_table_ = std::make_shared<Table>(
+            IoUtils::readTable(KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME, true, false,
+                "\\s*,\\s*", maxAtomPairsToRead));
+        GMX_ASSERT(experimentalData_table_ && !(maxAtomPairsToRead && experimentalData_table_->rowCount() > 0), "No simulated data found");
+        const Table &table = *experimentalData_table_;
 #if VERBOSE
-    const auto& [table_header, table_data] = *experimentalData_table_;
+        const auto& [table_header, table_data] = *experimentalData_table_;
         IoUtils::printVector(table_header);
         for(const auto& record: table_data){
             IoUtils::printVector(record);
@@ -542,19 +608,31 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
             this->atomName_pairs_->emplace_back(atom1, atom2);
         }
 #if VERBOSE
-    for(auto [atom1, atom2]: *atomName_pairs_){
-            std::cout << "[" << atom1 << "], [" << atom2 << "]" << std::endl;
+        for(auto [atom1, atom2]: *atomName_pairs_){
+                std::cout << "[" << atom1 << "], [" << atom2 << "]" << std::endl;
         }
 #endif
-    this->g0_ = new Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, Eigen::Dynamic>(table.rowCount(), 2);
-    auto &g0 = *g0_;
-    for (int i = 0; i < g0.rows(); ++i) {
-        std::istringstream temp1(table(i,"g1")), temp2(table(i, "g2"));
-        temp1 >> g0(i, 0);
-        temp2 >> g0(i, 1);
-    }
+        this->g0_ = new Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, Eigen::Dynamic>(table.rowCount(), 2);
+        auto &g0 = *g0_;
+        for (int i = 0; i < g0.rows(); ++i) {
+            std::istringstream temp1(table(i,"g1")), temp2(table(i, "g2"));
+            temp1 >> g0(i, 0);
+            temp2 >> g0(i, 1);
+        }
 #if VERBOSE
-    std::cout << *g0_ << std::endl;
+        std::cout << *g0_ << std::endl;
+#endif
+
+    }
+
+#if VERBOSE
+    for (const auto& [name, globalId] : atomName_to_atomGlobalId_map){
+        std::cout << "[" << name << "]\t:" << globalId << std::endl;
+    }
+    // for(auto& entry: atomName_to_atomGlobalId_map_){
+    //     auto[name, globalId] = entry;
+    //     std::cout << "[" << name << "]\t:" << globalId << std::endl;
+    // }
 #endif
     int maxAtomIdOfInterest = -1; // If you want to use size_t, then you can NOT use -1 as an initial value
     this->globalAtomIdFlags_ = std::make_shared<std::vector<bool> >(homenr, false);
@@ -612,21 +690,23 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
     }
 #endif
 
-    switch (numSimulations) {
-        case 1:
-            this->simulated_grouping_list_ = std::make_shared<std::vector<std::vector<std::vector<int>>>>(
+    if (selectedEnergyModel == PLATEAU_VALUES) {
+        switch (numSimulations) {
+            case 1:
+                this->simulated_grouping_list_ = std::make_shared<std::vector<std::vector<std::vector<int>>>>(
                     std::vector<std::vector<std::vector<int> > >{{{0}}, {{0}}});
-            break;
-        case 2:
-            this->simulated_grouping_list_ = std::make_shared<std::vector<std::vector<std::vector<int>>>>(
+                break;
+            case 2:
+                this->simulated_grouping_list_ = std::make_shared<std::vector<std::vector<std::vector<int>>>>(
                     std::vector<std::vector<std::vector<int>>>{{{0, 1}}, {{0}, {1}}});
-            break;
-        case 3:
-            this->simulated_grouping_list_ = std::make_shared<std::vector<std::vector<std::vector<int>>>>(
+                break;
+            case 3:
+                this->simulated_grouping_list_ = std::make_shared<std::vector<std::vector<std::vector<int>>>>(
                     std::vector<std::vector<std::vector<int>>>{{{0, 1, 2}}, {{0}, {1}, {2}}});
-            break;
-        default:
-            GMX_ASSERT(numSimulations <= 3, "I don't know how to handle more than 3 simulations yet");
+                break;
+            default:
+                GMX_ASSERT(numSimulations <= 3, "I don't know how to handle more than 3 simulations yet");
+        }
     }
     this->subAtomsX_ = std::make_shared<CoordsMatrixType<KEnRef_Real_t> >(this->sub0Id_to_global1Id_->size(), 3);//contains needed atoms only
     this->lastFrameSubAtomsX_ = std::make_shared<CoordsMatrixType<KEnRef_Real_t>>(this->subAtomsX_->rows(), this->subAtomsX_->cols());

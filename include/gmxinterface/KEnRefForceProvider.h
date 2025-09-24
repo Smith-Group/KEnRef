@@ -18,9 +18,8 @@
 
 class KEnRefForceProvider final : public gmx::IForceProvider {
 
-	//	gmx::Selection* selection = nullptr;
-	//	std::string selectionString = "resid 16 to 20 and pdbname CB"; // "distance from [3., 3., 3.] < 5.0";//"atomnr 6";
-	//	bool *selectionMask = nullptr;
+	enum energyModel {SIGMA, PLATEAU_VALUES};
+	energyModel selectedEnergyModel = SIGMA; // PLATEAU_VALUES;
 
 	gmx::SimulationContext *simulationContext_ = nullptr;
 	KEnRef_Real_t maxForceSquared_ = 200.0 * 200.0;
@@ -47,6 +46,13 @@ class KEnRefForceProvider final : public gmx::IForceProvider {
 	long long calculateForces_time = 0;
     std::shared_ptr<CoordsMatrixType<KEnRef_Real_t>> lastFrameSubAtomsX_; //Used only for proper NoJump algorithm
     std::shared_ptr<CoordsMatrixType<KEnRef_Real_t>> lastFrameGuideAtomsX_ZEROIndexed_; //Used only for proper NoJump algorithm
+	KEnRef_Real_t proton_mhz_ = 700.0;
+	std::shared_ptr<std::vector<SpecDenData<KEnRef_Real_t>>> SpecDenData_;
+	const NamedRowVector<KEnRef_Real_t> rates_ = Table(		//TODO provide a way to change it
+	{{"5.0e+08", "2.5e+08", "1.0e+12", "1.0e+04"}},
+	{{"kens", "kc", "kmethyl", "karo"}}
+	).toNamedRowVector<KEnRef_Real_t>();
+
 
 public:
 	EIGEN_MAKE_ALIGNED_OPERATOR_NEW
