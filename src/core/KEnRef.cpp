@@ -456,6 +456,7 @@ KEnRef<KEnRef_Real>::coord_array_to_r_array_backprop(
     return gradients;
 }
 
+//TODO this method is a duplicate of IoUtils::atomNamePairs_2_atomIdPairs(). Delete one of them
 template<typename KEnRef_Real>
 std::shared_ptr<std::vector<std::tuple<int, int> > >
 KEnRef<KEnRef_Real>::atomNamePairs_2_atomIdPairs(
@@ -866,7 +867,7 @@ KEnRef<KEnRef_Real>::g_matrix_to_a_matrix_backprop(
 template<typename KEnRef_Real>
 std::tuple<KEnRef_Real, std::optional<std::vector<CoordsMatrixType<KEnRef_Real> > > >
 KEnRef<KEnRef_Real>::coord_array_to_sigma_energy(
-    const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array,
+    std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array,
     const NamedRowVector<KEnRef_Real> &rates,
     const std::vector<SpecDenData<KEnRef_Real> > &spec_den_data_list,
     KEnRef_Real proton_mhz,
@@ -886,17 +887,18 @@ KEnRef<KEnRef_Real>::coord_array_to_sigma_energy(
         sigma_grad_vector_list = std::vector<Eigen::MatrixX<KEnRef_Real> >(specDenDataSize);
     }
     const int numModels = coord_array.size();
+    for (int m = 0; m < numModels; ++m)
+        coord_array[m] *= 1e-10;    // no need for coord_array_meter
 
     for (int i = 0; i < specDenDataSize; ++i) {
-        std::vector<CoordsMatrixType<KEnRef_Real> > coord_array_meter(numModels);
-        for (int m = 0; m < numModels; ++m)
-            coord_array_meter[m] = coord_array[m] * 1e-10;
-
         auto &currentSpecDenData = spec_den_data_list[i];
-        std::shared_ptr<std::vector<std::tuple<int, int>>> atom_id_pairs = atomNamePairs_2_atomIdPairs(currentSpecDenData.get_atom_pairs(), atomNames_2_atomIds); //TODO Cache AtomIdPairs not's calculate them every time
+        //Cache AtomIdPairs not's calculate them every time
+        auto cache = currentSpecDenData.get_atomIdPairs_to_sub0Atom_id_pairs_cache();
+        const std::vector<std::tuple<int, int>> &atom_id_pairs =
+            cache.has_value() ? cache.value() : *(atomNamePairs_2_atomIdPairs(currentSpecDenData.get_atom_pairs(), atomNames_2_atomIds));
         // calculate inter nuclear vectors
         const auto &r_arrays =
-            coord_array_to_r_array(coord_array_meter, *atom_id_pairs, numOmpThreads);
+            coord_array_to_r_array(coord_array, atom_id_pairs, numOmpThreads);
 
         // calculate dipole-dipole interaction tensors [and their derivatives]
         auto &&[d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, gradient, false, numOmpThreads);
@@ -1097,7 +1099,7 @@ std::vector<CoordsMatrixType<KEnRef_Real> >
 KEnRef<KEnRef_Real>::r_array_to_d_array_backprop(
     const std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15> > &d_d_array_d_r_array,
     const std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > &d_energy_d_d_vector,
-    /*const int num_interactions, const int num_ensembleMembers, */int numOmpThreads) {
+    int numOmpThreads) {
 
     const int num_ensembleMembers = d_energy_d_d_vector.size();
     const int num_models = d_d_array_d_r_array.size();

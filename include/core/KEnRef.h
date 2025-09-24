@@ -34,13 +34,13 @@ using CoordsMapTypeConst = Eigen::Map<const CoordsMatrixType<KEnRef_Real>>; // a
 
 template<typename KEnRef_Real>
 class SpecDenData {
-    std::vector<std::tuple<std::string, std::string> > atom_pairs{{},{}};
+    std::vector<std::tuple<std::string, std::string> > atom_pairs{};
     std::optional<NamedVector<KEnRef_Real>> sigma = std::nullopt;
     std::vector<std::vector<std::vector<int> > > multiple_grouping{};
     NamedMatrix<KEnRef_Real> a_coef;
     NamedMatrix<KEnRef_Real> lambda_coef;
     std::map<std::tuple<std::string, std::string>, size_t> atomNamePairs_to_atomPairIndex;
-
+    std::optional<std::vector<std::tuple<int, int> > > atomIdPairs_to_sub0Atom_id_pairs_cache_ = std::nullopt;
     KEnRef_Real getSigma(size_t atomPairId) const;
 
 public:
@@ -68,6 +68,12 @@ public:
     [[nodiscard]] const NamedMatrix<KEnRef_Real> &get_a_coef() const { return a_coef; }
     [[nodiscard]] const NamedMatrix<KEnRef_Real> &get_lambda_coef() const { return lambda_coef; }
     [[nodiscard]] const std::vector<std::vector<std::vector<int> > > &get_multiple_grouping() const { return multiple_grouping; }
+    [[nodiscard]] const std::optional<std::vector<std::tuple<int, int>>> & get_atomIdPairs_to_sub0Atom_id_pairs_cache() const {
+        return atomIdPairs_to_sub0Atom_id_pairs_cache_;
+    }
+    void set_atomIdPairs_to_sub0Atom_id_pairs_cache(const std::optional<std::vector<std::tuple<int, int>>> &atomIdPairs_to_sub0Atom_id_pairs_cache) {
+        this->atomIdPairs_to_sub0Atom_id_pairs_cache_ = atomIdPairs_to_sub0Atom_id_pairs_cache;
+    }
 };
 
 
@@ -160,7 +166,7 @@ public:
     r_array_to_d_array_backprop(
         const std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15> > &d_d_array_d_r_array,
         const std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > &d_energy_d_d_vector,
-        /*int num_interactions, int num_ensembleMembers, */int numOmpThreads);
+        int numOmpThreads);
 
 
     //Calculate internuclear vectors from atomic coordinates
@@ -326,7 +332,7 @@ public:
 
     static std::tuple<KEnRef_Real, std::optional<std::vector<CoordsMatrixType<KEnRef_Real> > > >
     coord_array_to_sigma_energy(
-        const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array,
+        std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array,
         // Matrix with each row having the names of an atom pair (related to first dimension in `coord_array` matrices)
         const NamedRowVector<KEnRef_Real> &rates,
         const std::vector<SpecDenData<KEnRef_Real> > &spec_den_data_list,

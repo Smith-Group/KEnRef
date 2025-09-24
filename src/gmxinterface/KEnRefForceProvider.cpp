@@ -683,6 +683,16 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
     }
     this->atomId_pairs_ = KEnRef<KEnRef_Real_t>::atomNamePairs_2_atomIdPairs(*atomName_pairs_,
         atomName_to_atomSub0Id_map);
+    // Cache the atomId_pairs subgroups in every specDenData object here
+    if (selectedEnergyModel == SIGMA) {
+        for (int i = 0; i < this->SpecDenData_->size(); ++i) {
+            auto & currentSpecDenData = this->SpecDenData_->at(i);
+            const auto &atomPairs = currentSpecDenData.get_atom_pairs();
+            currentSpecDenData.set_atomIdPairs_to_sub0Atom_id_pairs_cache({
+                *KEnRef<KEnRef_Real_t>::atomNamePairs_2_atomIdPairs(atomPairs, atomName_to_atomSub0Id_map)
+            });
+        }
+    }
 
 #if VERBOSE
     for(const auto& [name, subId]: atomName_to_atomSub0Id_map){
