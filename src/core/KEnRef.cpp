@@ -893,7 +893,7 @@ KEnRef<KEnRef_Real>::coord_array_to_sigma_energy(
             coord_array_meter[m] = coord_array[m] * 1e-10;
 
         auto &currentSpecDenData = spec_den_data_list[i];
-        std::shared_ptr<std::vector<std::tuple<int, int>>> atom_id_pairs = atomNamePairs_2_atomIdPairs(currentSpecDenData.get_atom_pairs(), atomNames_2_atomIds);
+        std::shared_ptr<std::vector<std::tuple<int, int>>> atom_id_pairs = atomNamePairs_2_atomIdPairs(currentSpecDenData.get_atom_pairs(), atomNames_2_atomIds); //TODO Cache AtomIdPairs not's calculate them every time
         // calculate inter nuclear vectors
         const auto &r_arrays =
             coord_array_to_r_array(coord_array_meter, *atom_id_pairs, numOmpThreads);
@@ -1039,8 +1039,8 @@ KEnRef<KEnRef_Real>::coord_array_to_sigma_energy(
             for (int j = 0; j < numModels; ++j)
                 d_energy_d_coord_array->at(j) += gradients.at(j);
         }
-        for (int i = 0; i < d_energy_d_coord_array->size(); ++i)
-            d_energy_d_coord_array->at(i) *= 1e-10; //TODO Shouldn't it be 1e+10?
+        // for (int i = 0; i < d_energy_d_coord_array->size(); ++i)
+        //     d_energy_d_coord_array->at(i) *= 1e-10; //TODO Shouldn't it be 1e+10?
     }
     return {ret1, d_energy_d_coord_array};
 }
