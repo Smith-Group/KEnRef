@@ -787,8 +787,12 @@ KEnRef<KEnRef_Real>::coord_array_to_sigma(
             coord_array_meter[m] = coord_array[m] * 1e-10;
 
         auto &currentSpecDenData = spec_den_data_list[i];
+        auto cache = currentSpecDenData.get_atomIdPairs_to_sub0Atom_id_pairs_cache();
+        const std::vector<std::tuple<int, int>> &atom_id_pairs =
+            cache.has_value() ? cache.value() : *(atomNamePairs_2_atomIdPairs(currentSpecDenData.get_atom_pairs(), atomNames_2_atomIds));
+
         // calculate inter nuclear vectors
-        const auto &r_arrays = coord_array_to_r_array( coord_array_meter, *atomNamePairs_2_atomIdPairs(currentSpecDenData.get_atom_pairs(), atomNames_2_atomIds), numOmpThreads);
+        const auto &r_arrays = coord_array_to_r_array( coord_array_meter, atom_id_pairs, numOmpThreads);
 
         // calculate dipole-dipole interaction tensors [and their derivatives]
         auto &&[d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, gradient, false, numOmpThreads);
@@ -1032,12 +1036,12 @@ KEnRef<KEnRef_Real>::coord_array_to_sigma_energy(
             //     std::cout << d_energy_d_r_array.at(j) << std::endl;
             // }
 
-            //TODO Cache the use the first call to this function and use it directly.
-            std::shared_ptr<std::vector<std::tuple<int, int>>> atom_id_pairs = atomNamePairs_2_atomIdPairs(currentSpecDenData.get_atom_pairs(), atomNames_2_atomIds);
+            auto cache = currentSpecDenData.get_atomIdPairs_to_sub0Atom_id_pairs_cache();
+            const std::vector<std::tuple<int, int>> &atom_id_pairs =
+                cache.has_value() ? cache.value() : *(atomNamePairs_2_atomIdPairs(currentSpecDenData.get_atom_pairs(), atomNames_2_atomIds));
             // accumulate back-propagated derivatives from r array into coord array gradient
             const auto & gradients =
-                coord_array_to_r_array_backprop(
-                    coord_array, *atom_id_pairs, d_energy_d_r_array,0);
+                coord_array_to_r_array_backprop(coord_array, atom_id_pairs, d_energy_d_r_array,0);
             for (int j = 0; j < numModels; ++j)
                 d_energy_d_coord_array->at(j) += gradients.at(j);
         }
