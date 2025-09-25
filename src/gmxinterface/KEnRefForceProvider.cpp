@@ -442,6 +442,7 @@ CoordsMatrixType<KEnRef_Real_t> KEnRefForceProvider::getGuideAtomsX(const std::v
 void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
                                         const CoordsMatrixType<KEnRef_Real_t> &reference,
                                         const matrix &box_, const bool toAngstrom, int numOmpThreads, const bool printStatistics) {
+#define RESTORE_NO_JUMP_VERBOSE true
     auto box = new matrix;
     if (toAngstrom)
         msmul(box_, 10, box);
@@ -452,14 +453,25 @@ void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
     // Calculate half the box length in each dimension
     const Eigen::RowVector3<KEnRef_Real_t> box_half =
         0.5 * (Eigen::RowVector3<KEnRef_Real_t>) {box[XX][XX], box[YY][YY], box[ZZ][ZZ]};
-    Eigen::RowVectorXi updatedLocations(atoms.rows());
-    updatedLocations.setZero();
+#if RESTORE_NO_JUMP_VERBOSE
+    Eigen::RowVectorXi updatedLocations;
     bool updated = false;
+    if (printStatistics) {
+        updatedLocations = Eigen::RowVectorXi::Zero(atoms.rows());
+        // updatedLocations.setZero();
+    }
+#endif
 
+#if RESTORE_NO_JUMP_VERBOSE
 #pragma omp parallel for num_threads(numOmpThreads) default(none) reduction(||:updated) \
     shared(atoms, box, box_half, reference, updatedLocations, printStatistics)
+#else
+#pragma omp parallel for num_threads(numOmpThreads) default(none) shared(atoms, box, box_half, reference, printStatistics)
+#endif
     for (int i = 0; i < atoms.rows(); ++i) {
+#if RESTORE_NO_JUMP_VERBOSE
         bool local_updated = false;
+#endif
         for (int m = DIM - 1; m >= 0; --m) {
             if (box_half[m] == 0)
                 continue;
@@ -471,27 +483,36 @@ void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
                 for (int d = 0; d <= m; ++d) {
                     atom[d] += box[m][d];
                 }
+#if RESTORE_NO_JUMP_VERBOSE
                 if (printStatistics) {
                     updatedLocations(i) = 1;
                     local_updated = true;
                 }
+#endif
             }
             while ((atom[m] - refAtom[m]) > box_half[m]) {
                 // Jumped to positive image, correct by subtracting box size
                 for (int d = 0; d <= m; ++d) {
                     atom[d] -= box[m][d];
                 }
+#if RESTORE_NO_JUMP_VERBOSE
                 if (printStatistics) {
                     updatedLocations(i) = 1;
                     local_updated = true;
                 }
+#endif
             }
         }
+#if RESTORE_NO_JUMP_VERBOSE
         updated = updated || local_updated; // this is faster than `updated |= local_updated`
+#endif
     }
+#if RESTORE_NO_JUMP_VERBOSE
     if (updated)
         std::cout << "INFO: Restored NoJump in these atoms:\n" << updatedLocations << std::endl;
+#endif
     delete[] box;
+#undef RESTORE_NO_JUMP_VERBOSE
 }
 
 void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulations, const gmx::ForceProviderInput &forceProviderInput) {
