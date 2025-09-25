@@ -102,12 +102,12 @@ public:
     }
 
     static CoordsMatrixType<precision>
-    applyTransform(Eigen::Transform<precision, 3, Eigen::Affine> affine, CoordsMatrixType<precision> coords) {
+    applyTransform(const Eigen::Transform<precision, 3, Eigen::Affine>& affine, CoordsMatrixType<precision> coords) {
         return (coords.rowwise().homogeneous() * affine.matrix().transpose()).leftCols(3).eval();
     }
 
     static CoordsMatrixType<precision>
-    applyInverseOfTransform(Eigen::Transform<precision, 3, Eigen::Affine> affine, CoordsMatrixType<precision> coords) {
+    applyInverseOfTransform(const Eigen::Transform<precision, 3, Eigen::Affine>& affine, CoordsMatrixType<precision> coords) {
         return (coords.rowwise().homogeneous() * affine.inverse().matrix().transpose()).leftCols(3).eval();
     }
 

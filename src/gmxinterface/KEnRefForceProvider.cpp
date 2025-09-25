@@ -129,7 +129,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
             }
         }
 #endif
-        fillParamsStep0(homenr, numSimulations, forceProviderInput);
+        fillParamsStep0(homenr, numSimulations, forceProviderInput); //TODO Optimize this function via OMP
         paramsInitialized = true;
     }
 
@@ -450,7 +450,7 @@ void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
 
 
     // Calculate half the box length in each dimension
-    Eigen::RowVector3<KEnRef_Real_t> box_half =
+    const Eigen::RowVector3<KEnRef_Real_t> box_half =
         0.5 * (Eigen::RowVector3<KEnRef_Real_t>) {box[XX][XX], box[YY][YY], box[ZZ][ZZ]};
     Eigen::RowVectorXi updatedLocations(atoms.rows());
     updatedLocations.setZero();
@@ -464,7 +464,7 @@ void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
             if (box_half[m] == 0)
                 continue;
             auto atom = atoms.row(i);
-            auto refAtom = reference.row(i);
+            const auto &refAtom = reference.row(i);
             // Check if atom jumped across the box in this dimension
             while (atom[m] - refAtom[m] <= -box_half[m]) {
                 // Jumped to negative image, correct by adding box size
@@ -498,8 +498,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
     auto begin = std::chrono::high_resolution_clock::now();
     bool isMultiSimulation = this->simulationContext_->multiSimulation_ != nullptr;
     this->atomName_to_atomGlobalId_map_ = std::make_shared<std::map<std::string, int> >(
-            IoUtils::getAtomMappingFromPdb<std::string, int>(KEnRefMDModule::ATOMNAME_MAPPING_FILENAME,
-                                                             IoUtils::fill_atomId_to_index_Map));
+        IoUtils::getAtomMappingFromPdb<std::string, int>(KEnRefMDModule::ATOMNAME_MAPPING_FILENAME,IoUtils::fill_atomId_to_index_Map));
     GMX_ASSERT(!atomName_to_atomGlobalId_map_->empty(), "No atom mapping found");
     auto &atomName_to_atomGlobalId_map = *this->atomName_to_atomGlobalId_map_;
 
@@ -551,7 +550,6 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
                 KEnRef_Real_t value;
                 iss >> value;
                 sigmasVec.emplace_back(value);
-
             }
             std::optional<NamedVector<KEnRef_Real_t>> sigma = NamedVector<KEnRef_Real_t>(sigmasVec.size());
             for (int j = 0; j < sigma->rows(); ++j) {
@@ -567,8 +565,6 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
             //lambda_coef
             std::string lambdaCoefFileName = KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME + spec_den_data_prefixes[i]+"_lambda_coef.csv";
             const auto &lambda_coef = IoUtils::readTable(lambdaCoefFileName, true,true, "\\s*,\\s*", -1, false).toNamedMatrix<KEnRef_Real_t>();
-
-            std::map<std::tuple<std::string, std::string>, size_t> atomNamePairs_to_atomPairIndex; //TODO will we need to prepare this?????
 
             // spec_den_data_vector.emplace_back(atomPairs, sigma, multiple_grouping, a_coef, lambda_coef);
             spec_den_data_vector.emplace_back(std::move(SpecDenData<KEnRef_Real_t>{atomPairs, sigma, multiple_grouping, a_coef, lambda_coef}));
@@ -609,7 +605,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
         }
 #if VERBOSE
         for(auto [atom1, atom2]: *atomName_pairs_){
-                std::cout << "[" << atom1 << "], [" << atom2 << "]" << std::endl;
+            std::cout << "[" << atom1 << "], [" << atom2 << "]" << std::endl;
         }
 #endif
         this->g0_ = new Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, Eigen::Dynamic>(table.rowCount(), 2);
@@ -645,7 +641,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
     for (const auto &[a1, a2]: *this->atomName_pairs_) {
 #if VERBOSE
         std::cout << "[" << a1 << "]\t" << atomName_to_atomGlobalId_map.at(a1) << "\t";
-std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::endl;
+        std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::endl;
 #endif
         //In the next lines I use .at() instead of [] deliberately; to throw an exception if unexpected name found
         if ((tempI = atomName_to_atomGlobalId_map.at(a1)) > maxAtomIdOfInterest) maxAtomIdOfInterest = tempI;
@@ -681,8 +677,7 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
             continue;
         atomName_to_atomSub0Id_map[name] = global1Id_to_sub0Id_->at(globalId);
     }
-    this->atomId_pairs_ = KEnRef<KEnRef_Real_t>::atomNamePairs_2_atomIdPairs(*atomName_pairs_,
-        atomName_to_atomSub0Id_map);
+    this->atomId_pairs_ = KEnRef<KEnRef_Real_t>::atomNamePairs_2_atomIdPairs(*atomName_pairs_, atomName_to_atomSub0Id_map);
     // Cache the atomId_pairs subgroups in every specDenData object here
     if (selectedEnergyModel == SIGMA) {
         for (int i = 0; i < this->SpecDenData_->size(); ++i) {
@@ -696,7 +691,7 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
 
 #if VERBOSE
     for(const auto& [name, subId]: atomName_to_atomSub0Id_map){
-            std::cout << "[" << name << "]\t:" << subId << std::endl;
+        std::cout << "[" << name << "]\t:" << subId << std::endl;
     }
 #endif
 
@@ -722,19 +717,23 @@ std::cout << "[" << a2 << "]\t" << atomName_to_atomGlobalId_map.at(a2) << std::e
     this->lastFrameSubAtomsX_ = std::make_shared<CoordsMatrixType<KEnRef_Real_t>>(this->subAtomsX_->rows(), this->subAtomsX_->cols());
 #if VERBOSE
     auto subAtomsX = *this->subAtomsX_; std::cout << "subAtomsX_ shape is (" << subAtomsX.rows() << ", " <<
-    subAtomsX.cols() << ")" << std::endl;
+        subAtomsX.cols() << ")" << std::endl;
 #endif
-    this->allSimulationsSubAtomsX_ = isMultiSimulation ? std::make_shared<CoordsMatrixType<KEnRef_Real_t> >(
-            numSimulations * this->subAtomsX_->rows(), 3) : this->subAtomsX_;
+    this->allSimulationsSubAtomsX_ =
+            isMultiSimulation
+                ? std::make_shared<CoordsMatrixType<KEnRef_Real_t> >(numSimulations * this->subAtomsX_->rows(), 3)
+                : this->subAtomsX_;
 #if VERBOSE
     auto allSimulationsSubAtomsX = *this->allSimulationsSubAtomsX_; std::cout << "allSimulationsSubAtomsX_ shape is ("
-    << allSimulationsSubAtomsX.rows() << ", " << allSimulationsSubAtomsX.cols() << ")" << std::endl;
+        << allSimulationsSubAtomsX.rows() << ", " << allSimulationsSubAtomsX.cols() << ")" << std::endl;
 #endif
 
     this->allDerivatives_buffer_ = std::shared_ptr<KEnRef_Real_t[]>(
-            new KEnRef_Real_t[this->subAtomsX_->size() * numSimulations]);
-    this->derivatives_buffer_ = isMultiSimulation ? std::shared_ptr<KEnRef_Real_t[]>(
-            new KEnRef_Real_t[this->subAtomsX_->size()]) : this->allDerivatives_buffer_;
+        new KEnRef_Real_t[this->subAtomsX_->size() * numSimulations]);
+    this->derivatives_buffer_ =
+        isMultiSimulation
+            ? std::shared_ptr<KEnRef_Real_t[]>(new KEnRef_Real_t[this->subAtomsX_->size()])
+            : this->allDerivatives_buffer_;
 
     fillSubAtomsX(*this->lastFrameSubAtomsX_, *this->sub0Id_to_global1Id_, forceProviderInput, true);
     (*this->lastFrameGuideAtomsX_ZEROIndexed_)(Eigen::indexing::all, Eigen::indexing::all) = getGuideAtomsX(*this->guideAtom0Indices_, forceProviderInput, true);
