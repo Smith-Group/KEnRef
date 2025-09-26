@@ -1119,11 +1119,11 @@ KEnRef<KEnRef_Real>::r_array_to_d_array_backprop(
     // sum the individual interaction tensor component derivatives associated with x, y, and z
 #pragma omp parallel for collapse(3) num_threads(numOmpThreads)
     for (int m = 0; m < num_models; m++) {
-        //TODO evaluate the effect of swapping the inner 2 loops on performance
-        for (int p = 0; p < num_pairs; ++p) {
-            const int modelShift = p / num_interactions;
-            const int rowShift = p % num_interactions;
-            for (int xyzIdx = 0; xyzIdx < 3; xyzIdx++) {
+        for (int xyzIdx = 0; xyzIdx < 3; xyzIdx++) {
+            for (int p = 0; p < num_pairs; ++p) {
+                const int modelShift = p / num_interactions;
+                const int rowShift = p % num_interactions;
+
                 d_energy_d_r_array.at(m)(p, xyzIdx) =
                     (d_d_array_d_r_array[m].row(p).array() *
                         d_energy_d_d_vector[m * shiftFactor + modelShift].row(rowShift).template replicate<3, 1>().reshaped(1, 15).array())
