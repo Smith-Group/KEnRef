@@ -279,8 +279,8 @@ public:
     // returns restraint energy calculated using \eqn{k*(g^n -g0^n)^2} //TODO correct the function.
     static std::tuple<Eigen::MatrixX<KEnRef_Real>, std::optional<Eigen::MatrixX<KEnRef_Real> > >
     power_scaled_loss_function(
-    Eigen::MatrixX<KEnRef_Real> g, // current group norm squared values
-    Eigen::MatrixX<KEnRef_Real> g0, // target group norm squared values.
+    const Eigen::MatrixX<KEnRef_Real>& g, // current group norm squared values
+    const Eigen::MatrixX<KEnRef_Real>& g0, // target group norm squared values.
     KEnRef_Real k = 1.0, // force constant
     KEnRef_Real n = 0.25, // correction power.
     bool gradient = false,

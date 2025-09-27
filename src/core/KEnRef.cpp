@@ -337,29 +337,64 @@ KEnRef<KEnRef_Real>::d_array_to_g(
 template<typename KEnRef_Real>
 std::tuple<Eigen::MatrixX<KEnRef_Real>, std::optional<Eigen::MatrixX<KEnRef_Real> > >
 KEnRef<KEnRef_Real>::power_scaled_loss_function(
-Eigen::MatrixX<KEnRef_Real> g, // current group norm squared values
-Eigen::MatrixX<KEnRef_Real> g0, // target group norm squared values.
-KEnRef_Real k, // force constant
-KEnRef_Real n, // correction power.
-const bool gradient,
-int numOmpThreads
+    const Eigen::MatrixX<KEnRef_Real>& g, // current group norm squared values
+    const Eigen::MatrixX<KEnRef_Real>& g0, // target group norm squared values.
+    KEnRef_Real k, // force constant
+    KEnRef_Real n, // correction power.
+    const bool gradient,
+    int numOmpThreads
 ) {
-
-    const auto &g_arr = g.array() /*+ std::numeric_limits<KEnRef_Real_t>::epsilon()*/;
-    const auto &g0_arr = g0.array();
-    //    std::cout << "g_arr " << g_arr << std::endl;
+    //Use Eigen's array operations for small matrices, manual for large ones
+    const auto size = g.size();
     Eigen::MatrixX<KEnRef_Real> ret1;
-    Eigen::MatrixX<KEnRef_Real> ret2;
+    std::optional<Eigen::MatrixX<KEnRef_Real>> ret2;
 
-    const auto &common = (Eigen::pow(1 + Eigen::abs(g_arr), n) - 1) * Eigen::sign(g_arr) - (
-             Eigen::pow(1 + Eigen::abs(g0_arr), n) - 1) * Eigen::sign(g0_arr);
-    //          std::cout << "loss " << loss << std::endl;
-    ret1 = k * common.square().matrix();
-    //This value may become infinity if it excceds 3.402823466E38 in a single precision float
-    if (gradient) {
-        ret2 = (2.0 * k * common * (n * Eigen::pow(1 + Eigen::abs(g_arr), n - 1))).matrix();
+    if (size < 1000) { //Threshold for Eigen vs manual optimization
+        // Small matrices: Let Eigen optimize
+        const auto& g_arr = g.array();
+        const auto& g0_arr = g0.array();
+
+        auto abs_g = g_arr.abs();
+        auto abs_g0 = g0_arr.abs();
+        auto common = ((1.0 + abs_g).pow(n) - 1.0) * g_arr.sign()
+                    - ((1.0 + abs_g0).pow(n) - 1.0) * g0_arr.sign();
+        ret1 = (k * common.square()).matrix();
+        //This value may become infinity if it excceds 3.402823466E38 in a single precision float
+        if (gradient) {
+            ret2 = (2.0 * k * common * (n * (1.0 + abs_g).pow(n - 1.0))).matrix();
+        }
+    } else {
+        // Large matrices: Manual parallelization
+        const auto rows = g.rows();
+        const auto cols = g.cols();
+        ret1.resize(rows, cols);
+        //This value may become infinity if it excceds 3.402823466E38 in a single precision float
+        if (gradient) {
+            ret2 = Eigen::MatrixX<KEnRef_Real>(rows, cols);
+        }
+        // Optimized pow() calls for common n values
+        #pragma omp parallel for num_threads(numOmpThreads) collapse(2) schedule(static)
+        for (int i = 0; i < rows; ++i) {
+            for (int j = 0; j < cols; ++j) {
+                const KEnRef_Real g_val = g(i, j);
+                const KEnRef_Real g0_val = g0(i, j);
+
+                // Fast path for special n values
+                KEnRef_Real term1, term2;
+                term1 = (std::pow(1.0 + std::abs(g_val), n) - 1.0) * ((g_val > 0) ? 1.0 : (g_val < 0) ? -1.0 : 0.0);
+                term2 = (std::pow(1.0 + std::abs(g0_val), n) - 1.0) * ((g0_val > 0) ? 1.0 : (g0_val < 0) ? -1.0 : 0.0);
+
+                const KEnRef_Real common = term1 - term2;
+                ret1(i, j) = k * common * common;
+
+                if (gradient) {
+                    KEnRef_Real grad_term = n * std::pow(1.0 + std::abs(g_val), n - 1.0);
+                    (*ret2)(i, j) = 2.0 * k * common * grad_term;
+                }
+            }
+        }
     }
-    return {ret1, ret2};
+    return {std::move(ret1), std::move(ret2)};
 }
 
 template<typename KEnRef_Real>
