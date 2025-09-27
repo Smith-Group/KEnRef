@@ -16,7 +16,6 @@ TEST(KEnRefForceProviderTestSuite, TestRestoreNoJump){
     std::vector<std::string> files {"../../res/google_tests/ensemble_coord_10ns.csv", "../../res/google_tests/ensemble_coord_moldel2_PBC_Broken.csv"};
     std::vector<CoordsMatrixType<KEnRef_Real_t>> coordsVector;
     coordsVector.reserve(files.size());
-//    float f;
     for (int i = 0; i < files.size(); ++i) {
         auto tempCoordsTable = IoUtils::readTable(files[i], false, false, ",");
         coordsVector.emplace_back(tempCoordsTable.rowCount(), 3);
