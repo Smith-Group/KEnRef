@@ -193,7 +193,7 @@ public:
         const std::vector<CoordsMatrixType<KEnRef_Real> > &d_energy_d_r_array,
         int numOmpThreads=0);
 
-    static std::shared_ptr<std::vector<std::tuple<int, int> > >
+    static std::vector<std::tuple<int, int> >
     atomNamePairs_2_atomIdPairs(const std::vector<std::tuple<std::string, std::string> > &atomName_pairs,
                                 const std::map<std::string, int> &atomNames_2_atomIds, int numOmpThreads = 0);
 

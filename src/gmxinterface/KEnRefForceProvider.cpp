@@ -698,14 +698,14 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
             continue;
         atomName_to_atomSub0Id_map[name] = global1Id_to_sub0Id_->at(globalId);
     }
-    this->atomId_pairs_ = KEnRef<KEnRef_Real_t>::atomNamePairs_2_atomIdPairs(*atomName_pairs_, atomName_to_atomSub0Id_map);
+    this->atomId_pairs_ = std::make_shared<std::vector<std::tuple<int, int> > >(KEnRef<KEnRef_Real_t>::atomNamePairs_2_atomIdPairs(*atomName_pairs_, atomName_to_atomSub0Id_map));
     // Cache the atomId_pairs subgroups in every specDenData object here
     if (selectedEnergyModel == SIGMA) {
         for (int i = 0; i < this->SpecDenData_->size(); ++i) {
             auto & currentSpecDenData = this->SpecDenData_->at(i);
             const auto &atomPairs = currentSpecDenData.get_atom_pairs();
             currentSpecDenData.set_atomIdPairs_to_sub0Atom_id_pairs_cache({
-                *KEnRef<KEnRef_Real_t>::atomNamePairs_2_atomIdPairs(atomPairs, atomName_to_atomSub0Id_map)
+                KEnRef<KEnRef_Real_t>::atomNamePairs_2_atomIdPairs(atomPairs, atomName_to_atomSub0Id_map)
             });
         }
     }
