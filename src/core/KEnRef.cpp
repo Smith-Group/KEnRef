@@ -250,15 +250,15 @@ KEnRef<KEnRef_Real>::d_array_to_g_matrix(
     return {ret1, ret2};
 }
 
-
 template<typename KEnRef_Real>
 std::tuple<Eigen::VectorX<KEnRef_Real>, std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > >
 KEnRef<KEnRef_Real>::d_array_to_g(
     const std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > &d_arrays,
     const std::vector<std::vector<int> > &grouping,
     const bool gradient, const int numOmpThreads) {
-    auto num_models = d_arrays.size();
-    auto num_interactionIds = d_arrays[0].rows();
+
+    const auto num_models = d_arrays.size();
+    const auto num_interactionIds = d_arrays[0].rows();
 
     // std::cout << "num_models " 	<< num_models << " num_pairIds " << num_pairIds << "num_groups " << num_groups << std::endl;
     Eigen::VectorX<KEnRef_Real> ret1 = Eigen::VectorX<KEnRef_Real>::Zero(num_interactionIds);
@@ -266,40 +266,52 @@ KEnRef<KEnRef_Real>::d_array_to_g(
     //Every element of ret2 (every d_matrix_grad) is a matrix(num_pairIds x 5)
     std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > ret2;
     if (gradient) {
-        ret2 = std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> >(num_models);
+        ret2.resize(num_models);
 #pragma omp parallel for num_threads(numOmpThreads)
         for (int i = 0; i < num_models; ++i) {
-            ret2.at(i) = std::move(Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>(num_interactionIds, 5));
-            // AKA d_matrix_grad
+            ret2[i] = Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>::Zero(num_interactionIds, 5); // AKA d_matrix_grad
         }
-    } else {
-        ret2 = std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> >(0);
-    }
+    }// else: ret2 remains empty by default
+
+    // Precompute constants outside grouping loop
+    const auto TWO = static_cast<KEnRef_Real>(2.0); //precompute constant
 
     //for every grouping block
     for (const auto &currentGrouping: grouping) {
-        //create a new empty d_matrix (filled with 0) to carry "average dipole interaction tensor" every group
-        Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> d_matrix = Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>::Zero(
-            num_interactionIds, 5);
-
         const auto currentGroupSize = currentGrouping.size();
-        const auto CURRENT_GROUP_SIZE_real = static_cast<KEnRef_Real_t>(currentGroupSize);
+        if (currentGroupSize == 0) continue; //skip empty groups
+        const auto CURRENT_GROUP_SIZE_real = static_cast<KEnRef_Real>(currentGroupSize);
         const auto currentGroupSize_OVER_num_models_real = CURRENT_GROUP_SIZE_real / num_models;
 
-        // sum the dipole interaction tensors within each group/block
-#pragma omp parallel for num_threads(numOmpThreads) // schedule(static) //num_threads(gmx_omp_nthreads_get(ModuleMultiThread::Default))
+        //to carry "average dipole interaction tensor" every group
+        // Use Eigen::Matrix instead of auto for better optimization
+        Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> d_matrix = Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>::Zero(num_interactionIds, 5);
+
+// Case 1: If matrix reduction is supported
+#if EIGEN_MATRIX_REDUCTION_SUPPORTED  // Defined during CMake configuration
+        #pragma omp parallel for reduction(+:d_matrix)
         for (int j = 0; j < currentGroupSize; ++j) {
-            //for every member of the grouping block
-            //sum relevant models into relevant groups (e.g., model 1 & 2 into group 1, and models 3 & 4 into group 2)
-            //#pragma omp atomic
             d_matrix += d_arrays[currentGrouping[j]];
         }
+#else
+        // Case 2: Thread-local accumulation (always safe)
+        #pragma omp parallel num_threads(numOmpThreads)
+        {
+            Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> local_d_matrix = Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>::Zero(num_interactionIds, 5);
+            #pragma omp for nowait
+            for (int j = 0; j < currentGroupSize; ++j) {
+                local_d_matrix += d_arrays[currentGrouping[j]];
+            }
+            #pragma omp critical
+            d_matrix += local_d_matrix;
+        }
+#endif
 
         if (gradient) {
-            auto TWO_OVER_num_models_currentGroupSize =
-                    static_cast<KEnRef_Real_t>(2.0) / num_models / CURRENT_GROUP_SIZE_real;
+            const auto TWO_OVER_num_models_currentGroupSize = TWO / (num_models * CURRENT_GROUP_SIZE_real); //single division
             // calculate  d_matrix_grad. d_matrix_grad shape is pairIDs * interaction tensor elements
-            const auto &d_matrix_grad = d_matrix * TWO_OVER_num_models_currentGroupSize;
+            // Compute gradient once and assign to all group members
+            const auto d_matrix_grad = d_matrix * TWO_OVER_num_models_currentGroupSize;
             // All models of the same group equally share the same value
 #pragma omp parallel for num_threads(numOmpThreads)
             for (int j = 0; j < currentGroupSize; j++) {
@@ -308,23 +320,18 @@ KEnRef<KEnRef_Real>::d_array_to_g(
             }
         }
 
-        // Divide d_matrix by currentGroupSize to get the average
-        d_matrix /= CURRENT_GROUP_SIZE_real; //N.B. Dividing it line by line in OMP, was slower(!)
-        //#pragma omp parallel for num_threads(numOmpThreads)
-        //        for (int i = 0; i < d_matrix.rows(); i++) {
-        //            d_matrix.row(i) /= CURRENT_GROUP_SIZE_real;
-        //        }
+        // Average the d_matrix
+        d_matrix /= CURRENT_GROUP_SIZE_real;
 
         // calculate self dot product (norm squared) and accumulate group's contribution to mean g
-#pragma omp parallel for num_threads(numOmpThreads)
+        #pragma omp parallel for num_threads(numOmpThreads) reduction(+:ret1) //TODO Modified: use OpenMP reduction
         for (int j = 0; j < num_interactionIds; j++) {
-            const auto contribution = d_matrix.row(j).squaredNorm() * currentGroupSize_OVER_num_models_real;
-#pragma omp atomic
-            ret1(j) += contribution;
+            //It is safe to use the vector directly
+            ret1(j) += d_matrix.row(j).squaredNorm() * currentGroupSize_OVER_num_models_real;
         }
     }
     //	std::cout << "ret1" << std::endl << ret1 << std::endl;
-    return {ret1, ret2};
+    return {std::move(ret1), std::move(ret2)}; //move semantics
 }
 
 template<typename KEnRef_Real>

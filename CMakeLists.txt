@@ -51,11 +51,46 @@ if (GROMACS_FOUND)
 endif ()
 
 find_package(OpenMP REQUIRED)
-#if (OPENMP_FOUND)
-#	message("OPENMP FOUND")
-#	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
-#	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
-#endif ()
+# ============================================================================
+# TEST EIGEN MATRIX REDUCTION SUPPORT
+# ============================================================================
+message(STATUS "Testing Eigen matrix reduction support with OpenMP...")
+
+# Try to compile and run the test
+try_run(
+		EIGEN_REDUCTION_TEST_EXITCODE
+		EIGEN_REDUCTION_TEST_COMPILED
+		${CMAKE_BINARY_DIR}
+		${CMAKE_CURRENT_SOURCE_DIR}/cmake/test_eigen_reduction.cpp
+		COMPILE_DEFINITIONS ${OpenMP_CXX_FLAGS}
+		LINK_LIBRARIES ${OpenMP_CXX_LIBRARIES} Eigen3::Eigen
+		CMAKE_FLAGS "-DINCLUDE_DIRECTORIES=${Eigen3_INCLUDE_DIRS}"
+		OUTPUT_VARIABLE EIGEN_TEST_OUTPUT
+)
+
+# Check if test compiled and ran successfully
+if(EIGEN_REDUCTION_TEST_COMPILED AND EIGEN_REDUCTION_TEST_EXITCODE EQUAL 0)
+	set(EIGEN_MATRIX_REDUCTION_SUPPORTED TRUE)
+	message(STATUS "✓ Eigen matrix reduction supported: YES")
+else()
+	set(EIGEN_MATRIX_REDUCTION_SUPPORTED FALSE)
+	message(STATUS "✗ Eigen matrix reduction supported: NO")
+	if(NOT EIGEN_REDUCTION_TEST_COMPILED)
+		message(STATUS "  Test failed to compile")
+	else()
+		message(STATUS "  Test compiled but failed to run correctly")
+	endif()
+	message(STATUS "  Test output: ${EIGEN_TEST_OUTPUT}")
+endif()
+
+# Set the preprocessor definition
+if(EIGEN_MATRIX_REDUCTION_SUPPORTED)
+	add_compile_definitions(EIGEN_MATRIX_REDUCTION_SUPPORTED=1)
+else()
+	add_compile_definitions(EIGEN_MATRIX_REDUCTION_SUPPORTED=0)
+endif()
+# ============================================================================
+
 
 FILE(GLOB core_sources "src/core/*.cpp")
 FILE(GLOB gmxinterface_sources "src/gmxinterface/*.cpp")
