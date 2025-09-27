@@ -158,25 +158,25 @@ KEnRef<KEnRef_Real>::r_array_to_d_array(const CoordsMatrixType<KEnRef_Real> &Nxy
     Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> ret2 = Eigen::Matrix<KEnRef_Real, Eigen::Dynamic,
         Eigen::Dynamic>(N, 15);
 
-    ret2.col(0) = (x * CACHE(half_minusx2_minusy2__z2) * CACHE(neg5_over_x2_y2_z2_p72)) - (x / CACHE(x2_y2_z2_p52));
-    ret2.col(1) = (y * CACHE(half_minusx2_minusy2__z2) * CACHE(neg5_over_x2_y2_z2_p72)) - (y / CACHE(x2_y2_z2_p52));
-    ret2.col(2) = (z * CACHE(half_minusx2_minusy2__z2) * CACHE(neg5_over_x2_y2_z2_p72)) + (2 * z / CACHE(x2_y2_z2_p52));
+    ret2.col(0) = x * CACHE(half_minusx2_minusy2__z2) * CACHE(neg5_over_x2_y2_z2_p72) - x / CACHE(x2_y2_z2_p52);
+    ret2.col(1) = y * CACHE(half_minusx2_minusy2__z2) * CACHE(neg5_over_x2_y2_z2_p72) - y / CACHE(x2_y2_z2_p52);
+    ret2.col(2) = z * CACHE(half_minusx2_minusy2__z2) * CACHE(neg5_over_x2_y2_z2_p72) + 2 * z / CACHE(x2_y2_z2_p52);
 
-    ret2.col(3) = (x * CACHE(x2_minusy2) * CACHE(neg5sqrt3_over_2_x2_y2_z2_p72)) + (x * CACHE(sqrt3_over_x2_y2_z2_p52));
-    ret2.col(4) = (y * CACHE(x2_minusy2) * CACHE(neg5sqrt3_over_2_x2_y2_z2_p72)) - (y * CACHE(sqrt3_over_x2_y2_z2_p52));
-    ret2.col(5) = (z * CACHE(x2_minusy2) * CACHE(neg5sqrt3_over_2_x2_y2_z2_p72));
+    ret2.col(3) = x * CACHE(x2_minusy2) * CACHE(neg5sqrt3_over_2_x2_y2_z2_p72) + x * CACHE(sqrt3_over_x2_y2_z2_p52);
+    ret2.col(4) = y * CACHE(x2_minusy2) * CACHE(neg5sqrt3_over_2_x2_y2_z2_p72) - y * CACHE(sqrt3_over_x2_y2_z2_p52);
+    ret2.col(5) = z * CACHE(x2_minusy2) * CACHE(neg5sqrt3_over_2_x2_y2_z2_p72);
 
-    ret2.col(6) = (x * CACHE(xz) * CACHE(neg5sqrt3_over_x2_y2_z2_p72)) + (z * CACHE(sqrt3_over_x2_y2_z2_p52));
-    ret2.col(7) = (y * CACHE(xz) * CACHE(neg5sqrt3_over_x2_y2_z2_p72));
-    ret2.col(8) = (z * CACHE(xz) * CACHE(neg5sqrt3_over_x2_y2_z2_p72)) + (x * CACHE(sqrt3_over_x2_y2_z2_p52));
+    ret2.col(6) = x * CACHE(xz) * CACHE(neg5sqrt3_over_x2_y2_z2_p72) + z * CACHE(sqrt3_over_x2_y2_z2_p52);
+    ret2.col(7) = y * CACHE(xz) * CACHE(neg5sqrt3_over_x2_y2_z2_p72);
+    ret2.col(8) = z * CACHE(xz) * CACHE(neg5sqrt3_over_x2_y2_z2_p72) + x * CACHE(sqrt3_over_x2_y2_z2_p52);
 
-    ret2.col(9) = (x * CACHE(yz) * CACHE(neg5sqrt3_over_x2_y2_z2_p72));
-    ret2.col(10) = (y * CACHE(yz) * CACHE(neg5sqrt3_over_x2_y2_z2_p72)) + (z * CACHE(sqrt3_over_x2_y2_z2_p52));
-    ret2.col(11) = (z * CACHE(yz) * CACHE(neg5sqrt3_over_x2_y2_z2_p72)) + (y * CACHE(sqrt3_over_x2_y2_z2_p52));
+    ret2.col(9) = x * CACHE(yz) * CACHE(neg5sqrt3_over_x2_y2_z2_p72);
+    ret2.col(10) = y * CACHE(yz) * CACHE(neg5sqrt3_over_x2_y2_z2_p72) + z * CACHE(sqrt3_over_x2_y2_z2_p52);
+    ret2.col(11) = z * CACHE(yz) * CACHE(neg5sqrt3_over_x2_y2_z2_p72) + y * CACHE(sqrt3_over_x2_y2_z2_p52);
 
-    ret2.col(12) = (x * CACHE(xy) * CACHE(neg5sqrt3_over_x2_y2_z2_p72)) + (y * CACHE(sqrt3_over_x2_y2_z2_p52));
-    ret2.col(13) = (y * CACHE(xy) * CACHE(neg5sqrt3_over_x2_y2_z2_p72)) + (x * CACHE(sqrt3_over_x2_y2_z2_p52));
-    ret2.col(14) = (z * CACHE(xy) * CACHE(neg5sqrt3_over_x2_y2_z2_p72));
+    ret2.col(12) = x * CACHE(xy) * CACHE(neg5sqrt3_over_x2_y2_z2_p72) + y * CACHE(sqrt3_over_x2_y2_z2_p52);
+    ret2.col(13) = y * CACHE(xy) * CACHE(neg5sqrt3_over_x2_y2_z2_p72) + x * CACHE(sqrt3_over_x2_y2_z2_p52);
+    ret2.col(14) = z * CACHE(xy) * CACHE(neg5sqrt3_over_x2_y2_z2_p72);
 
 #undef CACHE
     //    std:: cout << "d ret2 " << std::endl << ret2 << std::endl;
