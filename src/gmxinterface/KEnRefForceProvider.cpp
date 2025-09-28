@@ -447,32 +447,39 @@ void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
     const real scale_factor = toAngstrom ? 10.0 : 1.0;
     msmul(box_, scale_factor, box);
 
-    // Precompute box vectors and half the box length in each dimension
-    const Eigen::RowVector3<KEnRef_Real_t> box_half = 0.5 * Eigen::RowVector3<KEnRef_Real_t>(box[XX][XX], box[YY][YY], box[ZZ][ZZ]);
+    // Precompute all necessary box information
+    const KEnRef_Real_t box_half[3] = {box[XX][XX] * 0.5, box[YY][YY] * 0.5, box[ZZ][ZZ] * 0.5};
     // Precompute non-zero dimensions to avoid branching in inner loop
-    std::vector<int> active_dims;
-    for (int m = DIM - 1; m >= 0; --m) {
+    int active_dims[3];  // Stack allocation instead of vector
+    int num_active = 0;
+
+
+    for (int m = 2; m >= 0; --m) {
         if (box_half[m] != 0) {
-            active_dims.push_back(m);
+            active_dims[num_active++] = m;
         }
     }
 
 #if RESTORE_NO_JUMP_VERBOSE
     Eigen::RowVectorXi updatedLocations;
-    bool updated = false;
+    std::atomic<bool> updated{false};  //Use atomic for thread safety
     if (printStatistics) {
         updatedLocations = Eigen::RowVectorXi::Zero(atoms.rows());
     }
 #endif
 
+    const uint num_atoms = atoms.rows();
+
+    // Modified: Better loop scheduling for load balancing
+    // TODO try also schedule(dynamic, 64) or schedule(dynamic, 16) or even smaller
 #if RESTORE_NO_JUMP_VERBOSE
-    #pragma omp parallel for num_threads(numOmpThreads) default(none) \
+    #pragma omp parallel for num_threads(numOmpThreads) schedule(guided)\
         reduction(||:updated) shared(atoms, box, box_half, reference, updatedLocations, printStatistics, active_dims)
 #else
-    #pragma omp parallel for num_threads(numOmpThreads) default(none) \
+    #pragma omp parallel for num_threads(numOmpThreads) schedule(guided)\
         shared(atoms, box, box_half, reference, printStatistics, active_dims)
 #endif
-    for (int i = 0; i < atoms.rows(); ++i) {
+    for (int i = 0; i < num_atoms; ++i) {
 #if RESTORE_NO_JUMP_VERBOSE
         bool local_updated = false;
 #endif
@@ -481,21 +488,17 @@ void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
         const auto &refAtom = reference.row(i);
 
         //Iterate only over active dimensions
-        for (int m : active_dims) {
-            // Precompute difference to avoid repeated subtraction
-            KEnRef_Real_t diff = atom[m] - refAtom[m];
+        for (int dim_idx = 0; dim_idx < num_active; ++dim_idx) {
+            const int m = active_dims[dim_idx];
+            const KEnRef_Real_t diff = atom[m] - refAtom[m];
+            const KEnRef_Real_t half_len = box_half[m];
 
-            // Check if atom jumped across the box in this dimension
-            // TODO Modified: Use more efficient correction algorithm
-            // Instead of while loops, compute required corrections directly
-//            while (atom[m] - refAtom[m] <= -box_half[m]) {
-            if (diff <= -box_half[m]) {
-                // Jumped to negative image, correct by adding box size
-                // Calculate how many box lengths we need to add
-                KEnRef_Real_t correction_count = std::floor((-diff - box_half[m]) / box_half[m] * 2.0) + 1.0;
-                for (int d = 0; d <= m; ++d) {
-                    atom[d] += correction_count * box[m][d];
-                }
+            if (diff <= -half_len) {
+                KEnRef_Real_t correction_count = std::floor((-diff - half_len) / half_len * 2.0) + 1.0;
+                // Manual unrolling for DIM=3
+                if (m >= 0) atom[0] += correction_count * box[m][0];
+                if (m >= 1) atom[1] += correction_count * box[m][1];
+                if (m >= 2) atom[2] += correction_count * box[m][2];
 #if RESTORE_NO_JUMP_VERBOSE
                 if (printStatistics) {
                     updatedLocations(i) = 1;
@@ -503,14 +506,11 @@ void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
                 }
 #endif
             }
-//            while ((atom[m] - refAtom[m]) > box_half[m]) {
-            else if (diff > box_half[m]) {
-                // Jumped to positive image, correct by subtracting box size
-                // Calculate how many box lengths we need to subtract
-                KEnRef_Real_t correction_count = std::floor((diff - box_half[m]) / box_half[m] * 2.0) + 1.0;
-                for (int d = 0; d <= m; ++d) {
-                    atom[d] -= correction_count * box[m][d];
-                }
+            else if (diff > half_len) {
+                KEnRef_Real_t correction_count = std::floor((diff - half_len) / half_len * 2.0) + 1.0;
+                if (m >= 0) atom[0] -= correction_count * box[m][0];
+                if (m >= 1) atom[1] -= correction_count * box[m][1];
+                if (m >= 2) atom[2] -= correction_count * box[m][2];
 #if RESTORE_NO_JUMP_VERBOSE
                 if (printStatistics) {
                     updatedLocations(i) = 1;
@@ -520,13 +520,22 @@ void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
             }
         }
 #if RESTORE_NO_JUMP_VERBOSE
-        updated = updated || local_updated; // this is faster than `updated |= local_updated`
+        if (local_updated) {
+            updated.store(true, std::memory_order_relaxed);
+        }
 #endif
     }
 
 #if RESTORE_NO_JUMP_VERBOSE
-    if (updated)
-        std::cout << "INFO: Restored NoJump in these atoms:\n" << updatedLocations << std::endl;
+    if (printStatistics && updated.load(std::memory_order_relaxed)) {
+        // More efficient output for large systems
+        const int updated_count = updatedLocations.sum();
+        std::cout << "INFO: Restored NoJump in " << updated_count
+                  << " atoms (out of " << num_atoms << ")" << std::endl;
+        if (updated_count < 50) {  // Only show details for small numbers
+            std::cout << "Updated atom indices:\n" << updatedLocations << std::endl;
+        }
+    }
 #endif
     // delete[] box; //no need anymore
 #undef RESTORE_NO_JUMP_VERBOSE
