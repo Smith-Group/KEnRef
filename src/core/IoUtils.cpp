@@ -573,7 +573,7 @@ int IoUtils::getEnvParam(const std::string &paramName, int defaultValue) {
     return static_cast<int>(getEnvParam(paramName, static_cast<long>(defaultValue)));
 }
 
-long IoUtils::getEnvParam(const std::string &paramName, long defaultValue) {
+long IoUtils::getEnvParam(const std::string &paramName, const long defaultValue) {
     if (const char *pSEnvParam = std::getenv(paramName.c_str())) {
         long retValue = std::strtol(pSEnvParam, nullptr, 10);
         std::cout << paramName << " is: " << retValue << '\n';
@@ -604,9 +604,9 @@ std::string IoUtils::getEnvParam(const std::string &paramName, const std::string
 template<typename KEnRef_Real>
 KEnRef_Real IoUtils::getEnvParam(const std::string &paramName, KEnRef_Real defaultValue) {
     if (const char *pSEnvParam = std::getenv(paramName.c_str())) {
-        std::stringstream sstream(pSEnvParam);
+        std::stringstream sStream(pSEnvParam);
         KEnRef_Real retValue;
-        sstream >> retValue;
+        sStream >> retValue;
         std::cout << paramName << " is: " << retValue << '\n';
         return retValue;
     } else {
