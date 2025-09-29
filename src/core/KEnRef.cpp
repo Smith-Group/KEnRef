@@ -657,7 +657,7 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy(
                                                                         numOmpThreads);
 
     const auto &g_matrix = vectorOfVectors_to_Matrix(g_list, numOmpThreads);
-#if true
+#if VERBOSE
     std::cout << "========>\n";
     std::cout << "g_matrix 0\tg_matrix 1\tg_matrix Z\n" << g_matrix.format(fmt) << "\n" << std::endl;
 #endif
