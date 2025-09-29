@@ -464,7 +464,7 @@ void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
 
 #if RESTORE_NO_JUMP_VERBOSE
     Eigen::RowVectorXi updatedLocations;
-    std::atomic<bool> updated{false};  //Use atomic for thread safety
+    bool updated = false;
     if (printStatistics) {
         updatedLocations = Eigen::RowVectorXi::Zero(atoms.rows());
     }
@@ -475,8 +475,8 @@ void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
     // Modified: Better loop scheduling for load balancing
     // TODO try also schedule(dynamic, 64) or schedule(dynamic, 16) or even smaller
 #if RESTORE_NO_JUMP_VERBOSE
-    #pragma omp parallel for num_threads(numOmpThreads) schedule(guided)\
-        reduction(||:updated) shared(atoms, box, box_half, reference, updatedLocations, printStatistics, active_dims)
+    #pragma omp parallel for num_threads(numOmpThreads) schedule(guided) default(none)\
+        reduction(||:updated) shared(atoms, num_atoms, num_active, box, box_half, reference, updatedLocations, printStatistics, active_dims)
 #else
     #pragma omp parallel for num_threads(numOmpThreads) schedule(guided)\
         shared(atoms, box, box_half, reference, printStatistics, active_dims)
@@ -523,13 +523,13 @@ void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
         }
 #if RESTORE_NO_JUMP_VERBOSE
         if (local_updated) {
-            updated.store(true, std::memory_order_relaxed);
+            updated = true;
         }
 #endif
     }
 
 #if RESTORE_NO_JUMP_VERBOSE
-    if (printStatistics && updated.load(std::memory_order_relaxed)) {
+    if (printStatistics && updated) {
         // More efficient output for large systems
         const int updated_count = updatedLocations.sum();
         std::cout << "INFO: Restored NoJump in " << updated_count
