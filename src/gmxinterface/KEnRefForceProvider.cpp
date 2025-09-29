@@ -251,6 +251,8 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
                         this->rates_, *this->SpecDenData_, this->proton_mhz_, this->k_, this->n_, *this->atomName_to_atomSub0Id_map_,
                         true, gmx_omp_nthreads_get(ModuleMultiThread::Default));
                 break;
+            case UNKNOWN:
+                GMX_ASSERT(false, "ERROR: UNKNOWN energy model. please set \"ENERGY_MODEL\" in your params file");
         }
         if (step % 10 == 0)
             std::cout << "Step: " << step << " Energy: " << energy << std::endl;
@@ -518,6 +520,18 @@ void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
 void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulations, const gmx::ForceProviderInput &forceProviderInput) {
     auto begin = std::chrono::high_resolution_clock::now();
     bool isMultiSimulation = this->simulationContext_->multiSimulation_ != nullptr;
+    std::cout << "Energy model: ";
+    switch (selectedEnergyModel) {
+        case SIGMA:
+            std::cout << "SIGMA" << std::endl;
+            break;
+        case PLATEAU_VALUES:
+            std::cout << "PLATEAU_VALUES" << std::endl;
+            break;
+        default:
+            std::cout << "UNKNOWN" << std::endl;
+            break;
+    }
     this->atomName_to_atomGlobalId_map_ = std::make_shared<std::map<std::string, int> >(
         IoUtils::getAtomMappingFromPdb<std::string, int>(KEnRefMDModule::ATOMNAME_MAPPING_FILENAME,IoUtils::fill_atomId_to_index_Map));
     GMX_ASSERT(!atomName_to_atomGlobalId_map_->empty(), "No atom mapping found");
@@ -550,8 +564,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
         this->atomName_pairs_ = new std::vector<std::tuple<std::string, std::string> >();
         for (int i = 0; i < spec_den_data_prefixes.size(); ++i) {
             //AtomPairs
-            //TODO This variable usage is temporary. Create EXPERIMENTAL_DATA_FOLDER
-            std::string atomPairAndSigmaFileName = KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME + spec_den_data_prefixes[i]+"_atom_pairs.csv";
+            std::string atomPairAndSigmaFileName = KEnRefMDModule::EXPERIMENTAL_DATA_FOLDER + spec_den_data_prefixes[i]+"_atom_pairs.csv";
             std::cout << atomPairAndSigmaFileName << std::endl;
             const Table& atomPairAndSigmaTable = IoUtils::readTable(atomPairAndSigmaFileName,true,false, "\\s*,\\s*", -1, true);
             std::vector<std::tuple<std::string, std::string>> atomPairs(atomPairAndSigmaTable.rowCount());
@@ -577,14 +590,14 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
                 sigma.value()(j, 0) = sigmasVec[j];
             }
             //multiple_grouping
-            std::string multiple_grouping_fileName = KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME + spec_den_data_prefixes[i]+"_groupings.csv";
+            std::string multiple_grouping_fileName = KEnRefMDModule::EXPERIMENTAL_DATA_FOLDER + spec_den_data_prefixes[i]+"_groupings.csv";
             const auto &grouping_matrix = NamedMatrix<int>(IoUtils::readTable(multiple_grouping_fileName, false, false).toNamedMatrix<int>().array() - 1);
             const auto &multiple_grouping = IoUtils::grouping_mat_to_subset_idx(grouping_matrix);
             //a_coef
-            std::string aCoefFileName = KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME + spec_den_data_prefixes[i]+"_a_coef.csv";
+            std::string aCoefFileName = KEnRefMDModule::EXPERIMENTAL_DATA_FOLDER + spec_den_data_prefixes[i]+"_a_coef.csv";
             const auto &a_coef = IoUtils::readTable(aCoefFileName, true,false, "\\s*,\\s*", -1, false).toNamedMatrix<KEnRef_Real_t>();
             //lambda_coef
-            std::string lambdaCoefFileName = KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME + spec_den_data_prefixes[i]+"_lambda_coef.csv";
+            std::string lambdaCoefFileName = KEnRefMDModule::EXPERIMENTAL_DATA_FOLDER + spec_den_data_prefixes[i]+"_lambda_coef.csv";
             const auto &lambda_coef = IoUtils::readTable(lambdaCoefFileName, true,true, "\\s*,\\s*", -1, false).toNamedMatrix<KEnRef_Real_t>();
 
             // spec_den_data_vector.emplace_back(atomPairs, sigma, multiple_grouping, a_coef, lambda_coef);

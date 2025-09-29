@@ -96,15 +96,19 @@ class KEnRefMDModule final: public gmx::IMDModule {
     std::shared_ptr<std::vector<int> const> guideAtoms0Indexed; //ZERO indexed
     std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> guideAtomsReferenceCoords_;
 
-    static void readParams(const char *kenref_params) {
+    static void loadParams(const std::string& kenref_params) {
         const std::map<std::string, std::string> &params = IoUtils::readParams(kenref_params);
         GMX_ASSERT(!params.empty(), "Parameters file does not exist or is empty.");
         KEnRefMDModule::GUIDE_C_ALPHA = params.at("GUIDE_C_ALPHA");
         KEnRefMDModule::INDEX_FILE_LOCATION = params.at("INDEX_FILE_LOCATION");
         KEnRefMDModule::ATOMNAME_MAPPING_FILENAME = params.at("ATOMNAME_MAPPING_FILENAME");
-        KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME = params.at("EXPERIMENTAL_DATA_FILENAME");
-        auto refFileLocation = params.find("REFERENCE_FILENAME");
-        if (refFileLocation == params.end()){ //NOT Found
+        KEnRefMDModule::ENERGY_MODEL = params.at("ENERGY_MODEL");
+        if (ENERGY_MODEL == "PLATEAU_VALUES") {
+            KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME = params.at("EXPERIMENTAL_DATA_FILENAME");
+        } else if (ENERGY_MODEL == "SIGMA") {
+            KEnRefMDModule::EXPERIMENTAL_DATA_FOLDER = params.at("EXPERIMENTAL_DATA_FOLDER");
+        }//else leave it UNKNOWN
+        if (const auto refFileLocation = params.find("REFERENCE_FILENAME"); refFileLocation == params.end()){ //NOT Found
             KEnRefMDModule::REFERENCE_FILENAME = ATOMNAME_MAPPING_FILENAME;
             std::cout << "REFERENCE_FILENAME not found, using ATOMNAME_MAPPING_FILENAME (" << ATOMNAME_MAPPING_FILENAME << ")" << std::endl;
         }else{ //Found
@@ -117,7 +121,9 @@ public:
     inline static std::string INDEX_FILE_LOCATION; // = "../../res/cleanstart/KEnRefAtomIndex.ndx";
     inline static std::string REFERENCE_FILENAME; // = "../../res/cleanstart/6v5d_step0_for_atomname_mapping.pdb";
     inline static std::string ATOMNAME_MAPPING_FILENAME; // = "../../res/cleanstart/6v5d_step0_for_atomname_mapping.pdb";
+    inline static std::string ENERGY_MODEL; // = SIGMA
     inline static std::string EXPERIMENTAL_DATA_FILENAME; // = "../../res/cleanstart/singleton_data_step0_model01.csv";
+    inline static std::string EXPERIMENTAL_DATA_FOLDER; // = "../../res/cleanstart/";
 
     KEnRefMDModule();
 	~KEnRefMDModule() override;
