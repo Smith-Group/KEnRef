@@ -13,13 +13,8 @@
 
 KEnRefMDModule::KEnRefMDModule() {
     ///// load default params /////////////////////////
-    if (const char *kenref_params = std::getenv("KENREF_PARAMS")) {
-        std::cout << "KENREF_PARAMS path is: " << kenref_params << std::endl;
-        readParams(kenref_params);
-    }else{
-        std::cout << "No KENREF_PARAMS identified. Will use default value of " << "KENREF_PARAMS.txt" << std::endl;
-        readParams("KENREF_PARAMS.txt");
-    }
+    const auto kenref_params = IoUtils::getEnvParam("KENREF_PARAMS", "KENREF_PARAMS.txt");
+	loadParams(kenref_params);
     //////////////////////////////////////////////////
 
 	std::vector<int>const& indices = GmxKEnRefInitializer::loadGmxIndexGroup(KEnRefMDModule::GUIDE_C_ALPHA, KEnRefMDModule::INDEX_FILE_LOCATION);
@@ -68,6 +63,12 @@ void KEnRefMDModule::initForceProviders(gmx::ForceProviders* forceProviders) {
 	forceProvider_->setSimulationContext(simulationContext_);
     forceProvider_->setGuideAtom0Indices(this->guideAtoms0Indexed);
     forceProvider_->setGuideAtomsReferenceCoords(this->guideAtomsReferenceCoords_);
+	//TODO move the if condition to load_params() and let this place for only setting values.
+	if (ENERGY_MODEL == "SIGMA") {
+		forceProvider_->set_selected_energy_model(KEnRefForceProvider::SIGMA);
+	}else if (ENERGY_MODEL == "PLATEAU_VALUES") {
+		forceProvider_->set_selected_energy_model(KEnRefForceProvider::PLATEAU_VALUES);
+	}
 	forceProviders->addForceProvider(forceProvider_.get());
 }
 
