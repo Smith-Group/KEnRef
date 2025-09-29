@@ -1,0 +1,6 @@
+GUIDE_C_ALPHA = "guideC-alpha"
+INDEX_FILE_LOCATION = "../../../../res/plateau/md_double/KEnRefAtomIndex.ndx"
+ENERGY_MODEL = PLATEAU_VALUES
+EXPERIMENTAL_DATA_FILENAME = "../../../../res/plateau/md_double/singleton_data_GB3_all.csv"
+ATOMNAME_MAPPING_FILENAME = "../../../../res/plateau/md_double/GB3_27_10us.pdb"
+REFERENCE_FILENAME = "../../../../res/plateau/md_double/GB3_27_10us.pdb"
