@@ -609,7 +609,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
         this->experimentalData_table_ = std::make_shared<Table>(
             IoUtils::readTable(KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME, true, false,
                 "\\s*,\\s*", maxAtomPairsToRead));
-        GMX_ASSERT(experimentalData_table_ && !(maxAtomPairsToRead && experimentalData_table_->rowCount() > 0), "No simulated data found");
+        GMX_ASSERT(experimentalData_table_ && experimentalData_table_->rowCount() > 0, "No simulated data found");
         const Table &table = *experimentalData_table_;
 #if VERBOSE
         const auto& [table_header, table_data] = *experimentalData_table_;
