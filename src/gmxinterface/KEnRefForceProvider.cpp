@@ -517,7 +517,7 @@ void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
 #if RESTORE_NO_JUMP_VERBOSE
     if (updated) {
         const int updated_count = updatedLocations.sum();
-        std::cout << "INFO: Restored NoJump in " << updated_count << " atoms (out of " << updatedLocations.sum()
+        std::cout << "INFO: Restored NoJump in " << updated_count << " atoms (out of " << updatedLocations.size()
         << ")" << std::endl;
         if (updated_count < 50) {  // Only show details for small numbers
             std::cout << "Updated atom indices:\n" << updatedLocations << std::endl;
