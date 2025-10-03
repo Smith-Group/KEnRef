@@ -96,17 +96,24 @@ class KEnRefMDModule final: public gmx::IMDModule {
     std::shared_ptr<std::vector<int> const> guideAtoms0Indexed; //ZERO indexed
     std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> guideAtomsReferenceCoords_;
 
+    static std::string get_param_value(const std::map<std::string, std::string> &params, const std::string &key) {
+        GMX_ASSERT(params.find(key) != params.end(), "ERROR: Parameter '" + key + "' is not found!");
+        std::string value = params.at(key);
+        std::cout << "Parameter '" + key + "' = " << value << std::endl;
+        return value;
+    }
+
     static void loadParams(const std::string& kenref_params) {
         const std::map<std::string, std::string> &params = IoUtils::readParams(kenref_params);
-        GMX_ASSERT(!params.empty(), "Parameters file does not exist or is empty.");
-        KEnRefMDModule::GUIDE_C_ALPHA = params.at("GUIDE_C_ALPHA");
-        KEnRefMDModule::INDEX_FILE_LOCATION = params.at("INDEX_FILE_LOCATION");
-        KEnRefMDModule::ATOMNAME_MAPPING_FILENAME = params.at("ATOMNAME_MAPPING_FILENAME");
-        KEnRefMDModule::ENERGY_MODEL = params.at("ENERGY_MODEL");
+        GMX_ASSERT(!params.empty(), "Parameters file is empty.");
+        KEnRefMDModule::GUIDE_C_ALPHA = get_param_value(params, "GUIDE_C_ALPHA");
+        KEnRefMDModule::INDEX_FILE_LOCATION = get_param_value(params,"INDEX_FILE_LOCATION");
+        KEnRefMDModule::ATOMNAME_MAPPING_FILENAME = get_param_value(params,"ATOMNAME_MAPPING_FILENAME");
+        KEnRefMDModule::ENERGY_MODEL = get_param_value(params,"ENERGY_MODEL");
         if (ENERGY_MODEL == "PLATEAU_VALUES") {
-            KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME = params.at("EXPERIMENTAL_DATA_FILENAME");
+            KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME = get_param_value(params,"EXPERIMENTAL_DATA_FILENAME");
         } else if (ENERGY_MODEL == "SIGMA") {
-            KEnRefMDModule::EXPERIMENTAL_DATA_FOLDER = params.at("EXPERIMENTAL_DATA_FOLDER");
+            KEnRefMDModule::EXPERIMENTAL_DATA_FOLDER = get_param_value(params,"EXPERIMENTAL_DATA_FOLDER");
         }//else leave it UNKNOWN
         if (const auto refFileLocation = params.find("REFERENCE_FILENAME"); refFileLocation == params.end()){ //NOT Found
             KEnRefMDModule::REFERENCE_FILENAME = ATOMNAME_MAPPING_FILENAME;

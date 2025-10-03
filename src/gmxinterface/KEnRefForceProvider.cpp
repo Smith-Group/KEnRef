@@ -252,7 +252,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
                         true, gmx_omp_nthreads_get(ModuleMultiThread::Default));
                 break;
             case UNKNOWN:
-                GMX_ASSERT(false, "ERROR: UNKNOWN energy model. please set \"ENERGY_MODEL\" in your params file");
+                GMX_ASSERT(selectedEnergyModel != UNKNOWN, "ERROR: UNKNOWN energy model. please set \"ENERGY_MODEL\" in your params file");
         }
         if (step % 10 == 0)
             std::cout << "Step: " << step << " Energy: " << energy << std::endl;

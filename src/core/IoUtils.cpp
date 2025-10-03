@@ -495,12 +495,16 @@ void IoUtils::fill_atomIndex1_to_coords_Map(std::map<int, Eigen::RowVector3<KEnR
 
 std::map<std::string, std::string> IoUtils::readParams(const std::string &fileName) {
     std::ifstream paramsFileStream(fileName);
+    if (paramsFileStream.fail()) {
+        std::cerr << "ERROR: Could not open " << fileName << "\n";
+        throw std::runtime_error("File not found: " + fileName);
+    }
     return readParams(paramsFileStream);
 }
 
 std::map<std::string, std::string> IoUtils::readParams(std::istream &paramsFileStream) {
     std::string line;
-    std::regex recordTemplate{R"(^\s*(.+?)\s*=\s*(\S.*?)\s*(#.*)?)"};
+    const std::regex recordTemplate{R"(^\s*(.+?)\s*=\s*(\S.*?)\s*(#.*)?)"};
     std::smatch sm;
     std::map<std::string, std::string> ret{};
     while (std::getline(paramsFileStream, line)) {
