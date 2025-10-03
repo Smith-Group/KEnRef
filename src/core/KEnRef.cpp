@@ -444,22 +444,53 @@ KEnRef<KEnRef_Real>::power_scaled_loss_function(
     Eigen::MatrixX<KEnRef_Real> ret1;
     std::optional<Eigen::MatrixX<KEnRef_Real>> ret2;
 
+    // Optimized: Special fast paths for common n values
+    const bool is_n_half = (n == static_cast<KEnRef_Real>(0.5));
+    const bool is_n_quarter = (n == static_cast<KEnRef_Real>(0.25));
+
     if (size < 1000) { //Threshold for Eigen vs manual optimization
         // Small matrices: Let Eigen optimize
         const auto& g_arr = g.array();
         const auto& g0_arr = g0.array();
 
-        auto abs_g = g_arr.abs();
-        auto abs_g0 = g0_arr.abs();
-        auto common = ((1.0 + abs_g).pow(n) - 1.0) * g_arr.sign()
-                    - ((1.0 + abs_g0).pow(n) - 1.0) * g0_arr.sign();
-        ret1 = (k * common.square()).matrix();
-        //This value may become infinity if it excceds 3.402823466E38 in a single precision float
-        if (gradient) {
-            ret2 = (2.0 * k * common * (n * (1.0 + abs_g).pow(n - 1.0))).matrix();
+        if (is_n_half) {
+            // Optimized: n = 0.5: sqrt(1 + |x|) - 1 * sign(x)
+            auto term1 = ((1.0 + g_arr.abs()).sqrt() - 1.0) * g_arr.sign();
+            auto term2 = ((1.0 + g0_arr.abs()).sqrt() - 1.0) * g0_arr.sign();
+            auto common = term1 - term2;
+            ret1 = (k * common.square()).matrix();
+
+            if (gradient) {
+                // Gradient for n=0.5: 0.5 / sqrt(1 + |x|)
+                ret2 = (2.0 * k * common * (0.5 / (1.0 + g_arr.abs()).sqrt())).matrix();
+            }
+        }
+        else if (is_n_quarter) {
+            // Optimized: n = 0.25: (1 + |x|)^0.25 - 1 * sign(x)
+            auto term1 = ((1.0 + g_arr.abs()).sqrt().sqrt() - 1.0) * g_arr.sign(); // sqrt(sqrt()) = ^0.25
+            auto term2 = ((1.0 + g0_arr.abs()).sqrt().sqrt() - 1.0) * g0_arr.sign();
+            auto common = term1 - term2;
+            ret1 = (k * common.square()).matrix();
+
+            if (gradient) {
+                // Gradient for n=0.25: 0.25 / ((1 + |x|)^0.75)
+                ret2 = (2.0 * k * common * (0.25 / ((1.0 + g_arr.abs()).sqrt().sqrt() * (1.0 + g_arr.abs()).sqrt()))).matrix();
+            }
+        }
+        else {
+            // General case
+            auto abs_g = g_arr.abs();
+            auto abs_g0 = g0_arr.abs();
+            auto common = ((1.0 + abs_g).pow(n) - 1.0) * g_arr.sign()
+                        - ((1.0 + abs_g0).pow(n) - 1.0) * g0_arr.sign();
+            ret1 = (k * common.square()).matrix();
+
+            if (gradient) {
+                ret2 = (2.0 * k * common * (n * (1.0 + abs_g).pow(n - 1.0))).matrix();
+            }
         }
     } else {
-        // Large matrices: Manual parallelization
+        // Large matrices: Manual parallelization with optimized paths
         const auto rows = g.rows();
         const auto cols = g.cols();
         ret1.resize(rows, cols);
@@ -473,17 +504,45 @@ KEnRef<KEnRef_Real>::power_scaled_loss_function(
             for (int j = 0; j < cols; ++j) {
                 const KEnRef_Real g_val = g(i, j);
                 const KEnRef_Real g0_val = g0(i, j);
+                const KEnRef_Real abs_g = std::abs(g_val);
+                const KEnRef_Real abs_g0 = std::abs(g0_val);
+                const KEnRef_Real sign_g = (g_val > 0) ? 1.0 : (g_val < 0) ? -1.0 : 0.0;
+                const KEnRef_Real sign_g0 = (g0_val > 0) ? 1.0 : (g0_val < 0) ? -1.0 : 0.0;
 
-                // Fast path for special n values
                 KEnRef_Real term1, term2;
-                term1 = (std::pow(1.0 + std::abs(g_val), n) - 1.0) * ((g_val > 0) ? 1.0 : (g_val < 0) ? -1.0 : 0.0);
-                term2 = (std::pow(1.0 + std::abs(g0_val), n) - 1.0) * ((g0_val > 0) ? 1.0 : (g0_val < 0) ? -1.0 : 0.0);
+
+                if (is_n_half) {
+                    // Optimized: n = 0.5 using sqrt (much faster than pow)
+                    term1 = (std::sqrt(1.0 + abs_g) - 1.0) * sign_g;
+                    term2 = (std::sqrt(1.0 + abs_g0) - 1.0) * sign_g0;
+                }
+                else if (is_n_quarter) {
+                    // Optimized: n = 0.25 using nested sqrt
+                    term1 = (std::sqrt(std::sqrt(1.0 + abs_g)) - 1.0) * sign_g;
+                    term2 = (std::sqrt(std::sqrt(1.0 + abs_g0)) - 1.0) * sign_g0;
+                }
+                else {
+                    // General case
+                    term1 = (std::pow(1.0 + abs_g, n) - 1.0) * sign_g;
+                    term2 = (std::pow(1.0 + abs_g0, n) - 1.0) * sign_g0;
+                }
 
                 const KEnRef_Real common = term1 - term2;
                 ret1(i, j) = k * common * common;
 
                 if (gradient) {
-                    KEnRef_Real grad_term = n * std::pow(1.0 + std::abs(g_val), n - 1.0);
+                    KEnRef_Real grad_term;
+                    if (is_n_half) {
+                        // Optimized: 0.5 / sqrt(1 + |x|)
+                        grad_term = 0.5 / std::sqrt(1.0 + abs_g);
+                    }
+                    else if (is_n_quarter) {
+                        // Optimized: 0.25 / ((1 + |x|)^0.75)
+                        grad_term = 0.25 / (std::sqrt(std::sqrt(1.0 + abs_g)) * std::sqrt(1.0 + abs_g));
+                    }
+                    else {
+                        grad_term = n * std::pow(1.0 + abs_g, n - 1.0);
+                    }
                     (*ret2)(i, j) = 2.0 * k * common * grad_term;
                 }
             }
