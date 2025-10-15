@@ -178,6 +178,15 @@ public:
         };
         std::string s2OutputPathName = constructFileNamePath(outPathTemplate, s2OutFileTemplate, replacements);
         std::cout << "S2 output file path: " << s2OutputPathName << std::endl;
+        std::filesystem::path file_path(s2OutputPathName);
+        // Create the directories if they do not exist
+        if (auto parent = file_path.parent_path(); !parent.empty() && !exists(parent)){
+            std::error_code ec;
+            std::filesystem::create_directories(parent, ec);
+            if (ec) {
+                std::cerr << "Error creating directories: " << ec.message() << std::endl;
+            }
+        }
         std::ofstream s2OutFileStream;
         s2OutFileStream.open(s2OutputPathName);
         if(s2OutFileStream.is_open()){

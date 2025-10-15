@@ -269,9 +269,9 @@ public:
         std::cout << "Energy output file path: " << energyOutputFileName << std::endl;
         std::filesystem::path file_path(energyOutputFileName);
         // Create the directories if they do not exist
-        if (!exists(file_path.parent_path())){
+        if (auto parent = file_path.parent_path(); !parent.empty() && !exists(parent)){
             std::error_code ec;
-            std::filesystem::create_directories(file_path.parent_path(), ec);
+            std::filesystem::create_directories(parent, ec);
             if (ec) {
                 std::cerr << "Error creating directories: " << ec.message() << std::endl;
             }
