@@ -18,11 +18,9 @@
 
 class KEnRefForceProvider final : public gmx::IForceProvider {
 
-public:
-	enum energyModel {SIGMA, PLATEAU_VALUES, UNKNOWN};
 private:
 	//force the user to select one value
-	energyModel selectedEnergyModel = UNKNOWN; //SIGMA; // PLATEAU_VALUES;
+	KEnRef<KEnRef_Real_t>::energyModel selectedEnergyModel = KEnRef<KEnRef_Real_t>::energyModel::UNKNOWN; //SIGMA; // PLATEAUS;
 
 	gmx::SimulationContext *simulationContext_ = nullptr;
 	KEnRef_Real_t maxForceSquared_ = 200.0 * 200.0;
@@ -102,7 +100,7 @@ public:
     static void fillSubAtomsX(CoordsMatrixType<KEnRef_Real_t> &subAtomsX, const std::vector<int> &sub0Id_to_global1Id,
                               const gmx::ForceProviderInput &forceProviderInput, bool toAngstrom);
 
-	void set_selected_energy_model(const energyModel selected_energy_model) {
+	void set_selected_energy_model(const KEnRef<KEnRef_Real_t>::energyModel selected_energy_model) {
 		selectedEnergyModel = selected_energy_model;
 	}
 };

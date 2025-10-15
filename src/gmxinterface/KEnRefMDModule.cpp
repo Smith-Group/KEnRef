@@ -65,9 +65,9 @@ void KEnRefMDModule::initForceProviders(gmx::ForceProviders* forceProviders) {
     forceProvider_->setGuideAtomsReferenceCoords(this->guideAtomsReferenceCoords_);
 	//TODO move the if condition to load_params() and let this place for only setting values.
 	if (ENERGY_MODEL == "SIGMA") {
-		forceProvider_->set_selected_energy_model(KEnRefForceProvider::SIGMA);
-	}else if (ENERGY_MODEL == "PLATEAU_VALUES") {
-		forceProvider_->set_selected_energy_model(KEnRefForceProvider::PLATEAU_VALUES);
+		forceProvider_->set_selected_energy_model(KEnRef<KEnRef_Real_t>::energyModel::SIGMA);
+	}else if (ENERGY_MODEL == "PLATEAUS") {
+		forceProvider_->set_selected_energy_model(KEnRef<KEnRef_Real_t>::energyModel::PLATEAUS);
 	}
 	forceProviders->addForceProvider(forceProvider_.get());
 }

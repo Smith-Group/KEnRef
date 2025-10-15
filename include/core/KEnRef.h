@@ -8,7 +8,6 @@
 #ifndef KENREF_H_
 #define KENREF_H_
 
-#include <memory>
 #include <utility>
 #include <vector>
 #include <map>
@@ -88,7 +87,10 @@ public:
 //	KEnRef& operator=(const KEnRef &other);
 //	KEnRef& operator=(KEnRef &&other);
 
-    enum lossFunction{POWER_SCALED_LOSS_FUNCTION, LOG_ABS_DIFFERENCE_OVER_OPTIMUM_LOSS_FUNCTION};
+    enum class lossFunction: int {POWER_SCALED_LOSS_FUNCTION, LOG_ABS_DIFFERENCE_OVER_OPTIMUM_LOSS_FUNCTION};
+    enum class energyModel: int {UNKNOWN, SIGMA, PLATEAUS};
+    const static inline std::map<std::string, energyModel> energyModelMap{{"UNKNOWN", energyModel::UNKNOWN}, {"SIGMA", energyModel::SIGMA}, {"PLATEAUS", energyModel::PLATEAUS}};
+    const static inline std::vector<std::string> spec_den_data_prefixes {"1-1", "1-2", "1-3", "2-2", "2-3", "3-3"};
     inline static const std::string KC = "kc";
 
     static std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> >

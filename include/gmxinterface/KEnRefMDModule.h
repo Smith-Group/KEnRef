@@ -97,7 +97,7 @@ class KEnRefMDModule final: public gmx::IMDModule {
     std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> guideAtomsReferenceCoords_;
 
     static std::string get_param_value(const std::map<std::string, std::string> &params, const std::string &key) {
-        GMX_ASSERT(params.find(key) != params.end(), "ERROR: Parameter '" + key + "' is not found!");
+        GMX_ASSERT(params.find(key) != params.end(), ("ERROR: Parameter '" + key + "' is not found!").c_str());
         std::string value = params.at(key);
         std::cout << "Parameter '" + key + "' = " << value << std::endl;
         return value;
@@ -110,7 +110,7 @@ class KEnRefMDModule final: public gmx::IMDModule {
         KEnRefMDModule::INDEX_FILE_LOCATION = get_param_value(params,"INDEX_FILE_LOCATION");
         KEnRefMDModule::ATOMNAME_MAPPING_FILENAME = get_param_value(params,"ATOMNAME_MAPPING_FILENAME");
         KEnRefMDModule::ENERGY_MODEL = get_param_value(params,"ENERGY_MODEL");
-        if (ENERGY_MODEL == "PLATEAU_VALUES") {
+        if (ENERGY_MODEL == "PLATEAUS") {
             KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME = get_param_value(params,"EXPERIMENTAL_DATA_FILENAME");
         } else if (ENERGY_MODEL == "SIGMA") {
             KEnRefMDModule::EXPERIMENTAL_DATA_FOLDER = get_param_value(params,"EXPERIMENTAL_DATA_FOLDER");

@@ -238,21 +238,21 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         const auto &atomId_pairs = *this->atomId_pairs_;
         //do force calculations
         switch (selectedEnergyModel) {
-            case PLATEAU_VALUES:
+            case KEnRef<KEnRef_Real_t>::energyModel::PLATEAUS:
                 // std::vector<std::vector<std::vector<int> > > &simulated_grouping_list = ;
                 std::tie(energy, all_derivatives_vector_optional) =
                     KEnRef<KEnRef_Real_t>::coord_array_to_g_energy(
                         allSimulationsSubAtomsX_vector, atomId_pairs, *this->simulated_grouping_list_, g0, this->k_, this->n_,
                         true, gmx_omp_nthreads_get(ModuleMultiThread::Default));
                 break;
-            case SIGMA:
+            case KEnRef<KEnRef_Real_t>::energyModel::SIGMA:
                 std::tie(energy, all_derivatives_vector_optional) =
                     KEnRef<KEnRef_Real_t>::coord_array_to_sigma_energy(allSimulationsSubAtomsX_vector,
                         this->rates_, *this->SpecDenData_, this->proton_mhz_, this->k_, this->n_, *this->atomName_to_atomSub0Id_map_,
                         true, gmx_omp_nthreads_get(ModuleMultiThread::Default));
                 break;
-            case UNKNOWN:
-                GMX_ASSERT(selectedEnergyModel != UNKNOWN, "ERROR: UNKNOWN energy model. please set \"ENERGY_MODEL\" in your params file");
+            default:
+                GMX_ASSERT(selectedEnergyModel != KEnRef<KEnRef_Real_t>::energyModel::UNKNOWN, "ERROR: UNKNOWN energy model. please set \"ENERGY_MODEL\" in your params file");
         }
         if (step % 10 == 0)
             std::cout << "Step: " << step << " Energy: " << energy << std::endl;
@@ -260,7 +260,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         std::cout << "energy = " << energy << ", allDerivatives_vector:" << std::endl;
         for (int i = 0; i < all_derivatives_vector_optional.value().size(); i++) {
             std::cout << "model " << i << " shape (" << all_derivatives_vector_optional.value()[i].rows() << " x " << all_derivatives_vector_optional.value()[i].cols()
-                      << ")" << std::endl << all_derivatives_vector_optional.value()[i] << std::endl;
+                << ")" << std::endl << all_derivatives_vector_optional.value()[i] << std::endl;
         }
 #endif
     }
@@ -533,11 +533,11 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
     bool isMultiSimulation = this->simulationContext_->multiSimulation_ != nullptr;
     std::cout << "Energy model: ";
     switch (selectedEnergyModel) {
-        case SIGMA:
+        case KEnRef<KEnRef_Real_t>::energyModel::SIGMA:
             std::cout << "SIGMA" << std::endl;
             break;
-        case PLATEAU_VALUES:
-            std::cout << "PLATEAU_VALUES" << std::endl;
+        case KEnRef<KEnRef_Real_t>::energyModel::PLATEAUS:
+            std::cout << "PLATEAUS" << std::endl;
             break;
         default:
             std::cout << "UNKNOWN" << std::endl;
@@ -555,7 +555,9 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
 
     std::cout << "KEnRef_Real_t type is: " << typeid(KEnRef_Real_t).name() << '\n';
 
-    if (selectedEnergyModel == SIGMA) {
+    this->atomName_pairs_ = new std::vector<std::tuple<std::string, std::string> >();
+
+    if (selectedEnergyModel == KEnRef<double>::energyModel::SIGMA) {
         this->proton_mhz_ = IoUtils::getEnvParam("KENREF_PROTON_MHZ", this->proton_mhz_);
 
         const bool handleNames = IoUtils::should_handleNames(atomName_to_atomGlobalId_map);
@@ -568,14 +570,13 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
             }
         }
 
-        const std::vector<std::string> spec_den_data_prefixes  {"1-1", "1-2", "1-3", "2-2", "2-3", "3-3"};
+        const std::vector<std::string> &spec_den_data_prefixes = KEnRef<KEnRef_Real_t>::spec_den_data_prefixes;
         std::vector<SpecDenData<KEnRef_Real_t>> spec_den_data_vector;
         spec_den_data_vector.reserve(spec_den_data_prefixes.size());
         //TODO unify `this->atomName_pairs_` among model cases
-        this->atomName_pairs_ = new std::vector<std::tuple<std::string, std::string> >();
-        for (int i = 0; i < spec_den_data_prefixes.size(); ++i) {
+        for (const auto & spec_den_data_prefix : spec_den_data_prefixes) {
             //AtomPairs
-            std::string atomPairAndSigmaFileName = KEnRefMDModule::EXPERIMENTAL_DATA_FOLDER + spec_den_data_prefixes[i]+"_atom_pairs.csv";
+            std::string atomPairAndSigmaFileName = KEnRefMDModule::EXPERIMENTAL_DATA_FOLDER + spec_den_data_prefix+"_atom_pairs.csv";
             std::cout << atomPairAndSigmaFileName << std::endl;
             const Table& atomPairAndSigmaTable = IoUtils::readTable(atomPairAndSigmaFileName,true,false, "\\s*,\\s*", -1, true);
             std::vector<std::tuple<std::string, std::string>> atomPairs(atomPairAndSigmaTable.rowCount());
@@ -601,21 +602,21 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
                 sigma.value()(j, 0) = sigmasVec[j];
             }
             //multiple_grouping
-            std::string multiple_grouping_fileName = KEnRefMDModule::EXPERIMENTAL_DATA_FOLDER + spec_den_data_prefixes[i]+"_groupings.csv";
+            std::string multiple_grouping_fileName = KEnRefMDModule::EXPERIMENTAL_DATA_FOLDER + spec_den_data_prefix+"_groupings.csv";
             const auto &grouping_matrix = NamedMatrix<int>(IoUtils::readTable(multiple_grouping_fileName, false, false).toNamedMatrix<int>().array() - 1);
             const auto &multiple_grouping = IoUtils::grouping_mat_to_subset_idx(grouping_matrix);
             //a_coef
-            std::string aCoefFileName = KEnRefMDModule::EXPERIMENTAL_DATA_FOLDER + spec_den_data_prefixes[i]+"_a_coef.csv";
+            std::string aCoefFileName = KEnRefMDModule::EXPERIMENTAL_DATA_FOLDER + spec_den_data_prefix+"_a_coef.csv";
             const auto &a_coef = IoUtils::readTable(aCoefFileName, true,false, "\\s*,\\s*", -1, false).toNamedMatrix<KEnRef_Real_t>();
             //lambda_coef
-            std::string lambdaCoefFileName = KEnRefMDModule::EXPERIMENTAL_DATA_FOLDER + spec_den_data_prefixes[i]+"_lambda_coef.csv";
+            std::string lambdaCoefFileName = KEnRefMDModule::EXPERIMENTAL_DATA_FOLDER + spec_den_data_prefix+"_lambda_coef.csv";
             const auto &lambda_coef = IoUtils::readTable(lambdaCoefFileName, true,true, "\\s*,\\s*", -1, false).toNamedMatrix<KEnRef_Real_t>();
 
             // spec_den_data_vector.emplace_back(atomPairs, sigma, multiple_grouping, a_coef, lambda_coef);
             spec_den_data_vector.emplace_back(std::move(SpecDenData<KEnRef_Real_t>{atomPairs, sigma, multiple_grouping, a_coef, lambda_coef}));
         }
         this->SpecDenData_ = std::make_shared<std::vector<SpecDenData<KEnRef_Real_t>>>(spec_den_data_vector);
-    }else /*if (selectedEnergyModel == PLATEAU_VALUES)*/ {
+    }else /*if (selectedEnergyModel == PLATEAUS)*/ {
 
         this->experimentalData_table_ = std::make_shared<Table>(
             IoUtils::readTable(KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME, true, false,
@@ -641,8 +642,6 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
             }
             //        std::cout << "FALSE" << std::endl;
         }
-        //TODO if handleUnpreparedAtomNames is false, we need to simplify the code
-        this->atomName_pairs_ = new std::vector<std::tuple<std::string, std::string> >();
         for (int row = 0; row < table.rowCount(); row++) {
             std::string atom1 = IoUtils::normalizeName(table(row, "atom1"), handleUnpreparedAtomNames);
             std::string atom2 = IoUtils::normalizeName(table(row, "atom2"), handleUnpreparedAtomNames);
@@ -681,7 +680,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
     //scan the atom pairs to do:
     //1) find the highest globalAtomId number of interest
     //2) fill in the subAtomsFilter
-    //3) do a quick sanity scan on the availability of all atomname atomID maping
+    //3) do a quick sanity scan on the availability of all atomname atomID mapping
     int tempI;
     for (const auto &[a1, a2]: *this->atomName_pairs_) {
 #if VERBOSE
@@ -724,9 +723,8 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
     }
     this->atomId_pairs_ = std::make_shared<std::vector<std::tuple<int, int> > >(KEnRef<KEnRef_Real_t>::atomNamePairs_2_atomIdPairs(*atomName_pairs_, atomName_to_atomSub0Id_map));
     // Cache the atomId_pairs subgroups in every specDenData object here
-    if (selectedEnergyModel == SIGMA) {
-        for (int i = 0; i < this->SpecDenData_->size(); ++i) {
-            auto & currentSpecDenData = this->SpecDenData_->at(i);
+    if (selectedEnergyModel == KEnRef<KEnRef_Real_t>::energyModel::SIGMA) {
+        for (auto & currentSpecDenData : *this->SpecDenData_) {
             const auto &atomPairs = currentSpecDenData.get_atom_pairs();
             currentSpecDenData.set_atomIdPairs_to_sub0Atom_id_pairs_cache({
                 KEnRef<KEnRef_Real_t>::atomNamePairs_2_atomIdPairs(atomPairs, atomName_to_atomSub0Id_map)
@@ -740,7 +738,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
     }
 #endif
 
-    if (selectedEnergyModel == PLATEAU_VALUES) {
+    if (selectedEnergyModel == KEnRef<KEnRef_Real_t>::energyModel::PLATEAUS) {
         switch (numSimulations) {
             case 1:
                 this->simulated_grouping_list_ = std::make_shared<std::vector<std::vector<std::vector<int>>>>(
