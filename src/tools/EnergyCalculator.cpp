@@ -66,14 +66,14 @@ public:
         app.add_flag("--debug", debug, "enable debugging (holds for debugging)");
 
         std::string GUIDE_C_ALPHA = "guideC-alpha";
-        app.add_option("--alpha", GUIDE_C_ALPHA, "name of guide group");
+        app.add_option("-g,--guide", GUIDE_C_ALPHA, "name of guide group");
 
         std::vector<std::string> inputFiles;
         app.add_option("-i,--input", inputFiles, "Input files")
             ->required() ->check(CLI::ExistingFile);
 
         std::string indexFileName = "index.ndx";
-        app.add_option("--index", indexFileName, "Index file name");
+        app.add_option("-d,--index", indexFileName, "Index file name");
 
         std::string refFileName = "ref.pdb";
         app.add_option("-r,--ref", refFileName, "Reference file");
@@ -99,11 +99,14 @@ public:
         KEnRef_Real_t proton_mhz = 700.0;
         app.add_option("-z,--proton_mhz", proton_mhz, "spectrometer proton field strength in MHz");
 
-        int max_frame = 5000;
+        int max_frame = -1;
         app.add_option("--max-frame", max_frame, "maximum number of frames to read");
 
+        uint dt = 10;
+        app.add_option("--dt", dt, "dt time step to report energy");
+
         // Load from config file
-        app.set_config("--config", "config.toml", "Read a TOML config file", false);
+        app.set_config("--params", "params.toml", "Read a TOML config file", false);
         CLI11_PARSE(app, argc, argv);
         if (debug) {
             volatile bool holdToDebug = true;
@@ -341,9 +344,10 @@ public:
                                         allSimulationsSubAtomsXVector, rates, spec_den_data_vector, proton_mhz, k, n,
                                         atomName_to_atomSub0Id_map, false, 1);
                         }
-                        if (fst.step % 10 == 0) {
-//                            std::cout << "Step: " << fst.step << " Energy: " << energy << std::endl;
-                            energyOutFileStream << "Step: " << fst.step << " Energy: " << energy << std::endl;
+                        if (fst.step % dt == 0) {
+                            // std::cout << "Step: " << fst.step << " Energy: " << energy << std::endl;
+                            // energyOutFileStream << "Step: " << fst.step << " Energy: " << energy << std::endl;
+                            energyOutFileStream << fst.step << '\t' << energy << std::endl;
                         }
                     }
 
@@ -351,7 +355,7 @@ public:
                     returns[modelIdx] = read_next_xtc(fst.xd, fst.natoms, &fst.step, &fst.time, fst.box, fst.x, &fst.prec, &fst.bOK);
                     oks[modelIdx] = fst.bOK;
                 }
-            } while ((returns.array() != 0).all() && fsts[0].nframe <= max_frame);
+            } while ((returns.array() != 0).all() && (max_frame < 0 || fsts[0].nframe <= max_frame));
             if (! oks.all()) {
                 fprintf(stderr, "\nWARNING: Incomplete frame.\n");
             }
