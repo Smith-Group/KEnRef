@@ -10,23 +10,21 @@
 #include "gmxinterface/gmxkenrefinitializer.h"
 #include "gmxinterface/KEnRefMDModule.h"
 
+#include "gmxinterface/gmxwrapper.h"
+
 
 KEnRefMDModule::KEnRefMDModule() {
-    ///// load default params /////////////////////////
-    const auto kenref_params = IoUtils::getEnvParam("KENREF_PARAMS", "KENREF_PARAMS.txt");
-	loadParams(kenref_params);
-    //////////////////////////////////////////////////
 
-	std::vector<int>const& indices = GmxKEnRefInitializer::loadGmxIndexGroup(KEnRefMDModule::GUIDE_C_ALPHA, KEnRefMDModule::INDEX_FILE_LOCATION);
+	std::vector<int>const& indices = GmxKEnRefInitializer::loadGmxIndexGroup(Settings::GUIDE_C_ALPHA, Settings::indexFileName);
 	this->guideAtoms0Indexed = std::make_shared<std::vector<int> const>(indices);
     std::cout << "Guide atoms indices (0 indexed):\n";
     IoUtils::printVector(indices);
 
     auto allAtomReferenceCoords = IoUtils::getAtomMappingFromPdb<int, Eigen::RowVector3<KEnRef_Real_t>>(
-            REFERENCE_FILENAME,
+            Settings::refFileName,
             IoUtils::fill_atomIndex1_to_coords_Map<KEnRef_Real_t>);
     //Read and save guideAtomsReferenceCoords_
-    CoordsMatrixType<KEnRef_Real_t> guideAtomsReferenceCoords = CoordsMatrixType<KEnRef_Real_t>(guideAtoms0Indexed->size(), 3);
+    CoordsMatrixType<KEnRef_Real_t> guideAtomsReferenceCoords(guideAtoms0Indexed->size(), 3);
     for (int index0 = 0; index0 < guideAtoms0Indexed->size(); ++index0) {
         guideAtomsReferenceCoords(index0, Eigen::indexing::all) = allAtomReferenceCoords[guideAtoms0Indexed->at(index0) + 1];
     }
@@ -63,13 +61,8 @@ void KEnRefMDModule::initForceProviders(gmx::ForceProviders* forceProviders) {
 	forceProvider_->setSimulationContext(simulationContext_);
     forceProvider_->setGuideAtom0Indices(this->guideAtoms0Indexed);
     forceProvider_->setGuideAtomsReferenceCoords(this->guideAtomsReferenceCoords_);
-	//TODO move the if condition to load_params() and let this place for only setting values.
-	if (ENERGY_MODEL == "SIGMA") {
-		forceProvider_->set_selected_energy_model(KEnRef<KEnRef_Real_t>::energyModel::SIGMA);
-	}else if (ENERGY_MODEL == "PLATEAUS") {
-		forceProvider_->set_selected_energy_model(KEnRef<KEnRef_Real_t>::energyModel::PLATEAUS);
-	}
-	forceProviders->addForceProvider(forceProvider_.get());
+	forceProvider_->set_selected_energy_model(Settings::selected_energy_model);
+forceProviders->addForceProvider(forceProvider_.get());
 }
 
 //! Subscribe to simulation setup notifications

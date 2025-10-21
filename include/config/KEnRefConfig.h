@@ -11,13 +11,12 @@
 
 /**This is a very bad way of handing multiple configurations.
  * However, it works as a quick and dirty one one the proof of concept now.
- * TODO Later, use CMAke to configure the project
  */
-#define GROMACS_WRAPPER true
-#ifdef TEST
-#	define _TEST_ true
-#else
-#	define _TEST_ false
-#endif
+// #define GROMACS_WRAPPER true
+// #ifdef TEST
+// #	define _TEST_ true
+// #else
+// #	define _TEST_ false
+// #endif
 
 #endif /* KENREFCONFIG_H_ */

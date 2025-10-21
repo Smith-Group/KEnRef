@@ -1,0 +1,6 @@
+GUIDE_C_ALPHA = "guideC-alpha"
+index = "../../../res/plateau/md_single/KEnRefAtomIndex.ndx"
+model = PLATEAUS
+exp-data-file = "../../../res/plateau/md_single/singleton_data_GB3_3-5_all.csv"
+atomname-mapping = "../../../res/plateau/md_single/GB3_27_10us.pdb"
+ref = "../../../res/plateau/md_single/GB3_27_10us.pdb"

@@ -9,6 +9,8 @@
 #include <cmath>
 #include <memory>
 #include <Eigen/Core>
+#include <utility>
+#include<unistd.h>
 
 #include "gromacs/mdtypes/commrec.h"
 #include "mpi.h"
@@ -23,9 +25,7 @@
 #include "core/kabsch.h"
 #include "gmxinterface/KEnRefForceProvider.h"
 #include "gmxinterface/KEnRefMDModule.h"
-
-#include <utility>
-#include<unistd.h>
+#include "gmxinterface/gmxwrapper.h"
 
 #define VERBOSE false
 #define VALIDATE_VECTORS false
@@ -81,8 +81,10 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     MPI_Comm mainRanksComm = isMultiSimulation
                              ? this->simulationContext_->multiSimulation_->mainRanksComm_ : MPI_COMM_NULL;
     if (!paramsInitialized) {
-        std::string alt_out_path = IoUtils::strip_enclosing_quotes(IoUtils::getEnvParam("KENREF_ALT_OUT_PATH", std::string("")));
-        if (!alt_out_path.empty()) {
+        std::string alt_out_path = Settings::alt_out_path;
+        if (alt_out_path.empty()) {
+            std::cout << "No alt_out_path defined. Will not redirect stdout stream." << std::endl;
+        }else{
             if (isMultiSimulation) {
                 auto pos = alt_out_path.find(singleStr);
                 std::string simIndexStr = std::to_string(simulationIndex + 1);
@@ -544,21 +546,21 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
             break;
     }
     this->atomName_to_atomGlobalId_map_ = std::make_shared<std::map<std::string, int> >(
-        IoUtils::getAtomMappingFromPdb<std::string, int>(KEnRefMDModule::ATOMNAME_MAPPING_FILENAME,IoUtils::fill_atomId_to_index_Map));
+        IoUtils::getAtomMappingFromPdb<std::string, int>(Settings::atomName_mapping_fileName,IoUtils::fill_atomId_to_index_Map));
     GMX_ASSERT(!atomName_to_atomGlobalId_map_->empty(), "No atom mapping found");
     auto &atomName_to_atomGlobalId_map = *this->atomName_to_atomGlobalId_map_;
 
-    this->maxForceSquared_ = std::pow(IoUtils::getEnvParam("KENREF_MAXFORCE", std::sqrt(this->maxForceSquared_)), 2.f);
-    this->k_ = IoUtils::getEnvParam("KENREF_K", this->k_);
-    this->n_ = IoUtils::getEnvParam("KENREF_N", this->n_);
-    int maxAtomPairsToRead = IoUtils::getEnvParam("KENREF_MAX_ATOMPAIRS_TO_READ", -1); //TODO remove
+    this->maxForceSquared_ = std::pow(Settings::max_force, 2.f);
+    this->k_ = Settings::k;
+    this->n_ = Settings::n;
+    int maxAtomPairsToRead = Settings::max_atom_to_read; //TODO remove
 
     std::cout << "KEnRef_Real_t type is: " << typeid(KEnRef_Real_t).name() << '\n';
 
     this->atomName_pairs_ = new std::vector<std::tuple<std::string, std::string> >();
 
     if (selectedEnergyModel == KEnRef<double>::energyModel::SIGMA) {
-        this->proton_mhz_ = IoUtils::getEnvParam("KENREF_PROTON_MHZ", this->proton_mhz_);
+        this->proton_mhz_ = Settings::proton_mhz;
 
         const bool handleNames = IoUtils::should_handleNames(atomName_to_atomGlobalId_map);
 
@@ -576,7 +578,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
         //TODO unify `this->atomName_pairs_` among model cases
         for (const auto & spec_den_data_prefix : spec_den_data_prefixes) {
             //AtomPairs
-            std::string atomPairAndSigmaFileName = KEnRefMDModule::EXPERIMENTAL_DATA_FOLDER + spec_den_data_prefix+"_atom_pairs.csv";
+            std::string atomPairAndSigmaFileName = Settings::experimentalDataFolder + spec_den_data_prefix+"_atom_pairs.csv";
             std::cout << atomPairAndSigmaFileName << std::endl;
             const Table& atomPairAndSigmaTable = IoUtils::readTable(atomPairAndSigmaFileName,true,false, "\\s*,\\s*", -1, true);
             std::vector<std::tuple<std::string, std::string>> atomPairs(atomPairAndSigmaTable.rowCount());
@@ -602,14 +604,14 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
                 sigma.value()(j, 0) = sigmasVec[j];
             }
             //multiple_grouping
-            std::string multiple_grouping_fileName = KEnRefMDModule::EXPERIMENTAL_DATA_FOLDER + spec_den_data_prefix+"_groupings.csv";
+            std::string multiple_grouping_fileName = Settings::experimentalDataFolder + spec_den_data_prefix+"_groupings.csv";
             const auto &grouping_matrix = NamedMatrix<int>(IoUtils::readTable(multiple_grouping_fileName, false, false).toNamedMatrix<int>().array() - 1);
             const auto &multiple_grouping = IoUtils::grouping_mat_to_subset_idx(grouping_matrix);
             //a_coef
-            std::string aCoefFileName = KEnRefMDModule::EXPERIMENTAL_DATA_FOLDER + spec_den_data_prefix+"_a_coef.csv";
+            std::string aCoefFileName = Settings::experimentalDataFolder + spec_den_data_prefix+"_a_coef.csv";
             const auto &a_coef = IoUtils::readTable(aCoefFileName, true,false, "\\s*,\\s*", -1, false).toNamedMatrix<KEnRef_Real_t>();
             //lambda_coef
-            std::string lambdaCoefFileName = KEnRefMDModule::EXPERIMENTAL_DATA_FOLDER + spec_den_data_prefix+"_lambda_coef.csv";
+            std::string lambdaCoefFileName = Settings::experimentalDataFolder + spec_den_data_prefix+"_lambda_coef.csv";
             const auto &lambda_coef = IoUtils::readTable(lambdaCoefFileName, true,true, "\\s*,\\s*", -1, false).toNamedMatrix<KEnRef_Real_t>();
 
             // spec_den_data_vector.emplace_back(atomPairs, sigma, multiple_grouping, a_coef, lambda_coef);
@@ -619,7 +621,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
     }else /*if (selectedEnergyModel == PLATEAUS)*/ {
 
         this->experimentalData_table_ = std::make_shared<Table>(
-            IoUtils::readTable(KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME, true, false,
+            IoUtils::readTable(Settings::experimentalDataFileName, true, false,
                 "\\s*,\\s*", maxAtomPairsToRead));
         GMX_ASSERT(experimentalData_table_ && experimentalData_table_->rowCount() > 0, "No simulated data found");
         const Table &table = *experimentalData_table_;

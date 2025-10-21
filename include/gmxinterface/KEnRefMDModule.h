@@ -103,35 +103,7 @@ class KEnRefMDModule final: public gmx::IMDModule {
         return value;
     }
 
-    static void loadParams(const std::string& kenref_params) {
-        const std::map<std::string, std::string> &params = IoUtils::readParams(kenref_params);
-        GMX_ASSERT(!params.empty(), "Parameters file is empty.");
-        KEnRefMDModule::GUIDE_C_ALPHA = get_param_value(params, "GUIDE_C_ALPHA");
-        KEnRefMDModule::INDEX_FILE_LOCATION = get_param_value(params,"INDEX_FILE_LOCATION");
-        KEnRefMDModule::ATOMNAME_MAPPING_FILENAME = get_param_value(params,"ATOMNAME_MAPPING_FILENAME");
-        KEnRefMDModule::ENERGY_MODEL = get_param_value(params,"ENERGY_MODEL");
-        if (ENERGY_MODEL == "PLATEAUS") {
-            KEnRefMDModule::EXPERIMENTAL_DATA_FILENAME = get_param_value(params,"EXPERIMENTAL_DATA_FILENAME");
-        } else if (ENERGY_MODEL == "SIGMA") {
-            KEnRefMDModule::EXPERIMENTAL_DATA_FOLDER = get_param_value(params,"EXPERIMENTAL_DATA_FOLDER");
-        }//else leave it UNKNOWN
-        if (const auto refFileLocation = params.find("REFERENCE_FILENAME"); refFileLocation == params.end()){ //NOT Found
-            KEnRefMDModule::REFERENCE_FILENAME = ATOMNAME_MAPPING_FILENAME;
-            std::cout << "REFERENCE_FILENAME not found, using ATOMNAME_MAPPING_FILENAME (" << ATOMNAME_MAPPING_FILENAME << ")" << std::endl;
-        }else{ //Found
-            KEnRefMDModule::REFERENCE_FILENAME = refFileLocation->second;
-            std::cout << "REFERENCE_FILENAME found, (" << REFERENCE_FILENAME << ")" << std::endl;
-        }
-    }
 public:
-    inline static std::string GUIDE_C_ALPHA; // = "guideC-alpha";
-    inline static std::string INDEX_FILE_LOCATION; // = "../../res/cleanstart/KEnRefAtomIndex.ndx";
-    inline static std::string REFERENCE_FILENAME; // = "../../res/cleanstart/6v5d_step0_for_atomname_mapping.pdb";
-    inline static std::string ATOMNAME_MAPPING_FILENAME; // = "../../res/cleanstart/6v5d_step0_for_atomname_mapping.pdb";
-    inline static std::string ENERGY_MODEL; // = SIGMA
-    inline static std::string EXPERIMENTAL_DATA_FILENAME; // = "../../res/cleanstart/singleton_data_step0_model01.csv";
-    inline static std::string EXPERIMENTAL_DATA_FOLDER; // = "../../res/cleanstart/";
-
     KEnRefMDModule();
 	~KEnRefMDModule() override;
     [[maybe_unused]] KEnRefMDModule(const KEnRefMDModule &other);
