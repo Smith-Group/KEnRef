@@ -13,12 +13,12 @@
 
 class GMXWrapper { //This class should replace GROMACS main class
 public:
-	GMXWrapper();
-	virtual ~GMXWrapper();
-	GMXWrapper(const GMXWrapper &other);
-	GMXWrapper(GMXWrapper &&other) noexcept ;
-	GMXWrapper& operator=(const GMXWrapper &other);
-	GMXWrapper& operator=(GMXWrapper &&other) noexcept;
+    GMXWrapper();
+    virtual ~GMXWrapper();
+    GMXWrapper(const GMXWrapper &other);
+    GMXWrapper(GMXWrapper &&other) noexcept;
+    GMXWrapper &operator=(const GMXWrapper &other);
+    GMXWrapper &operator=(GMXWrapper &&other) noexcept;
 };
 
 class Settings {

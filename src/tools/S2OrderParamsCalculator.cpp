@@ -4,7 +4,6 @@
 #include "gromacs/utility/smalloc.h"
 #include "gromacs/math/vecdump.h"
 #include "gromacs/gmxlib/network.h"
-#include "gromacs/mdlib/gmx_omp_nthreads.h"
 #include "core/kabsch.h"
 #include "core/KEnRef.h"
 #include "core/IoUtils.h"
@@ -26,14 +25,14 @@ KEnRef_Real_t pearsonCorrelation(const Eigen::VectorX<KEnRef_Real_t>& x, const E
         throw std::invalid_argument("Vectors must be of the same length.");
     }
 
-    KEnRef_Real_t mean_x = x.mean();
-    KEnRef_Real_t mean_y = y.mean();
+    const KEnRef_Real_t mean_x = x.mean();
+    const KEnRef_Real_t mean_y = y.mean();
 
     Eigen::VectorX<KEnRef_Real_t> diff_x = x.array() - mean_x;
     Eigen::VectorX<KEnRef_Real_t> diff_y = y.array() - mean_y;
 
-    KEnRef_Real_t numerator = (diff_x.array() * diff_y.array()).sum();
-    KEnRef_Real_t denominator = std::sqrt((diff_x.array().square().sum()) * (diff_y.array().square().sum()));
+    const KEnRef_Real_t numerator = (diff_x.array() * diff_y.array()).sum();
+    const KEnRef_Real_t denominator = std::sqrt((diff_x.array().square().sum()) * (diff_y.array().square().sum()));
 
     return numerator / denominator;
 }
@@ -132,7 +131,7 @@ public:
 //        std::cout << "referenceS2OrderParams\n" << referenceS2OrderParams.transpose() << std::endl;
 #endif
         //N.B. globalAtomIdFlags is ZERO based, in contrast to its corresponding KEnRefForceProvider one
-        std::vector<bool> globalAtomIdFlags(homenr, false);
+        std::vector globalAtomIdFlags(homenr, false);
         {
             int maxAtomIdOfInterest = -1;
             for (const auto &[a1, a2]: atomIdPairs) {
@@ -145,8 +144,8 @@ public:
             globalAtomIdFlags.resize(maxAtomIdOfInterest + 1);
         }
         //prepare sub0Id_to_global0Id
-        auto global0Id_to_sub0Id = std::vector<int>(globalAtomIdFlags.size(), -1);
-        auto sub0Id_to_global0Id = std::vector<int>(globalAtomIdFlags.size(), -1);
+        auto global0Id_to_sub0Id = std::vector(globalAtomIdFlags.size(), -1);
+        auto sub0Id_to_global0Id = std::vector(globalAtomIdFlags.size(), -1);
         std::vector<int> subAtoms0Ids;
         {
             int sub0Id = 0;
@@ -223,7 +222,7 @@ public:
                 fst.nframe = 0;
             }
 
-            CoordsMatrixType<KEnRef_Real_t> guideAtomsX_ZEROIndexed = CoordsMatrixType<KEnRef_Real_t>(guideAtom0Indices.size(), 3);
+            auto guideAtomsX_ZEROIndexed = CoordsMatrixType<KEnRef_Real_t>(guideAtom0Indices.size(), 3);
             int64_t maxStep = MAX_FRAME * dt;
             do {
                 std::vector<CoordsMatrixType<KEnRef_Real_t>> allSimulationsSubAtomsXVector(numModels);
@@ -244,7 +243,7 @@ public:
                                 guideAtomsX_ZEROIndexed, guideAtomsReferenceCoords, false, true);
 
                         //and calculate subAtomsXAfterTransform
-                        CoordsMatrixType<KEnRef_Real_t> subAtomsX = CoordsMatrixType<KEnRef_Real_t>(subAtoms0Ids.size(), 3);
+                        auto subAtomsX = CoordsMatrixType<KEnRef_Real_t>(subAtoms0Ids.size(), 3);
                         fillX(subAtomsX, subAtoms0Ids, fst.x, true);
                         allSimulationsSubAtomsXVector.at(modelIdx) = Kabsch_Umeyama<KEnRef_Real_t>::applyTransform(affineForS2, subAtomsX);
 
@@ -290,9 +289,9 @@ public:
         currentModelPathName.append(fileNameTemplate);
 //        std::cout << currentModelPathName << std::endl;
 
-        for (const auto &pair: replacements) {
-            std::regex placeholder("\\$\\{"+ pair.first + "\\}");
-            currentModelPathName = std::regex_replace(currentModelPathName, placeholder, pair.second);
+        for (const auto &[fst, snd]: replacements) {
+            std::regex placeholder("\\$\\{"+ fst + "\\}");
+            currentModelPathName = std::regex_replace(currentModelPathName, placeholder, snd);
         }
         return currentModelPathName;
     }
