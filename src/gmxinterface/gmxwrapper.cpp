@@ -60,33 +60,41 @@ int main(int argc, char *argv[]) {
     CLI::App app{"KEnRef"};
 
     // KENREF_MAXFORCE=999
-    app.add_option("--k", Settings::k, "K force constant");
-    app.add_option("--n", Settings::n, "power scaling");
-    app.add_option("--max-force", Settings::max_force, "maximum force");
+    app.add_option("--k", Settings::k, "K force constant")->envname("KENREF_K");
+    app.add_option("--n", Settings::n, "power scaling")->envname("KENREF_N");
+    app.add_option("--max-force", Settings::max_force, "maximum force")->envname("KENREF_MAX_FORCE");
 
-    app.add_option("-g,--guide",  Settings::GUIDE_C_ALPHA, "name of guide group");
-    app.add_option("-d,--index", Settings::indexFileName, "Index file name");
-    app.add_option("-r,--ref", Settings::refFileName, "Reference file");
+    app.add_option("-g,--guide",  Settings::GUIDE_C_ALPHA, "name of guide group")->envname("KENREF_GUIDE");
+    app.add_option("-d,--index", Settings::indexFileName, "Index file name")->envname("KENREF_INDEX");
+    app.add_option("-r,--ref", Settings::refFileName, "Reference file")->envname("KENREF_REF");
 
     app.add_option("-m,--model", Settings::selected_energy_model, "energy model")
-            ->required()
+            ->required() ->envname("KENREF_MODEL")
             ->transform(CLI::CheckedTransformer(KEnRef<KEnRef_Real_t>::energyModelMap, CLI::ignore_case));
     app.add_option("-x,--exp-data-folder", Settings::experimentalDataFolder, "experimental data folder for sigma")
-        ->check(CLI::ExistingDirectory);
+        ->envname("KENREF_EXP_DATA_FOLDER") ->check(CLI::ExistingDirectory);
     app.add_option("-X,--exp-data-file", Settings::experimentalDataFileName, "experimental data file for plateaus")
-        ->check(CLI::ExistingFile);
+        ->envname("KENREF_EXP_DATA_FILE") ->check(CLI::ExistingFile);
 
     app.add_option("--atomname-mapping", Settings::atomName_mapping_fileName, "atom name mapping file name")
-        ->check(CLI::ExistingFile);
+        ->envname("KENREF_ATOMNAME_MAPPING") ->check(CLI::ExistingFile);
 
-    app.add_option("-z,--proton-mhz", Settings::proton_mhz, "spectrometer proton field strength in MHz");
-    app.add_option("--max-atom-to-read", Settings::max_atom_to_read, "maximum number of atoms to read");
-    app.add_option("--alt-out-path", Settings::alt_out_path, "path to redirect output stream");
+    app.add_option("-z,--proton-mhz", Settings::proton_mhz, "spectrometer proton field strength in MHz")->envname("KENREF_PROTON_MHZ");
+    app.add_option("--max-atom-to-read", Settings::max_atom_to_read, "maximum number of atoms to read")->envname("KENREF_MAX_ATOM_TO_READ");
+    app.add_option("--alt-out-path", Settings::alt_out_path, "path to redirect output stream")->envname("KENREF_ALT_OUT_PATH");
 
 
     // Load from config file
-    app.set_config("--params", "params.toml", "Read a TOML config file", false);
+    app.set_config("--params", "params.toml", "Read a TOML config file", false)->envname("KENREF_PARAMS");
     app.allow_extras();
+
+    app.usage("Kinetic Ensemble Refinement library.");
+    app.footer(
+        "\nUse '--' to separate KEnRef options from GROMACS options.\n"
+        "This is very useful if KEnRef parameter(s) colloids with Gromacs parameter(s)\n"
+        "Example: KEnRef -g CA -d index.ndx -- -deffnm simulation\n"
+        "or when you want to pass a parameter to Gromacs that could be consumed by KEnRef otherwise\n"
+        "Example: KEnRef -m SIGMA -- -h");
     CLI11_PARSE(app, argc, argv);
 
     if (Settings::refFileName.empty()) {
@@ -97,7 +105,13 @@ int main(int argc, char *argv[]) {
     }
 
     //============================================================
-    const auto remaining = app.remaining();
+    auto remaining = app.remaining();
+    for (auto i = remaining.begin(); i != remaining.end(); ++i) {
+        if (std::string(*i) == "--") {
+            remaining.erase(i);
+            break;
+        }
+    }
     auto new_argv = create_argv(argc, argv, remaining);
     int new_argc = static_cast<int>(remaining.size() + 1); // +1 for program name
 

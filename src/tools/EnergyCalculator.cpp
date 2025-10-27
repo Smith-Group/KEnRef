@@ -66,47 +66,51 @@ public:
         app.add_flag("--debug", debug, "enable debugging (holds for debugging)");
 
         std::string GUIDE_C_ALPHA = "guideC-alpha";
-        app.add_option("-g,--guide", GUIDE_C_ALPHA, "name of guide group");
+        app.add_option("-g,--guide", GUIDE_C_ALPHA, "name of guide group")->envname("ENERGY_GUIDE");
 
         std::vector<std::string> inputFiles;
         app.add_option("-i,--input", inputFiles, "Input files")
-            ->required() ->check(CLI::ExistingFile);
+            ->required()->envname("ENERGY_INPUT") ->check(CLI::ExistingFile);
 
         std::string indexFileName = "index.ndx";
-        app.add_option("-d,--index", indexFileName, "Index file name");
+        app.add_option("-d,--index", indexFileName, "Index file name")->envname("ENERGY_INDEX");
 
         std::string refFileName = "ref.pdb";
-        app.add_option("-r,--ref", refFileName, "Reference file");
+        app.add_option("-r,--ref", refFileName, "Reference file")->envname("ENERGY_REF");
 
         KEnRef_Real_t k, n;
-        app.add_option("-k,--k", k, "K force constant");
-        app.add_option("-n,--n", n, "power scaling");
+        app.add_option("-k,--k", k, "K force constant")->envname("ENERGY_K");
+        app.add_option("-n,--n", n, "power scaling")->envname("ENERGY_N");
 
         std::string energyOutputFileName = "energy.out";
-        app.add_option("-o,--output", energyOutputFileName, "output energy file");
+        app.add_option("-o,--output", energyOutputFileName, "output energy file")
+            ->envname("ENERGY_OUTPUT");
 
         KEnRef<KEnRef_Real_t>::energyModel selected_energy_model;
         app.add_option("-m,--model", selected_energy_model, "energy model")
-        ->required()
-        ->transform(CLI::CheckedTransformer(KEnRef<KEnRef_Real_t>::energyModelMap, CLI::ignore_case));
+            ->required()->envname("ENERGY_MODEL")
+            ->transform(CLI::CheckedTransformer(KEnRef<KEnRef_Real_t>::energyModelMap, CLI::ignore_case));
 
         std::string experimentalDataFileName, experimentalDataFolder;
         app.add_option("-x,--exp-data-folder", experimentalDataFolder, "experimental data folder for sigma")
-            ->check(CLI::ExistingDirectory);
+            ->envname("ENERGY_EXP_DATA_FOLDER")->check(CLI::ExistingDirectory);
         app.add_option("-X,--exp-data-file", experimentalDataFileName, "experimental data file for plateaus")
-            ->check(CLI::ExistingFile);
+            ->envname("ENERGY_EXP_DATA_FILE")->check(CLI::ExistingFile);
 
         KEnRef_Real_t proton_mhz = 700.0;
-        app.add_option("-z,--proton_mhz", proton_mhz, "spectrometer proton field strength in MHz");
+        app.add_option("-z,--proton-mhz", proton_mhz, "spectrometer proton field strength in MHz")
+            ->envname("ENERGY_PROTON_MHZ");
 
         int max_frame = -1;
-        app.add_option("--max-frame", max_frame, "maximum number of frames to read");
+        app.add_option("--max-frame", max_frame, "maximum number of frames to read")
+            ->envname("ENERGY_MAX_FRAME");
 
         uint dt = 10;
-        app.add_option("--dt", dt, "dt time step to report energy");
+        app.add_option("--dt", dt, "dt time step to report energy")->envname("ENERGY_DT");
 
         // Load from config file
-        app.set_config("--params", "params.toml", "Read a TOML config file", false);
+        app.set_config("--params", "params.toml", "Read a TOML config file", false)
+            ->envname("ENERGY_PARAMS");
         CLI11_PARSE(app, argc, argv);
         if (debug) {
             volatile bool holdToDebug = true;
@@ -392,7 +396,6 @@ public:
         return currentModelPathName;
     }
 };
-
 
 int main(int argc, char** argv){
     MPI_Init(&argc, &argv);
