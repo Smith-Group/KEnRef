@@ -6,6 +6,7 @@
 #include "CLI11/CLI11.hpp"
 #include "gromacs/utility/gmxassert.h"
 #include "gromacs/fileio/xtcio.h"
+#include "gromacs/fileio/trrio.h"
 #include "gromacs/utility/smalloc.h"
 #include "gromacs/math/vecdump.h"
 #include "gromacs/gmxlib/network.h"
@@ -23,6 +24,7 @@ struct t_file_state{
     int64_t   step;
     real      prec, time;
     gmx_bool  bOK;
+    real     lambda;
 };
 
 void fillX(CoordsMatrixType<KEnRef_Real_t> &targetAtomsX, const std::vector<int> &idxes0, const rvec *x, const bool toAngstrom) {
@@ -56,6 +58,8 @@ class EnergyCalculator {
         {{"5.0e+08", "2.5e+08", "1.0e+12", "1.0e+04"}},
         {{"kens", "kc", "kmethyl", "karo"}}
         ).toNamedRowVector<KEnRef_Real_t>();
+
+    enum class InputFileType { xtc, trr, UNKNOWN };
 public:
 
 //remember that the data must be PBC corrected (in every step)
@@ -122,6 +126,8 @@ public:
         ///////////////////////////////////////////////////////
 
         int numModels = static_cast<int>(inputFiles.size());
+        std::string ext = std::filesystem::path(inputFiles.front()).extension().string();
+        InputFileType inputFileType = ext == ".trr"? InputFileType::trr : ext == ".xtc" ? InputFileType::xtc : InputFileType::UNKNOWN;
         using CLI::enums::operator<<;
         std::cout << "Energy model: " << selected_energy_model << "\n";
 
@@ -307,8 +313,22 @@ public:
                 auto& fst = fsts[modelId];
                 const std::string& modelPathName = inputFiles[modelId];
 
-                fst.xd = open_xtc(modelPathName, "r");
-                read_first_xtc(fst.xd, &fst.natoms, &fst.step, &fst.time, fst.box, &fst.x, &fst.prec, &fst.bOK);
+                switch (inputFileType) {
+                    case InputFileType::xtc:
+                        fst.xd = open_xtc(modelPathName, "r");
+                        read_first_xtc(fst.xd, &fst.natoms, &fst.step, &fst.time, fst.box, &fst.x, &fst.prec, &fst.bOK);
+                        break;
+                    case InputFileType::trr:
+                        gmx_trr_header_t header;
+                        gmx_trr_read_single_header(modelPathName, &header);
+                        // fst.x = new rvec[header.x_size];
+                        snew(fst.x, header.x_size);
+                        fst.xd = gmx_trr_open(modelPathName, "r");
+                        fst.bOK = gmx_trr_read_frame(fst.xd, &fst.step, &fst.time, &fst.lambda, fst.box, &fst.natoms, fst.x, nullptr, nullptr);
+                        break;
+                    default:
+                        std::cerr << "FATAL ERROR: Unrecognized input file type.\n";
+                }
                 fst.nframe = 0;
             }
 
@@ -356,22 +376,51 @@ public:
                     }
 
                     fst.nframe++;
-                    returns[modelIdx] = read_next_xtc(fst.xd, fst.natoms, &fst.step, &fst.time, fst.box, fst.x, &fst.prec, &fst.bOK);
+                    switch (inputFileType) {
+                        case InputFileType::xtc:
+                            returns[modelIdx] = read_next_xtc(fst.xd, fst.natoms, &fst.step, &fst.time, fst.box, fst.x, &fst.prec, &fst.bOK);
+                            break;
+                        case InputFileType::trr:
+                            returns[modelIdx] = gmx_trr_read_frame(fst.xd, &fst.step, &fst.time, &fst.lambda, fst.box, &fst.natoms, fst.x, nullptr, nullptr);
+                            fst.bOK = returns[modelIdx]; //this is not exactly correct, but it is fine
+                            break;
+                        default:
+                            std::cerr << "FATAL ERROR: Unrecognized input file type.\n";
+                    }
                     oks[modelIdx] = fst.bOK;
                 }
             } while ((returns.array() != 0).all() && (max_frame < 0 || fsts[0].nframe <= max_frame));
-            if (! oks.all()) {
+            if ((inputFileType == InputFileType::xtc && ! oks.all()) ||
+                (inputFileType == InputFileType::trr && oks.rows() > 1 && ! (oks.array() == 0).all() )) {
                 fprintf(stderr, "\nWARNING: Incomplete frame.\n");
             }
             for (auto & fst:fsts) {
                 sfree(fst.x);
-                close_xtc(fst.xd);
+                switch (inputFileType) {
+                    case InputFileType::xtc:
+                        close_xtc(fst.xd);
+                        break;
+                    case InputFileType::trr:
+                        gmx_trr_close(fst.xd);
+                        break;
+                    default:
+                        std::cerr << "FATAL ERROR: Unrecognized input file type.\n";
+                }
             }
             energyOutFileStream.close();
         } catch (...) {
             for (auto & fst:fsts) {
                 sfree(fst.x);
-                close_xtc(fst.xd);
+                switch (inputFileType) {
+                    case InputFileType::xtc:
+                        close_xtc(fst.xd);
+                        break;
+                    case InputFileType::trr:
+                        gmx_trr_close(fst.xd);
+                        break;
+                    default:
+                        std::cerr << "FATAL ERROR: Unrecognized input file type.\n";
+                }
             }
             energyOutFileStream.flush();
             energyOutFileStream.close();
