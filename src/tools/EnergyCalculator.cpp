@@ -65,7 +65,7 @@ public:
 //remember that the data must be PBC corrected (in every step)
     int calc(int argc, char** argv) const {
         CLI::App app{"energy calculator"};
-        argv = app.ensure_utf8(argv);  // new argv memory is held by app
+        argv = app.ensure_utf8(argv); // new argv memory is held by app
         bool debug = false;
         app.add_flag("--debug", debug, "enable debugging (holds for debugging)");
 
@@ -86,8 +86,8 @@ public:
         app.add_option("-k,--k", k, "K force constant")->envname("ENERGY_K");
         app.add_option("-n,--n", n, "power scaling")->envname("ENERGY_N");
 
-        std::string energyOutputFileName = "energy.out";
-        app.add_option("-o,--output", energyOutputFileName, "output energy file")
+        std::string energyOutputPathName = "energy.out";
+        app.add_option("-o,--output", energyOutputPathName, "output energy file")
             ->envname("ENERGY_OUTPUT");
 
         KEnRef<KEnRef_Real_t>::energyModel selected_energy_model;
@@ -127,22 +127,22 @@ public:
 
         int numModels = static_cast<int>(inputFiles.size());
         std::string ext = std::filesystem::path(inputFiles.front()).extension().string();
-        InputFileType inputFileType = ext == ".trr"? InputFileType::trr : ext == ".xtc" ? InputFileType::xtc : InputFileType::UNKNOWN;
+        InputFileType inputFileType = ext == ".trr" ? InputFileType::trr : ext == ".xtc" ? InputFileType::xtc : InputFileType::UNKNOWN;
         using CLI::enums::operator<<;
         std::cout << "Energy model: " << selected_energy_model << "\n";
 
-        std::vector<std::vector<std::vector<int>>>simulated_grouping_list;
+        std::vector<std::vector<std::vector<int> > > simulated_grouping_list;
         std::vector<SpecDenData<KEnRef_Real_t> > spec_den_data_vector;
-        std::vector<std::tuple<int, int>> atomIdPairs; // Zero based
+        std::vector<std::tuple<int, int> > atomIdPairs; // Zero based
         Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, Eigen::Dynamic> g0;
 
-        auto atomName_to_atomGlobalId_map /*(1-based)*/= IoUtils::getAtomMappingFromPdb<std::string, int>(refFileName,IoUtils::fill_atomId_to_index_Map);
+        auto atomName_to_atomGlobalId_map /*(1-based)*/ = IoUtils::getAtomMappingFromPdb<std::string, int>(refFileName, IoUtils::fill_atomId_to_index_Map);
         const bool handleNames = IoUtils::should_handleNames(atomName_to_atomGlobalId_map);
 
         if (selected_energy_model == KEnRef<double>::energyModel::SIGMA) {
             const std::vector<std::string> &spec_den_data_prefixes = KEnRef<KEnRef_Real_t>::spec_den_data_prefixes;
             spec_den_data_vector.reserve(spec_den_data_prefixes.size());
-            for (const auto & spec_den_data_prefix : spec_den_data_prefixes) {
+            for (const auto &spec_den_data_prefix : spec_den_data_prefixes) {
                 //AtomPairs
                 std::string atomPairAndSigmaFileName = experimentalDataFolder + spec_den_data_prefix + "_atom_pairs.csv";
                 std::cout << atomPairAndSigmaFileName << std::endl;
@@ -153,8 +153,8 @@ public:
                     auto atom1 = IoUtils::normalizeName(atomPairAndSigmaTable.at(j, "atom1"), handleNames);
                     auto atom2 = IoUtils::normalizeName(atomPairAndSigmaTable.at(j, "atom2"), handleNames);
                     iterationAtomPairs.at(j) = std::move(std::tuple{atom1, atom2});
-                    int i1 = atomName_to_atomGlobalId_map[atom1] -1;
-                    int i2 = atomName_to_atomGlobalId_map[atom2] -1;
+                    int i1 = atomName_to_atomGlobalId_map[atom1] - 1;
+                    int i2 = atomName_to_atomGlobalId_map[atom2] - 1;
                     atomIdPairs.emplace_back(i1, i2);
                 }
                 // sigma
@@ -190,7 +190,7 @@ public:
                 spec_den_data_vector.emplace_back(std::move(SpecDenData{
                     iterationAtomPairs, sigma, multiple_grouping, a_coef, lambda_coef }));
             }
-        }else if (selected_energy_model == KEnRef<KEnRef_Real_t>::energyModel::PLATEAUS) {
+        } else if (selected_energy_model == KEnRef<KEnRef_Real_t>::energyModel::PLATEAUS) {
             switch (numModels) {
                 case 1:
                     simulated_grouping_list = std::vector<std::vector<std::vector<int> > >{{{0}}, {{0}}};
@@ -215,11 +215,11 @@ public:
                 temp3 >> g0(i, 0);
                 temp4 >> g0(i, 1);
             }
-        }else {
+        } else {
             GMX_ASSERT(selected_energy_model != KEnRef<KEnRef_Real_t>::energyModel::UNKNOWN, "ENER_MODEL must be set to either 'SIGMA' or 'PLATEAUS'.");
         }
 
-        std::cout << "Current path is "<< std::filesystem::current_path()<< std::endl;
+        std::cout << "Current path is " << std::filesystem::current_path() << std::endl;
         //Guide atom indices
         const std::vector<int> &guideAtom0Indices = GmxKEnRefInitializer::loadGmxIndexGroup(GUIDE_C_ALPHA, indexFileName);
         IoUtils::printVector(guideAtom0Indices);
@@ -230,7 +230,7 @@ public:
         //Guide atoms X
         //load all reference coordinates (including both guide atoms and reference atoms)
         auto referenceStructureAllAtomCoordsMap = IoUtils::getAtomMappingFromPdb<int, Eigen::RowVector3<KEnRef_Real_t>>(
-                refFileName, IoUtils::fill_atomIndex1_to_coords_Map < KEnRef_Real_t > );
+                refFileName, IoUtils::fill_atomIndex1_to_coords_Map<KEnRef_Real_t>);
 
         //calculate guideAtomsReferenceCoordsCentered (to use for fitting)
         //const auto &guideAtomsReferenceCoordsCentered = Kabsch_Umeyama<KEnRef_Real_t>::translateCenterOfMassToOrigin(
@@ -267,8 +267,8 @@ public:
             sub0Id_to_global0Id.resize(sub0Id);
         }
         // by the end of the above block, sub0Id_to_global0Id should not have any -1 items
-        std::vector<std::tuple<int, int>> subAtomIdPairs;
-        for (auto &[atom1, atom2]:atomIdPairs) {
+        std::vector<std::tuple<int, int> > subAtomIdPairs;
+        for (auto &[atom1, atom2]: atomIdPairs) {
             subAtomIdPairs.emplace_back(global0Id_to_sub0Id[atom1], global0Id_to_sub0Id[atom2]);
         }
 
@@ -279,10 +279,10 @@ public:
             atomName_to_atomSub0Id_map[name] = global0Id_to_sub0Id.at(global1Id - 1);
         }
 
-        std::cout << "Energy output file path: " << energyOutputFileName << std::endl;
-        std::filesystem::path file_path(energyOutputFileName);
+        std::cout << "Energy output file path: " << energyOutputPathName << std::endl;
+        std::filesystem::path file_path(energyOutputPathName);
         // Create the directories if they do not exist
-        if (auto parent = file_path.parent_path(); !parent.empty() && !exists(parent)){
+        if (auto parent = file_path.parent_path(); !parent.empty() && !exists(parent)) {
             std::error_code ec;
             std::filesystem::create_directories(parent, ec);
             if (ec) {
@@ -290,11 +290,11 @@ public:
             }
         }
         std::ofstream energyOutFileStream;
-        energyOutFileStream.open(energyOutputFileName);
-        if(energyOutFileStream.is_open()){
+        energyOutFileStream.open(energyOutputPathName);
+        if (energyOutFileStream.is_open()) {
             std::cout << "Energy Output file open successfully\n";
-        }else{
-            std::cerr << "FATAL ERROR: Can't open file [" << energyOutputFileName << "] for writing.\n";
+        } else {
+            std::cerr << "FATAL ERROR: Can't open file [" << energyOutputPathName << "] for writing.\n";
             exit(-1);
         }
 
@@ -310,8 +310,8 @@ public:
         // Actions Every frame: fitting coordsVector to guideAtomsX_ZEROIndexed
         try {
             for (int modelId = 0; modelId < numModels; ++modelId) {
-                auto& fst = fsts[modelId];
-                const std::string& modelPathName = inputFiles[modelId];
+                auto &fst = fsts[modelId];
+                const std::string &modelPathName = inputFiles[modelId];
 
                 switch (inputFileType) {
                     case InputFileType::xtc:
@@ -334,7 +334,7 @@ public:
 
             auto guideAtomsX_ZEROIndexed = CoordsMatrixType<KEnRef_Real_t>(guideAtom0Indices.size(), 3);
             do {
-                std::vector<CoordsMatrixType<KEnRef_Real_t>> allSimulationsSubAtomsXVector(numModels);
+                std::vector<CoordsMatrixType<KEnRef_Real_t> > allSimulationsSubAtomsXVector(numModels);
 
                 //Use the data from the 2 models
                 for (int modelIdx = 0; modelIdx < numModels; ++modelIdx) {
@@ -355,7 +355,7 @@ public:
                     fillX(subAtomsX, subAtoms0Ids, fst.x, true);
                     allSimulationsSubAtomsXVector.at(modelIdx) = Kabsch_Umeyama<KEnRef_Real_t>::applyTransform(affineForEnergy, subAtomsX);
 
-                    if (modelIdx == numModels - 1){
+                    if (modelIdx == numModels - 1) {
                         KEnRef_Real_t energy = 0;
                         std::optional<std::vector<CoordsMatrixType<KEnRef_Real_t> > > allDerivatives_vector;
                         if (selected_energy_model == KEnRef<double>::energyModel::PLATEAUS) {
@@ -390,11 +390,11 @@ public:
                     oks[modelIdx] = fst.bOK;
                 }
             } while ((returns.array() != 0).all() && (max_frame < 0 || fsts[0].nframe <= max_frame));
-            if ((inputFileType == InputFileType::xtc && ! oks.all()) ||
-                (inputFileType == InputFileType::trr && oks.rows() > 1 && ! (oks.array() == 0).all() )) {
+            if ((inputFileType == InputFileType::xtc && !oks.all()) ||
+                (inputFileType == InputFileType::trr && oks.rows() > 1 && !(oks.array() == 0).all())) {
                 fprintf(stderr, "\nWARNING: Incomplete frame.\n");
             }
-            for (auto & fst:fsts) {
+            for (auto &fst: fsts) {
                 sfree(fst.x);
                 switch (inputFileType) {
                     case InputFileType::xtc:
@@ -409,7 +409,7 @@ public:
             }
             energyOutFileStream.close();
         } catch (...) {
-            for (auto & fst:fsts) {
+            for (auto &fst: fsts) {
                 sfree(fst.x);
                 switch (inputFileType) {
                     case InputFileType::xtc:
