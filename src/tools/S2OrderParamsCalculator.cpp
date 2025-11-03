@@ -310,12 +310,11 @@ public:
                     allSimulationsSubAtomsXVector.at(modelIdx) = Kabsch_Umeyama<KEnRef_Real_t>::applyTransform(affineForS2, subAtomsX);
 
                     if (modelIdx == numModels - 1) {
-                        const auto &frameS2OrderParams = KEnRef<KEnRef_Real_t>::s2OrderParams(
-                            allSimulationsSubAtomsXVector, subAtomIdPairs, 0);
-                        if (fst.nframe == 0) {
-                            std::cout << "First S2OrderParams of first step\n" << frameS2OrderParams.topRows(25).transpose() << std::endl;
-                        }
                         if (fst.step % dt == 0) {
+                            const auto &frameS2OrderParams = KEnRef<KEnRef_Real_t>::s2OrderParams( allSimulationsSubAtomsXVector, subAtomIdPairs, 0);
+                            if (fst.nframe == 0) {
+                                std::cout << "First S2OrderParams of first step\n" << frameS2OrderParams.topRows(25).transpose() << std::endl;
+                            }
                             s2OutFileStream << fst.step << ", " << frameS2OrderParams.transpose().format(insideCsvLineFormat) << std::endl;
                         }
                     }

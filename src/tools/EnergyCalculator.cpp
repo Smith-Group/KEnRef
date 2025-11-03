@@ -356,19 +356,19 @@ public:
                     allSimulationsSubAtomsXVector.at(modelIdx) = Kabsch_Umeyama<KEnRef_Real_t>::applyTransform(affineForEnergy, subAtomsX);
 
                     if (modelIdx == numModels - 1) {
-                        KEnRef_Real_t energy = 0;
-                        std::optional<std::vector<CoordsMatrixType<KEnRef_Real_t> > > allDerivatives_vector;
-                        if (selected_energy_model == KEnRef<double>::energyModel::PLATEAUS) {
-                            std::tie(energy, allDerivatives_vector) =
-                                KEnRef<KEnRef_Real_t>::coord_array_to_g_energy(allSimulationsSubAtomsXVector, subAtomIdPairs,
-                                    simulated_grouping_list, g0, k, n, false, 1);
-                        }else if (selected_energy_model == KEnRef<double>::energyModel::SIGMA) {
-                            std::tie(energy, allDerivatives_vector) =
-                                    KEnRef<KEnRef_Real_t>::coord_array_to_sigma_energy(
-                                        allSimulationsSubAtomsXVector, rates, spec_den_data_vector, proton_mhz, k, n,
-                                        atomName_to_atomSub0Id_map, false, 1);
-                        }
                         if (fst.step % dt == 0) {
+                            KEnRef_Real_t energy = 0;
+                            std::optional<std::vector<CoordsMatrixType<KEnRef_Real_t> > > allDerivatives_vector;
+                            if (selected_energy_model == KEnRef<double>::energyModel::PLATEAUS) {
+                                std::tie(energy, allDerivatives_vector) =
+                                    KEnRef<KEnRef_Real_t>::coord_array_to_g_energy(allSimulationsSubAtomsXVector, subAtomIdPairs,
+                                        simulated_grouping_list, g0, k, n, false, 1);
+                            }else if (selected_energy_model == KEnRef<double>::energyModel::SIGMA) {
+                                std::tie(energy, allDerivatives_vector) =
+                                        KEnRef<KEnRef_Real_t>::coord_array_to_sigma_energy(
+                                            allSimulationsSubAtomsXVector, rates, spec_den_data_vector, proton_mhz, k, n,
+                                            atomName_to_atomSub0Id_map, false, 1);
+                            }
                             // std::cout << "Step: " << fst.step << " Energy: " << energy << std::endl;
                             // energyOutFileStream << "Step: " << fst.step << " Energy: " << energy << std::endl;
                             energyOutFileStream << fst.step << '\t' << energy << std::endl;
