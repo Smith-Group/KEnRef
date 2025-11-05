@@ -109,25 +109,40 @@ include_directories(
 )
 #include_directories("${EIGEN3_INCLUDE_DIR}")
 
-#TODO Change the targets into FENREF::CORE and KENREF::GMXINTERFACE (and rearrange sources)
-add_library(KENREF_CORE STATIC ${core_sources})
-add_library(KENREF_GMXINTERFACE STATIC ${gmxinterface_sources})
+# Create libraries with simple names
+add_library(kenref_core STATIC ${core_sources})           # Lowercase, no namespace
+add_library(kenref_gmxinterface STATIC ${gmxinterface_sources})
+# Create namespace aliases
+add_library(KENREF::CORE ALIAS kenref_core)
+add_library(KENREF::GMXINTERFACE ALIAS kenref_gmxinterface)
+
 add_executable(KEnRef "src/gmxinterface/gmxwrapper.cpp")
 add_executable(s2calc "src/tools/S2OrderParamsCalculator.cpp" "src/tools/AbstractCalculator.cpp")
 add_executable(energycalc "src/tools/EnergyCalculator.cpp" "src/tools/AbstractCalculator.cpp")
 
-target_link_libraries(KENREF_CORE PUBLIC MPI::MPI_CXX Eigen3::Eigen
+target_link_libraries(kenref_core PUBLIC MPI::MPI_CXX Eigen3::Eigen
 		#        Eigen3::unsupported # may need to restore it later
 )
-target_link_libraries(KENREF_GMXINTERFACE PUBLIC KENREF_CORE Gromacs::libgromacs)
-target_link_libraries(KEnRef PRIVATE KENREF_CORE KENREF_GMXINTERFACE)
-target_link_libraries(s2calc PRIVATE KENREF_CORE KENREF_GMXINTERFACE)
-target_link_libraries(energycalc PRIVATE KENREF_CORE KENREF_GMXINTERFACE)
+target_link_libraries(kenref_gmxinterface PUBLIC KENREF::CORE Gromacs::libgromacs)
+target_link_libraries(KEnRef PRIVATE KENREF::CORE KENREF::GMXINTERFACE)
+target_link_libraries(s2calc PRIVATE KENREF::CORE KENREF::GMXINTERFACE)
+target_link_libraries(energycalc PRIVATE KENREF::CORE KENREF::GMXINTERFACE)
 
 install(TARGETS KEnRef DESTINATION bin)
 install(TARGETS s2calc DESTINATION bin)
 install(TARGETS energycalc DESTINATION bin)
-install(TARGETS KENREF_CORE KENREF_GMXINTERFACE DESTINATION lib)
+install(TARGETS kenref_core kenref_gmxinterface DESTINATION lib)
+# Optional: Export with namespaces
+install(TARGETS kenref_core kenref_gmxinterface
+		EXPORT KEnRefTargets
+		LIBRARY DESTINATION lib
+		ARCHIVE DESTINATION lib
+)
+install(EXPORT KEnRefTargets
+		FILE KEnRefTargets.cmake
+		NAMESPACE KENREF::
+		DESTINATION lib/cmake/KEnRef
+)
 ###########################################
 ## Add gtest
 add_subdirectory(google_tests)
