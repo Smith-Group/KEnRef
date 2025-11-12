@@ -41,6 +41,14 @@ public:
     static std::vector<std::vector<T> >
     read_uniform_table_of(std::istream &ins);
 
+    static bool ends_with(const std::string& s, const std::string& suffix);
+
+    static bool ext_xtc_or_trr(const std::string& path);
+
+    static KEnRef_Real_t pearsonCorrelation(const Eigen::VectorX<KEnRef_Real_t>& x, const Eigen::VectorX<KEnRef_Real_t>& y);
+
+    static std::vector<SpecDenData<KEnRef_Real_t>> load_spec_den_data(const std::string& experimentalDataFolder, bool handleNames);
+
 
     static Table
     readTable(const std::string &fileName, bool has_columnNames = true, bool has_rowNames = false,

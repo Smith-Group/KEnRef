@@ -99,6 +99,76 @@ IoUtils::splitCSVLine(const std::string &line, const std::string &delimiter_patt
     return tokens;
 }
 
+bool IoUtils::ends_with(const std::string &s, const std::string &suffix) {
+    const std::size_t n = s.size();
+    const std::size_t m = suffix.size();
+    return n >= m && s.rfind(suffix, n - m) == n - m;
+}
+
+bool IoUtils::ext_xtc_or_trr(const std::string &path) {
+    const std::string ext = std::filesystem::path(path).extension().string(); // e.g., ".xtc"
+    return ext == ".xtc" || ext == ".trr";
+}
+
+KEnRef_Real_t IoUtils::pearsonCorrelation(const Eigen::VectorX<KEnRef_Real_t> &x, const Eigen::VectorX<KEnRef_Real_t> &y) {
+    if (x.size() != y.size())
+        throw std::invalid_argument("Vectors must be of the same length.");
+    const KEnRef_Real_t mean_x = x.mean();
+    const KEnRef_Real_t mean_y = y.mean();
+    Eigen::VectorX<KEnRef_Real_t> diff_x = x.array() - mean_x;
+    Eigen::VectorX<KEnRef_Real_t> diff_y = y.array() - mean_y;
+    const KEnRef_Real_t numerator = (diff_x.array() * diff_y.array()).sum();
+    const KEnRef_Real_t denominator = std::sqrt((diff_x.array().square().sum()) * (diff_y.array().square().sum()));
+    return numerator / denominator;
+}
+
+std::vector<SpecDenData<KEnRef_Real_t>> IoUtils::load_spec_den_data(const std::string &experimentalDataFolder, const bool handleNames) {
+    const std::vector<std::string> &spec_den_data_prefixes = KEnRef<KEnRef_Real_t>::spec_den_data_prefixes;
+    std::vector<SpecDenData<KEnRef_Real_t>> spec_den_data_vector;
+    spec_den_data_vector.reserve(spec_den_data_prefixes.size());
+    for (const auto & spec_den_data_prefix : spec_den_data_prefixes) {
+        //AtomPairs
+        std::string atomPairAndSigmaFileName = experimentalDataFolder + spec_den_data_prefix + "_atom_pairs.csv";
+        std::cout << atomPairAndSigmaFileName << std::endl;
+        const Table& atomPairAndSigmaTable = IoUtils::readTable(atomPairAndSigmaFileName,true,false, "\\s*,\\s*", -1, true);
+        std::vector<std::tuple<std::string, std::string>> atomPairs(atomPairAndSigmaTable.rowCount());
+        for (int j = 0; j < atomPairAndSigmaTable.rowCount(); ++j) {
+            auto atom1 = IoUtils::normalizeName(atomPairAndSigmaTable.at(j, 0), handleNames);
+            auto atom2 = IoUtils::normalizeName(atomPairAndSigmaTable.at(j, 1), handleNames);
+            atomPairs.at(j) = std::move(std::tuple<std::string, std::string>{ atom1, atom2 });
+        }
+        // sigma
+        std::vector<KEnRef_Real_t> sigmasVec{};
+        for (int row = 0; row < atomPairAndSigmaTable.rowCount(); ++row) {
+            if (! atomPairAndSigmaTable.isRowComplete(row))
+                break;
+            const auto &valueStr = atomPairAndSigmaTable.at(row, 2);
+            std::istringstream iss(valueStr);
+            KEnRef_Real_t value;
+            iss >> value;
+            sigmasVec.emplace_back(value);
+        }
+        std::optional<NamedVector<KEnRef_Real_t>> sigma = NamedVector<KEnRef_Real_t>(sigmasVec.size());
+        for (int j = 0; j < sigma->rows(); ++j) {
+            sigma.value()(j, 0) = sigmasVec[j];
+        }
+        //multiple_grouping
+        std::string multiple_grouping_fileName = experimentalDataFolder + spec_den_data_prefix+"_groupings.csv";
+        const auto &grouping_matrix = NamedMatrix<int>(IoUtils::readTable(multiple_grouping_fileName, false, false).toNamedMatrix<int>().array() - 1);
+        const auto &multiple_grouping = IoUtils::grouping_mat_to_subset_idx(grouping_matrix);
+        //a_coef
+        std::string aCoefFileName = experimentalDataFolder + spec_den_data_prefix+"_a_coef.csv";
+        const auto &a_coef = IoUtils::readTable(aCoefFileName, true,false, "\\s*,\\s*", -1, false).toNamedMatrix<KEnRef_Real_t>();
+        //lambda_coef
+        std::string lambdaCoefFileName = experimentalDataFolder + spec_den_data_prefix+"_lambda_coef.csv";
+        const auto &lambda_coef = IoUtils::readTable(lambdaCoefFileName, true,true, "\\s*,\\s*", -1, false).toNamedMatrix<KEnRef_Real_t>();
+
+        // spec_den_data_vector.emplace_back(atomPairs, sigma, multiple_grouping, a_coef, lambda_coef);
+        spec_den_data_vector.emplace_back(std::move(SpecDenData<KEnRef_Real_t>{atomPairs, sigma, multiple_grouping, a_coef, lambda_coef}));
+    }
+    return spec_den_data_vector;
+}
+
 Table
 IoUtils::readTable(const std::string &fileName, const bool has_columnNames, const bool has_rowNames,
     const std::string &delimiter, const int max_rows, bool tolerateMissingLastColumn) {

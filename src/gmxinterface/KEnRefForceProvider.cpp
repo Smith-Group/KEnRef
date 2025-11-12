@@ -571,53 +571,15 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
                 maxId0 = id0;
             }
         }
-
-        const std::vector<std::string> &spec_den_data_prefixes = KEnRef<KEnRef_Real_t>::spec_den_data_prefixes;
-        std::vector<SpecDenData<KEnRef_Real_t>> spec_den_data_vector;
-        spec_den_data_vector.reserve(spec_den_data_prefixes.size());
-        //TODO unify `this->atomName_pairs_` among model cases
-        for (const auto & spec_den_data_prefix : spec_den_data_prefixes) {
-            //AtomPairs
-            std::string atomPairAndSigmaFileName = Settings::experimentalDataFolder + spec_den_data_prefix+"_atom_pairs.csv";
-            std::cout << atomPairAndSigmaFileName << std::endl;
-            const Table& atomPairAndSigmaTable = IoUtils::readTable(atomPairAndSigmaFileName,true,false, "\\s*,\\s*", -1, true);
-            std::vector<std::tuple<std::string, std::string>> atomPairs(atomPairAndSigmaTable.rowCount());
-            for (int j = 0; j < atomPairAndSigmaTable.rowCount(); ++j) {
-                auto atom1 = IoUtils::normalizeName(atomPairAndSigmaTable.at(j, 0), handleNames);
-                auto atom2 = IoUtils::normalizeName(atomPairAndSigmaTable.at(j, 1), handleNames);
-                atomPairs.at(j) = std::move(std::tuple<std::string, std::string>{ atom1, atom2 });
+        this->SpecDenData_ = std::make_shared<std::vector<SpecDenData<KEnRef_Real_t> > >(
+            IoUtils::load_spec_den_data(Settings::experimentalDataFolder, handleNames));
+        auto &specDenData = *this->SpecDenData_;
+        for (const auto& spec_den_datum: specDenData) {
+            const auto& atomPairs = spec_den_datum.get_atom_pairs();
+            for (const auto&[atom1, atom2]: atomPairs) {
                 this->atomName_pairs_->emplace_back(atom1, atom2);
             }
-            // sigma
-            std::vector<KEnRef_Real_t> sigmasVec{};
-            for (int row = 0; row < atomPairAndSigmaTable.rowCount(); ++row) {
-                if (! atomPairAndSigmaTable.isRowComplete(row))
-                    break;
-                const auto &valueStr = atomPairAndSigmaTable.at(row, 2);
-                std::istringstream iss(valueStr);
-                KEnRef_Real_t value;
-                iss >> value;
-                sigmasVec.emplace_back(value);
-            }
-            std::optional<NamedVector<KEnRef_Real_t>> sigma = NamedVector<KEnRef_Real_t>(sigmasVec.size());
-            for (int j = 0; j < sigma->rows(); ++j) {
-                sigma.value()(j, 0) = sigmasVec[j];
-            }
-            //multiple_grouping
-            std::string multiple_grouping_fileName = Settings::experimentalDataFolder + spec_den_data_prefix+"_groupings.csv";
-            const auto &grouping_matrix = NamedMatrix<int>(IoUtils::readTable(multiple_grouping_fileName, false, false).toNamedMatrix<int>().array() - 1);
-            const auto &multiple_grouping = IoUtils::grouping_mat_to_subset_idx(grouping_matrix);
-            //a_coef
-            std::string aCoefFileName = Settings::experimentalDataFolder + spec_den_data_prefix+"_a_coef.csv";
-            const auto &a_coef = IoUtils::readTable(aCoefFileName, true,false, "\\s*,\\s*", -1, false).toNamedMatrix<KEnRef_Real_t>();
-            //lambda_coef
-            std::string lambdaCoefFileName = Settings::experimentalDataFolder + spec_den_data_prefix+"_lambda_coef.csv";
-            const auto &lambda_coef = IoUtils::readTable(lambdaCoefFileName, true,true, "\\s*,\\s*", -1, false).toNamedMatrix<KEnRef_Real_t>();
-
-            // spec_den_data_vector.emplace_back(atomPairs, sigma, multiple_grouping, a_coef, lambda_coef);
-            spec_den_data_vector.emplace_back(std::move(SpecDenData<KEnRef_Real_t>{atomPairs, sigma, multiple_grouping, a_coef, lambda_coef}));
         }
-        this->SpecDenData_ = std::make_shared<std::vector<SpecDenData<KEnRef_Real_t>>>(spec_den_data_vector);
     }else /*if (selectedEnergyModel == PLATEAUS)*/ {
 
         this->experimentalData_table_ = std::make_shared<Table>(
