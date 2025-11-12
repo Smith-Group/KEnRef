@@ -59,7 +59,8 @@ int main(int argc, char *argv[]) {
     // This should be the main function that loads GMXWrapper (which should replace GROMACS main class)
     CLI::App app{"KEnRef"};
 
-    // KENREF_MAXFORCE=999
+    app.add_flag("--debug", Settings::debug, "enable debugging (holds for debugging)")-> group("");
+
     app.add_option("--k", Settings::k, "K force constant")->envname("KENREF_K");
     app.add_option("--n", Settings::n, "power scaling")->envname("KENREF_N");
     app.add_option("--max-force", Settings::max_force, "maximum force")->envname("KENREF_MAX_FORCE");

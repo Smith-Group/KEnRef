@@ -25,6 +25,7 @@ class Settings {
 public:
     Settings() = delete;
 
+    inline static bool debug = false;
     inline static std::string alt_out_path;
     inline static KEnRef_Real_t k = 1;
     inline static KEnRef_Real_t n = 0.25;

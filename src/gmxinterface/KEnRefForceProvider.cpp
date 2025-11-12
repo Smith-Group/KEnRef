@@ -108,7 +108,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
                 << "--> simulationIndex " << simulationIndex << "\tstep " << step << std::endl;
 
     if (!paramsInitialized) {
-        volatile bool holdToDebug = false;
+        volatile bool holdToDebug = Settings::debug;
         while (/*simulationIndex > 0 &&*/ holdToDebug) {
             sleep(1);
         }
