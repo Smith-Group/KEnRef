@@ -8,7 +8,7 @@
 #ifndef GMXWRAPPER_H_
 #define GMXWRAPPER_H_
 
-#include "../config/KEnRefConfig.h"
+#include "config/KEnRefConfig.h"
 #include "core/KEnRef.h"
 
 class GMXWrapper { //This class should replace GROMACS main class

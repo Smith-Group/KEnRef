@@ -8,7 +8,7 @@
 #ifndef GMXKENREFRUNNER_H_
 #define GMXKENREFRUNNER_H_
 
-#include "../core/kenrefrunner.h"
+#include "core/kenrefrunner.h"
 
 class GmxKEnRefRunner: public KEnRefRunner {
 public:

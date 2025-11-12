@@ -91,58 +91,103 @@ else()
 endif()
 # ============================================================================
 
-
-FILE(GLOB core_sources "src/core/*.cpp")
+# SEPARATE CORE SOURCES (Permissive license)
+FILE(GLOB core_sources "src/core/*.cpp")  # Only pure math/algorithms
 FILE(GLOB gmxinterface_sources "src/gmxinterface/*.cpp")
+FILE(GLOB tools_sources "src/tools/*.cpp")  # Tools depend on both
 
-include_directories(include)
-include_directories(
-#		"${GROMACS_INSTALL_DIR}/include"  # Not neeed here anymore, but needed for libgromacs
-        "${GROMACS_BUILD_DIR}/src/include/"  #  Needed for "config.h"
-#        "${GROMACS_SRC_DIR}/src/gromacs/gmxlib"
-        "${GROMACS_SRC_DIR}/src/gromacs/mdtypes"
-        "${GROMACS_SRC_DIR}/src/gromacs/utility/include"
-        "${GROMACS_SRC_DIR}/src/programs"
-        "${GROMACS_SRC_DIR}/src"
-        "${GROMACS_SRC_DIR}/src/include"
-        "${GROMACS_SRC_DIR}/src/gromacs/math/include"
-)
-#include_directories("${EIGEN3_INCLUDE_DIR}")
-
-# Create libraries with simple names
+# Create separate targets with clear boundaries (libraries with simple names)
 add_library(kenref_core STATIC ${core_sources})           # Lowercase, no namespace
 add_library(kenref_gmxinterface STATIC ${gmxinterface_sources})
+
 # Create namespace aliases
 add_library(KENREF::CORE ALIAS kenref_core)
 add_library(KENREF::GMXINTERFACE ALIAS kenref_gmxinterface)
 
+# SEPARATE DEPENDENCIES based on license compatibility
+# Core: Only permissively licensed dependencies
+target_link_libraries(kenref_core PUBLIC
+    MPI::MPI_CXX           # Check MPI license
+    Eigen3::Eigen          # MPL2 - permissive
+#        Eigen3::unsupported # may need to restore it later
+    # NO GROMACS here!
+)
+
+# GMXInterface: GPL-compatible dependencies
+target_link_libraries(kenref_gmxinterface PUBLIC
+    KENREF::CORE           # Core is permissively licensed
+    Gromacs::libgromacs    # GPL - only here!
+    MPI::MPI_CXX           # Check MPI license
+)
+
+# Separate include directories
+target_include_directories(kenref_core PUBLIC
+    #${EIGEN3_INCLUDE_DIR}
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include_core>
+    $<INSTALL_INTERFACE:include/core>
+)
+target_include_directories(kenref_gmxinterface PUBLIC
+    # GROMACS includes - THE ORDER IS CRITICAL
+    "${GROMACS_BUILD_DIR}/src/include/"                    # 1. config.h
+    "${GROMACS_SRC_DIR}/src/include"                       # 2. Core API
+    "${GROMACS_SRC_DIR}/src/gromacs/math/include"          # 3. Math
+    "${GROMACS_SRC_DIR}/src/gromacs/mdtypes"               # 4. MD types
+    "${GROMACS_SRC_DIR}/src/gromacs/utility/include"       # 5. Utility
+    "${GROMACS_SRC_DIR}/src/programs"                      # 6. Programs
+    "${GROMACS_SRC_DIR}/src"							   # 7. I am not sure
+    # Our interface (lowest priority)
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include_gmxinterface>
+    $<INSTALL_INTERFACE:include/gmxinterface>
+)
+
 add_executable(KEnRef "src/gmxinterface/gmxwrapper.cpp")
+target_link_libraries(KEnRef PRIVATE KENREF::CORE KENREF::GMXINTERFACE)
+
+# Tools depend on both
 add_executable(s2calc "src/tools/S2OrderParamsCalculator.cpp" "src/tools/AbstractCalculator.cpp")
 add_executable(energycalc "src/tools/EnergyCalculator.cpp" "src/tools/AbstractCalculator.cpp")
-
-target_link_libraries(kenref_core PUBLIC MPI::MPI_CXX Eigen3::Eigen
-		#        Eigen3::unsupported # may need to restore it later
+target_link_libraries(s2calc PRIVATE
+    KENREF::CORE           # Permissive part
+    KENREF::GMXINTERFACE   # GPL part - tools become GPL
 )
-target_link_libraries(kenref_gmxinterface PUBLIC KENREF::CORE Gromacs::libgromacs)
-target_link_libraries(KEnRef PRIVATE KENREF::CORE KENREF::GMXINTERFACE)
-target_link_libraries(s2calc PRIVATE KENREF::CORE KENREF::GMXINTERFACE)
-target_link_libraries(energycalc PRIVATE KENREF::CORE KENREF::GMXINTERFACE)
+
+target_link_libraries(energycalc PRIVATE
+    KENREF::CORE
+    KENREF::GMXINTERFACE   # Tools inherit GPL
+)
 
 install(TARGETS KEnRef DESTINATION bin)
 install(TARGETS s2calc DESTINATION bin)
 install(TARGETS energycalc DESTINATION bin)
-install(TARGETS kenref_core kenref_gmxinterface DESTINATION lib)
-# Optional: Export with namespaces
-install(TARGETS kenref_core kenref_gmxinterface
-		EXPORT KEnRefTargets
-		LIBRARY DESTINATION lib
-		ARCHIVE DESTINATION lib
+
+# SEPARATE INSTALLATION with license files
+install(TARGETS kenref_core
+    EXPORT KEnRefCoreTargets
+    DESTINATION lib
+    # Include permissive LICENSE file
 )
-install(EXPORT KEnRefTargets
-		FILE KEnRefTargets.cmake
-		NAMESPACE KENREF::
-		DESTINATION lib/cmake/KEnRef
+install(TARGETS kenref_gmxinterface
+    EXPORT KEnRefGmxTargets
+    DESTINATION lib
+    # Include GPL-compatible LICENSE file
 )
+
+# Separate exports with different namespaces or configs
+install(EXPORT KEnRefCoreTargets
+    FILE KEnRefCoreConfig.cmake
+    NAMESPACE KENREF::
+    DESTINATION lib/cmake/KEnRef
+)
+
+install(EXPORT KEnRefGmxTargets
+    FILE KEnRefGmxConfig.cmake
+    NAMESPACE KENREF::
+    DESTINATION lib/cmake/KEnRef
+)
+
+install(FILES LICENSE_CORE.txt DESTINATION share/licenses/kenref)
+install(FILES LICENSE_GMX.txt DESTINATION share/licenses/kenref)
+install(FILES LICENSE_CLI11.txt DESTINATION share/licenses/cli11)
 ###########################################
 ## Add gtest
 add_subdirectory(google_tests)

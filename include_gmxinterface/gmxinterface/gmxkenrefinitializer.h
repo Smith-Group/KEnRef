@@ -8,7 +8,7 @@
 #ifndef GMXKENREFINITIALIZER_H_
 #define GMXKENREFINITIALIZER_H_
 
-#include "../core/kenrefinitializer.h"
+#include "core/kenrefinitializer.h"
 #include <vector>
 #include <map>
 
