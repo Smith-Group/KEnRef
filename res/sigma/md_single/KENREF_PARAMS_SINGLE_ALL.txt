@@ -1,6 +1,0 @@
-GUIDE_C_ALPHA = "guideC-alpha"
-INDEX_FILE_LOCATION = "../../../res/sigma/md_single/KEnRefAtomIndex.ndx"
-ENERGY_MODEL = SIGMA
-EXPERIMENTAL_DATA_FOLDER = "../../../res/sigma/md_single/"
-ATOMNAME_MAPPING_FILENAME = "../../../res/sigma/md_single/GB3_27_10us.pdb"
-REFERENCE_FILENAME = "../../../res/sigma/md_single/GB3_27_10us.pdb"

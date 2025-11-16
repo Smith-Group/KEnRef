@@ -1,0 +1,6 @@
+model = "SIGMA"
+guide = "guideC-alpha"
+index = "../../rdc/KEnRefAtomIndex.ndx"
+exp-data-folder = "../../sigma/md_exp/input_1"
+atomname-mapping = "../../rdc/alef.pdb"
+ref = "../../rdc/alef.pdb"

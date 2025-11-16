@@ -61,49 +61,30 @@ public:
     static std::vector<std::string> splitCSVLine(const std::string &line, const std::string &delimiter_pattern,
                                                  char quote_char = '"');
 
-    static std::map<std::string, std::string> readParams(const std::string &fileName);
-
     static Eigen::Matrix<int, Eigen::Dynamic, Eigen::Dynamic>
     subset_idx_to_grouping_mat(const std::vector<std::vector<std::vector<int> > > &multipleGroupings);
 
     static std::vector<std::vector<std::vector<int> > >
     grouping_mat_to_subset_idx(const Eigen::Matrix<int, Eigen::Dynamic, Eigen::Dynamic> &grouping_matrix);
 
-    static std::map<std::string, std::string>
-    readParams(std::istream &paramsFileStream);
+    // static std::map<std::string, std::string> readParams(const std::string &fileName);
+    // static std::map<std::string, std::string> readParams(std::istream &paramsFileStream);
+    // static int getEnvParam(const std::string &paramName, int defaultValue);
+    // static long getEnvParam(const std::string &paramName, long defaultValue);
+    // static std::string getEnvParam(const char *paramName, const char *defaultValue);
+    // static std::string getEnvParam(const std::string &paramName, const char *defaultValue);
+    // static std::string getEnvParam(const std::string &paramName, const std::string &defaultValue);
+    // template<typename KEnRef_Real_t> static KEnRef_Real_t getEnvParam(const std::string &paramName, KEnRef_Real_t defaultValue);
 
-    static int getEnvParam(const std::string &paramName, int defaultValue);
+    static std::string strip_enclosing_quotes(const std::string &str, char delim = '"');
 
-    static long getEnvParam(const std::string &paramName, long defaultValue);
-
-    static std::string getEnvParam(const char *paramName, const char *defaultValue);
-
-    static std::string getEnvParam(const std::string &paramName, const char *defaultValue);
-
-    static std::string getEnvParam(const std::string &paramName, const std::string &defaultValue);
-
-    template<typename KEnRef_Real_t>
-    static KEnRef_Real_t getEnvParam(const std::string &paramName, KEnRef_Real_t defaultValue);
-
-
-    static std::string
-    strip_enclosing_quotes(const std::string &str, char delim = '"');
-
-    static std::tuple<
-        std::vector<std::string>, std::vector<std::string>, std::vector<int> >
-    read_noe_table(std::istream &instream, bool has_header = true);
-
-    std::vector<std::string>
-    static split(const std::string &str, const std::string &delim = "\\s+");
-
-    static std::map<std::string, std::vector<std::string> > read_noe_groups(std::istream &ins);
+    std::vector<std::string> static split(const std::string &str, const std::string &delim = "\\s+");
 
     static std::vector<int> getGmxNdxGroup(const std::string &filename, const std::string &groupName);
 
     static std::map<std::string, std::vector<int> > getAllGmxNdxGroups(const std::string &filename);
 
-    template<typename TYPE>
-    static void printVector(const std::vector<TYPE> &vec);
+    template<typename TYPE> static void printVector(const std::vector<TYPE> &vec);
 
     static std::string padWithZeros(int value, int width);
 
@@ -198,9 +179,10 @@ public:
         const std::vector<std::tuple<std::string, std::string>> &atomName_pairs,
         const std::map<std::string, int> &atomNames_2_atomIds);
 
+    static std::vector<std::string> find_matching_files(const std::string& folder_path, const std::string& pattern_string);
+    static std::vector<std::string> find_spec_den_data_prefixes(const std::string& folder_path);
 
-    static std::vector<std::tuple<int, int> >
-    readAtomIdPairs(const std::string &fileName);
+    static std::vector<std::tuple<int, int> > readAtomIdPairs(const std::string &fileName);
 
     inline static const std::string &aa3(const std::string &aa1);
 

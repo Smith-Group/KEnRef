@@ -174,110 +174,6 @@ KEnRef<KEnRef_Real>::r_array_to_d_array(const CoordsMatrixType<KEnRef_Real> &Nxy
     return {std::move(ret1), std::move(ret2)};
 }
 
-// template<typename KEnRef_Real>
-// std::tuple<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15> >
-// KEnRef<KEnRef_Real>::r_array_to_d_array(const CoordsMatrixType<KEnRef_Real> &Nxyz, bool gradient, bool addEpsilon,
-//                                         int numOmpThreads) {
-//     //	std::cout << "r_array_to_d_array(Nxyz) called" << std::endl;
-//     auto N = Nxyz.rows();
-//
-//     auto x = Nxyz.col(0).array();
-//     auto y = Nxyz.col(1).array();
-//     auto z = Nxyz.col(2).array();
-//     auto sqrt3 = static_cast<KEnRef_Real>(sqrt(3.0));
-//
-//     enum ci {
-//         x2, y2, z2,
-//         //xyz,
-//         x2_y2_z2,
-//         xy, xz, yz, x2_minusy2,
-//         x2_y2_z2_p52, x2_y2_z2_p72,
-//         //sqrt3_x2_y2_z2_p52, sqrt3_x2_y2_z2_p72,
-//         half_minusx2_minusy2__z2, // NOLINT(*-reserved-identifier)
-//         sqrt3_over_x2_y2_z2_p52, neg5_over_x2_y2_z2_p72, neg5sqrt3_over_x2_y2_z2_p72, neg5sqrt3_over_2_x2_y2_z2_p72
-//     };
-//
-//     //TODO use multiplying by inverse() instead of division
-//     Eigen::ArrayXX<KEnRef_Real> cache(N, 15); //must be Array (not Matrix) to allow item-wise operations
-// #define CACHE(a) (cache.col(a))
-//     CACHE(x2) = x.square();
-//     CACHE(y2) = y.square();
-//     CACHE(z2) = z.square();
-//     CACHE(xy) = x * y;
-//     CACHE(xz) = x * z;
-//     CACHE(yz) = y * z;
-//     //CACHE(xyz) 			= CACHE(xy) * z;
-//     CACHE(x2_y2_z2) = CACHE(x2) + CACHE(y2) + CACHE(z2); //x2 + y2 + z2;
-//     CACHE(x2_minusy2) = CACHE(x2) - CACHE(y2);
-//     // CACHE(x2_y2_z2_p52) = CACHE(x2_y2_z2).pow(5).sqrt() + std::numeric_limits<KEnRef_Real>::epsilon();
-//     CACHE(x2_y2_z2_p52) = CACHE(x2_y2_z2).pow(5).sqrt();
-//     if (addEpsilon)
-//         CACHE(x2_y2_z2_p52) += std::numeric_limits<KEnRef_Real>::epsilon();
-//     CACHE(half_minusx2_minusy2__z2) = ((-CACHE(x2) - CACHE(y2)) / 2) + CACHE(z2);
-//     // std::cout << "sqrt(2.38294e-20) " <<(sqrt(2.38294e-20)) << ",  sqrt(2.38294e-20))^5 " << pow(sqrt(2.38294e-20), 5)<< " ==> + epsilon("<< std::numeric_limits<KEnRef_Real>::epsilon() <<") " << (pow(sqrt(2.38294e-20), 5) + std::numeric_limits<KEnRef_Real>::epsilon() ) <<std::endl;
-//     // std::cout << "cache" << cache << std:: endl;
-//
-//     Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> ret1(N, 5);
-//     ret1.col(0) = CACHE(half_minusx2_minusy2__z2);
-//     ret1.col(1) = sqrt3 * CACHE(x2_minusy2) / 2;
-//     ret1.col(2) = sqrt3 * CACHE(xz);
-//     ret1.col(3) = sqrt3 * CACHE(yz);
-//     ret1.col(4) = sqrt3 * CACHE(xy);
-//     //	std::cout << "ret1 before division" << std::endl << ret1 << std::endl;
-//     //	std::cout << "x2_y2_z2" << std::endl << CACHE(x2_y2_z2) << std::endl;
-//     //	std::cout << "x2_y2_z2 power 5/2" << std::endl << CACHE(x2_y2_z2_p52).rowwise().template replicate<5>() << std::endl;
-//
-//     //	std::cout << "ret1.array()" << ret1.array() << std::endl /*<< "CACHE(x2_y2_z2_p52)" << CACHE(x2_y2_z2_p52)*/ << std::endl << "CACHE(x2_y2_z2_p52).rowwise().replicate<5>()" << std::endl << CACHE(x2_y2_z2_p52).rowwise().replicate<5>() << std::endl;
-//     ret1.array() /= CACHE(x2_y2_z2_p52).rowwise().template replicate<5>()
-//             /* + std::numeric_limits<KEnRef_Real>::epsilon()*/;
-//
-//     //    std:: cout << "ret1 after division" << std::endl << ret1 << std::endl;
-//     if (!gradient) {
-//         return {ret1, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15>{}};
-//     }
-//     //    std::cout << "CACHE after d ret1 " << cache << std::endl;
-//
-//     CACHE(x2_y2_z2_p72) = CACHE(x2_y2_z2).pow(7).sqrt();
-//     if (addEpsilon)
-//         CACHE(x2_y2_z2_p72) += std::numeric_limits<KEnRef_Real_t>::epsilon();
-//     //	CACHE(sqrt3_x2_y2_z2_p52) = sqrt3 * CACHE(x2_y2_z2_p52);
-//     //	CACHE(sqrt3_x2_y2_z2_p72) = sqrt3 * CACHE(x2_y2_z2_p72);
-//     CACHE(sqrt3_over_x2_y2_z2_p52) = sqrt3 / CACHE(x2_y2_z2_p52);
-//     CACHE(neg5_over_x2_y2_z2_p72) = -5.0 / CACHE(x2_y2_z2_p72);
-//     CACHE(neg5sqrt3_over_x2_y2_z2_p72) = -5 * sqrt3 / CACHE(x2_y2_z2_p72);
-//     CACHE(neg5sqrt3_over_2_x2_y2_z2_p72) = CACHE(neg5sqrt3_over_x2_y2_z2_p72) / 2;
-//     //	CACHE(sqrt3_over_x2_y2_z2_p52)			=  sqrt3 / CACHE(x2_y2_z2).pow(5).sqrt();
-//     //	CACHE(_neg10_over_sqrt3_x2_y2_z2_p72) 	= -10 / (sqrt3 * CACHE(x2_y2_z2).pow(7).sqrt());
-//     //    std::cout << "CACHE after completion " << cache << std::endl;
-//
-//     Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> ret2 = Eigen::Matrix<KEnRef_Real, Eigen::Dynamic,
-//         Eigen::Dynamic>(N, 15);
-//
-//     ret2.col(0) = x * CACHE(half_minusx2_minusy2__z2) * CACHE(neg5_over_x2_y2_z2_p72) - x / CACHE(x2_y2_z2_p52);
-//     ret2.col(1) = y * CACHE(half_minusx2_minusy2__z2) * CACHE(neg5_over_x2_y2_z2_p72) - y / CACHE(x2_y2_z2_p52);
-//     ret2.col(2) = z * CACHE(half_minusx2_minusy2__z2) * CACHE(neg5_over_x2_y2_z2_p72) + 2 * z / CACHE(x2_y2_z2_p52);
-//
-//     ret2.col(3) = x * CACHE(x2_minusy2) * CACHE(neg5sqrt3_over_2_x2_y2_z2_p72) + x * CACHE(sqrt3_over_x2_y2_z2_p52);
-//     ret2.col(4) = y * CACHE(x2_minusy2) * CACHE(neg5sqrt3_over_2_x2_y2_z2_p72) - y * CACHE(sqrt3_over_x2_y2_z2_p52);
-//     ret2.col(5) = z * CACHE(x2_minusy2) * CACHE(neg5sqrt3_over_2_x2_y2_z2_p72);
-//
-//     ret2.col(6) = x * CACHE(xz) * CACHE(neg5sqrt3_over_x2_y2_z2_p72) + z * CACHE(sqrt3_over_x2_y2_z2_p52);
-//     ret2.col(7) = y * CACHE(xz) * CACHE(neg5sqrt3_over_x2_y2_z2_p72);
-//     ret2.col(8) = z * CACHE(xz) * CACHE(neg5sqrt3_over_x2_y2_z2_p72) + x * CACHE(sqrt3_over_x2_y2_z2_p52);
-//
-//     ret2.col(9) = x * CACHE(yz) * CACHE(neg5sqrt3_over_x2_y2_z2_p72);
-//     ret2.col(10) = y * CACHE(yz) * CACHE(neg5sqrt3_over_x2_y2_z2_p72) + z * CACHE(sqrt3_over_x2_y2_z2_p52);
-//     ret2.col(11) = z * CACHE(yz) * CACHE(neg5sqrt3_over_x2_y2_z2_p72) + y * CACHE(sqrt3_over_x2_y2_z2_p52);
-//
-//     ret2.col(12) = x * CACHE(xy) * CACHE(neg5sqrt3_over_x2_y2_z2_p72) + y * CACHE(sqrt3_over_x2_y2_z2_p52);
-//     ret2.col(13) = y * CACHE(xy) * CACHE(neg5sqrt3_over_x2_y2_z2_p72) + x * CACHE(sqrt3_over_x2_y2_z2_p52);
-//     ret2.col(14) = z * CACHE(xy) * CACHE(neg5sqrt3_over_x2_y2_z2_p72);
-//
-// #undef CACHE
-//     //    std:: cout << "d ret2 " << std::endl << ret2 << std::endl;
-//     return {ret1, ret2};
-// }
-
 //	std::tuple<Eigen::MatrixXf, Eigen::MatrixXf> KEnRef::r_array_to_d_array(const Eigen::MatrixX3f& Nxyz, bool gradient){
 template<typename KEnRef_Real>
 std::tuple<std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> >, std::vector<Eigen::Matrix<KEnRef_Real,
@@ -1171,7 +1067,6 @@ KEnRef<KEnRef_Real>::coord_array_to_sigma_energy(
         const int cols = specDenData.get_multiple_grouping().at(0).at(0).size();
         uint nShift = cols / numModels;
         assert(sigmas.rows() == numAtomPairs / nShift);
-
 
         totalSigma0Values += sigmas.rows();
     }

@@ -1,0 +1,6 @@
+model = SIGMA
+guide = "guideC-alpha"
+index = "../../../sigma/md_double/KEnRefAtomIndex.ndx"
+exp-data-folder = "../../../sigma/md_double/"
+atomname-mapping = "../../../sigma/md_double/GB3_27_10us.pdb"
+ref = "../../../sigma/md_double/GB3_27_10us.pdb"

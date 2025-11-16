@@ -204,19 +204,19 @@ void Table::checkBounds(const size_t row, const size_t col) const {
     return std::distance(colNames_->begin(), it);
 }
 
-// template<typename Scalar, int Options>
-// [[nodiscard]] Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic, Options> Table::toEigenMatrix() const {
-//     const size_t rows = rowCount();
-//     const size_t cols = colCount();
-//     Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic, Options> matrix(rows, cols);
-//
-//     for (size_t i = 0; i < rows; ++i) {
-//         for (size_t j = 0; j < cols; ++j) {
-//             matrix(i, j) = IoUtils::convertValue<Scalar>(data_[i][j]);
-//         }
-//     }
-//     return matrix;
-// }
+template<typename Scalar, int Options>
+[[nodiscard]] Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic, Options> Table::toEigenMatrix() const {
+    const size_t rows = rowCount();
+    const size_t cols = colCount();
+    Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic, Options> matrix(rows, cols);
+
+    for (size_t i = 0; i < rows; ++i) {
+        for (size_t j = 0; j < cols; ++j) {
+            matrix(i, j) = IoUtils::convertValue<Scalar>(data_[i][j]);
+        }
+    }
+    return matrix;
+}
 
 // template<typename KEnRef_Real>
 template<typename Scalar, int  Options>
@@ -258,12 +258,12 @@ NamedRowVector<Scalar> Table::toNamedRowVector() const {
 }
 
 
-// template Eigen::Matrix<int, Eigen::Dynamic, Eigen::Dynamic> Table::toEigenMatrix() const;
-// template Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> Table::toEigenMatrix() const;
-// template Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> Table::toEigenMatrix() const;
-// template Eigen::Matrix<int, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> Table::toEigenMatrix() const;
-// template Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> Table::toEigenMatrix() const;
-// template Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> Table::toEigenMatrix() const;
+template Eigen::Matrix<int, Eigen::Dynamic, Eigen::Dynamic> Table::toEigenMatrix() const;
+template Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic> Table::toEigenMatrix() const;
+template Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> Table::toEigenMatrix() const;
+template Eigen::Matrix<int, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> Table::toEigenMatrix() const;
+template Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> Table::toEigenMatrix() const;
+template Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> Table::toEigenMatrix() const;
 template NamedMatrix<int> Table::toNamedMatrix() const;
 template NamedMatrix<float> Table::toNamedMatrix() const;
 template NamedMatrix<double> Table::toNamedMatrix() const;

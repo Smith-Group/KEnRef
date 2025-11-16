@@ -1,11 +1,10 @@
-//#include <filesystem>
-//#include <regex>
-//#include <fstream>
 #include <string>
 #include <sstream>
 #include <iostream>
-//#include <Eigen/Core>
 #include "core/IoUtils.h"
+
+std::regex atomRecordTemplate{"^((ATOM  )|(HETATM))([0-9 ]{5}) (.{15})   ([0-9 .-]{8})([0-9 .-]{8})([0-9 .-]{8}).+$"};
+std::regex modelRecordTemplate{"^MODEL \\s*([0-9]+).*$"};
 
 template<typename T>
 std::vector<std::vector<T> > IoUtils::read_uniform_table_of(std::istream &ins) {
@@ -37,6 +36,47 @@ std::vector<std::tuple<int, int>> IoUtils::atomNamePairs_2_atomIdPairs(
     return atomId_pairs;
 }
 
+std::vector<std::string>
+IoUtils::find_matching_files(const std::string &folder_path, const std::string &pattern_string) {
+    std::vector<std::string> matching_files;
+    const std::regex pattern(pattern_string);
+    try {
+        for (const auto& entry : std::filesystem::directory_iterator(folder_path)) {
+            if (entry.is_regular_file()) {
+                std::string filename = entry.path().filename().string();
+                if (std::regex_match(filename, pattern)) {
+                    matching_files.push_back(entry.path().filename().string());
+                }
+            }
+        }
+    } catch (const std::filesystem::filesystem_error& ex) {
+        std::cerr << "Filesystem error: " << ex.what() << std::endl;
+    }
+    return matching_files;
+}
+
+// Function that also extracts the captured group
+std::vector<std::string>
+IoUtils::find_spec_den_data_prefixes(const std::string& folder_path) {
+    std::vector<std::string> results;
+    const std::regex pattern(R"((\d+-\d+)_atom_pairs\.csv)");
+
+    try {
+        for (const auto& entry : std::filesystem::directory_iterator(folder_path)) {
+            if (entry.is_regular_file()) {
+                std::string filename = entry.path().filename().string();
+                std::smatch matches;
+
+                if (std::regex_match(filename, matches, pattern) /*&& matches.size() >= 1*/) {
+                    results.emplace_back(matches[1].str());
+                }
+            }
+        }
+    } catch (const std::filesystem::filesystem_error& ex) {
+        std::cerr << "Filesystem error: " << ex.what() << std::endl;
+    }
+    return results;
+}
 
 
 std::string IoUtils::strip_enclosing_quotes(const std::string &str, char delim) {
@@ -95,7 +135,6 @@ IoUtils::splitCSVLine(const std::string &line, const std::string &delimiter_patt
     if (!currentToken.empty()) {
         tokens.push_back(strip_enclosing_quotes(currentToken, quote_char));
     }
-
     return tokens;
 }
 
@@ -123,12 +162,12 @@ KEnRef_Real_t IoUtils::pearsonCorrelation(const Eigen::VectorX<KEnRef_Real_t> &x
 }
 
 std::vector<SpecDenData<KEnRef_Real_t>> IoUtils::load_spec_den_data(const std::string &experimentalDataFolder, const bool handleNames) {
-    const std::vector<std::string> &spec_den_data_prefixes = KEnRef<KEnRef_Real_t>::spec_den_data_prefixes;
+    const std::vector<std::string> &spec_den_data_prefixes = find_spec_den_data_prefixes(experimentalDataFolder);
     std::vector<SpecDenData<KEnRef_Real_t>> spec_den_data_vector;
     spec_den_data_vector.reserve(spec_den_data_prefixes.size());
     for (const auto & spec_den_data_prefix : spec_den_data_prefixes) {
         //AtomPairs
-        std::string atomPairAndSigmaFileName = experimentalDataFolder + spec_den_data_prefix + "_atom_pairs.csv";
+        std::string atomPairAndSigmaFileName = std::filesystem::path(experimentalDataFolder) / (spec_den_data_prefix + "_atom_pairs.csv");
         std::cout << atomPairAndSigmaFileName << std::endl;
         const Table& atomPairAndSigmaTable = IoUtils::readTable(atomPairAndSigmaFileName,true,false, "\\s*,\\s*", -1, true);
         std::vector<std::tuple<std::string, std::string>> atomPairs(atomPairAndSigmaTable.rowCount());
@@ -140,9 +179,9 @@ std::vector<SpecDenData<KEnRef_Real_t>> IoUtils::load_spec_den_data(const std::s
         // sigma
         std::vector<KEnRef_Real_t> sigmasVec{};
         for (int row = 0; row < atomPairAndSigmaTable.rowCount(); ++row) {
-            if (! atomPairAndSigmaTable.isRowComplete(row))
+            if (! atomPairAndSigmaTable.isRowComplete(row) || atomPairAndSigmaTable.at(row, "sigma").empty())
                 break;
-            const auto &valueStr = atomPairAndSigmaTable.at(row, 2);
+            const auto &valueStr = atomPairAndSigmaTable.at(row, "sigma");
             std::istringstream iss(valueStr);
             KEnRef_Real_t value;
             iss >> value;
@@ -153,14 +192,14 @@ std::vector<SpecDenData<KEnRef_Real_t>> IoUtils::load_spec_den_data(const std::s
             sigma.value()(j, 0) = sigmasVec[j];
         }
         //multiple_grouping
-        std::string multiple_grouping_fileName = experimentalDataFolder + spec_den_data_prefix+"_groupings.csv";
+        std::string multiple_grouping_fileName = std::filesystem::path(experimentalDataFolder) / (spec_den_data_prefix +"_groupings.csv");
         const auto &grouping_matrix = NamedMatrix<int>(IoUtils::readTable(multiple_grouping_fileName, false, false).toNamedMatrix<int>().array() - 1);
         const auto &multiple_grouping = IoUtils::grouping_mat_to_subset_idx(grouping_matrix);
         //a_coef
-        std::string aCoefFileName = experimentalDataFolder + spec_den_data_prefix+"_a_coef.csv";
+        std::string aCoefFileName = std::filesystem::path(experimentalDataFolder) / ( spec_den_data_prefix +"_a_coef.csv");
         const auto &a_coef = IoUtils::readTable(aCoefFileName, true,false, "\\s*,\\s*", -1, false).toNamedMatrix<KEnRef_Real_t>();
         //lambda_coef
-        std::string lambdaCoefFileName = experimentalDataFolder + spec_den_data_prefix+"_lambda_coef.csv";
+        std::string lambdaCoefFileName = std::filesystem::path(experimentalDataFolder) / (spec_den_data_prefix +"_lambda_coef.csv");
         const auto &lambda_coef = IoUtils::readTable(lambdaCoefFileName, true,true, "\\s*,\\s*", -1, false).toNamedMatrix<KEnRef_Real_t>();
 
         // spec_den_data_vector.emplace_back(atomPairs, sigma, multiple_grouping, a_coef, lambda_coef);
@@ -218,44 +257,6 @@ IoUtils::readTable(std::ifstream &instream, const bool has_columnNames, const bo
     }
     return Table(data, colNames, rowNames, tolerateMissingLastColumn);
 }
-std::tuple<std::vector<std::string>, std::vector<std::string>,
-    std::vector<int> > IoUtils::read_noe_table(std::istream &instream, bool has_header) {
-    std::vector<std::tuple<std::string, std::string, int> > temp{};
-
-    std::string line;
-    std::regex lineTemplate{"(.+)\t(.+)\t(.+)"};
-    std::smatch sm;
-    bool header_consumed = false;
-    while (std::getline(instream, line)) {
-        std::regex_match(line, sm, lineTemplate);
-        std::string g1 = sm[1];
-        std::string g2 = sm[2];
-        std::string val_str = sm[3];
-        if (has_header && !header_consumed) {
-            //TODO use consumed header
-            //			std::cout << g1 << '\t' << g2 << '\t' << val_str << std::endl;
-            header_consumed = true;
-        } else {
-            g1 = strip_enclosing_quotes(g1);
-            g2 = strip_enclosing_quotes(g2);
-            int val_int = std::stoi(val_str);
-            //			std::cout << g1 << '\t' << g2 << '\t' << val_int << std::endl;
-            temp.emplace_back(g1, g2, val_int);
-        }
-    }
-    std::vector<std::string> group1{}, group2{};
-    std::vector<int> values{};
-    for (const auto &[g1, g2, v]: temp) {
-        group1.emplace_back(g1);
-        group2.emplace_back(g2);
-        values.emplace_back(v);
-    }
-    //TODO change this tuple of vectors into a vector of tuples
-    std::tuple<std::vector<std::string>, std::vector<std::string>,
-        std::vector<int> > ret{group1, group2, values};
-    return ret;
-}
-
 
 std::vector<std::string>
 IoUtils::split(const std::string &str, const std::string &delim) {
@@ -265,50 +266,11 @@ IoUtils::split(const std::string &str, const std::string &delim) {
     std::sregex_token_iterator end;
 
     while (iter != end) {
-        //		ret.emplace_back(*iter);
         ret.emplace_back(iter->str());
         ++iter;
     }
-
-    //    while(next_delim_pos != std::string::npos){
-    //        ret.emplace_back(str.begin() + startIndex, str.begin() + next_delim_pos);
-    //        startIndex = next_delim_pos + delim.size();
-    //        next_delim_pos = str.find(delim, startIndex);
-    //    }
-    //    if(startIndex != str.size())
-    //        ret.emplace_back(str.begin()+startIndex, str.end());
     return ret;
 }
-
-
-std::map<std::string, std::vector<std::string> >
-IoUtils::read_noe_groups(std::istream &instream) {
-    std::map<std::string, std::vector<std::string> > ret{};
-    std::string line;
-    std::regex lineTemplate{R"(^\s*(.*?)\s*=\s*(.*?)(\s*,?\s*)$)"};
-    std::smatch sm;
-
-    while (std::getline(instream, line)) {
-        if (!std::regex_match(line, sm, lineTemplate))
-            continue;
-        std::string key = strip_enclosing_quotes(sm[1], '`');
-        std::string temp_val = sm[2];
-        std::vector<std::string> val;
-        if (temp_val.rfind("c(", 0) == 0) {
-            // str.startwith() is available in C++20 at least
-            auto tokens = split(temp_val.substr(2, temp_val.length() - 3), ",\\s*");
-            for (auto i = 0; i < tokens.size(); ++i) { // NOLINT(modernize-loop-convert)
-                tokens[i] = strip_enclosing_quotes(tokens[i], '\"');
-            }
-            val = tokens;
-        } else {
-            val = {strip_enclosing_quotes(temp_val, '\"')};
-        }
-        ret.insert({key, val});
-    }
-    return ret;
-}
-
 
 std::vector<int>
 IoUtils::getGmxNdxGroup(const std::string &filename, const std::string &groupName) {
@@ -346,17 +308,15 @@ IoUtils::getAllGmxNdxGroups(const std::string &filename) {
         return ret;
     }
     std::string line;
-    std::vector<int> indices; //FIXME is it safe to declare it this way?
+    std::vector<int> indices;
     while (std::getline(indexFile, line)) {
         if (line.empty()) continue;
         if (line[0] == '[') {
-            auto closing = line.find(']');
-            if (closing != std::string::npos && closing > 0) {
+            if (auto closing = line.find(']'); closing != std::string::npos && closing > 0) {
                 std::string groupName;
                 groupName = line.substr(2, closing - 2);
                 // TODO trim the whitespace better than hard coding (2 , closing -2)
                 ret[groupName] = indices;
-                //        	        std::cout << "--------------------{{" << groupName << "}}" << std::endl;
                 continue;
             } else {
                 std::cerr << "error parsing line: " << line << std::endl;
@@ -464,9 +424,6 @@ std::string IoUtils::normalizeName(std::string atomId, const bool lowerNameRanks
     return atomId;
 }
 
-std::regex atomRecordTemplate{"^((ATOM  )|(HETATM))([0-9 ]{5}) (.{15})   ([0-9 .-]{8})([0-9 .-]{8})([0-9 .-]{8}).+$"};
-std::regex modelRecordTemplate{"^MODEL \\s*([0-9]+).*$"};
-
 template<typename retMapKey, typename retMapValue>
 std::map<retMapKey, retMapValue>
 IoUtils::getAtomMappingFromPdb(const std::string &pdbFilename,
@@ -504,8 +461,7 @@ IoUtils::getAtomMappingFromPdb(const std::string &pdbFilename,
 template<typename retMapKey, typename retMapValue>
 std::vector<std::map<retMapKey, retMapValue> >
 IoUtils::getMultipleAtomMappingFromPdb(const std::string &pdbFilename,
-                                       const std::function<void(std::map<retMapKey, retMapValue> &ret,
-                                                                const std::smatch &sm)> &mappingFunc) {
+    const std::function<void(std::map<retMapKey, retMapValue> &ret, const std::smatch &sm)> &mappingFunc) {
     std::vector<std::map<retMapKey, retMapValue> > ret_vector = {};
 
     std::ifstream pdbFileStream(pdbFilename);
@@ -562,33 +518,6 @@ void IoUtils::fill_atomIndex1_to_coords_Map(std::map<int, Eigen::RowVector3<KEnR
     ret[atomIndex1] = std::move(Eigen::RowVector3<KEnRef_Real>(x, y, z));
 }
 
-
-std::map<std::string, std::string> IoUtils::readParams(const std::string &fileName) {
-    std::ifstream paramsFileStream(fileName);
-    if (paramsFileStream.fail()) {
-        std::cerr << "ERROR: Could not open " << fileName << "\n";
-        throw std::runtime_error("File not found: " + fileName);
-    }
-    return readParams(paramsFileStream);
-}
-
-std::map<std::string, std::string> IoUtils::readParams(std::istream &paramsFileStream) {
-    std::string line;
-    const std::regex recordTemplate{R"(^\s*(.+?)\s*=\s*(\S.*?)\s*(#.*)?)"};
-    std::smatch sm;
-    std::map<std::string, std::string> ret{};
-    while (std::getline(paramsFileStream, line)) {
-        if (line.empty()) continue;
-        if (std::regex_match(line, sm, recordTemplate)) {
-            const std::string &key = sm[1].str();
-            if (key[0] == '#') continue;
-            const std::string &value = strip_enclosing_quotes(sm[2].str());
-            ret[key] = value;
-        }
-    }
-    return ret;
-}
-
 Eigen::Matrix<int, Eigen::Dynamic, Eigen::Dynamic>
 IoUtils::subset_idx_to_grouping_mat(const std::vector<std::vector<std::vector<int>>>& multipleGroupings) {
     int maxRowLength = -1;
@@ -642,53 +571,6 @@ IoUtils::grouping_mat_row_to_subset_idx(const Eigen::RowVectorX<int>& grouping_m
     }
     return ret;
 }
-
-int IoUtils::getEnvParam(const std::string &paramName, int defaultValue) {
-    return static_cast<int>(getEnvParam(paramName, static_cast<long>(defaultValue)));
-}
-
-long IoUtils::getEnvParam(const std::string &paramName, const long defaultValue) {
-    if (const char *pSEnvParam = std::getenv(paramName.c_str())) {
-        long retValue = std::strtol(pSEnvParam, nullptr, 10);
-        std::cout << paramName << " is: " << retValue << '\n';
-        return retValue;
-    } else {
-        std::cout << "No " << paramName << " identified. Will use default value of " << defaultValue << std::endl;
-        return defaultValue;
-    }
-}
-
-std::string IoUtils::getEnvParam(const char *paramName, const char *defaultValue) {
-    return getEnvParam(std::string(paramName), std::string(defaultValue));
-}
-std::string IoUtils::getEnvParam(const std::string &paramName, const char *defaultValue) {
-    return getEnvParam(paramName, std::string(defaultValue));
-}
-std::string IoUtils::getEnvParam(const std::string &paramName, const std::string &defaultValue) {
-    std::string retValue = defaultValue;
-    if (const char *pSEnvParam = std::getenv(paramName.c_str())) {
-        retValue = pSEnvParam;
-        std::cout << paramName << " is: " << retValue << '\n';
-    } else {
-        std::cout << "No " << paramName << " identified. Will use default value of " << defaultValue << std::endl;
-    }
-    return retValue;
-}
-
-template<typename KEnRef_Real>
-KEnRef_Real IoUtils::getEnvParam(const std::string &paramName, KEnRef_Real defaultValue) {
-    if (const char *pSEnvParam = std::getenv(paramName.c_str())) {
-        std::stringstream sStream(pSEnvParam);
-        KEnRef_Real retValue;
-        sStream >> retValue;
-        std::cout << paramName << " is: " << retValue << '\n';
-        return retValue;
-    } else {
-        std::cout << "No " << paramName << " identified. Will use default value of " << defaultValue << std::endl;
-        return defaultValue;
-    }
-}
-
 
 std::vector<std::tuple<int, int> > IoUtils::readAtomIdPairs(const std::string &fileName) {
     std::ifstream atomIdPairsFileStream(fileName);
@@ -792,8 +674,8 @@ bool IoUtils::tryConvertValue(const std::string& str, Scalar& out) noexcept {
 template std::vector<std::vector<int> > IoUtils::read_uniform_table_of(std::istream &);
 template std::vector<std::vector<double> > IoUtils::read_uniform_table_of(std::istream &);
 
-template float IoUtils::getEnvParam(const std::string &paramName, float defaultValue);
-template double IoUtils::getEnvParam(const std::string &paramName, double defaultValue);
+// template float IoUtils::getEnvParam(const std::string &paramName, float defaultValue);
+// template double IoUtils::getEnvParam(const std::string &paramName, double defaultValue);
 
 template CoordsMatrixType<float> IoUtils::extractCoords(const std::vector<int> &atomIndices, bool indicesOneBased, std::map<int, Eigen::RowVector3<float> > &allAtomCoords, bool mapOneBased);
 template CoordsMatrixType<double> IoUtils::extractCoords(const std::vector<int> &atomIndices, bool indicesOneBased, std::map<int, Eigen::RowVector3<double> > &allAtomCoords, bool mapOneBased);

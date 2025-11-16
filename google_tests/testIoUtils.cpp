@@ -77,30 +77,6 @@ TEST(IoUtilsTestSuite, testStripEnclosingQuotes){
     EXPECT_EQ(strout, strexp);
 }
 
-TEST(IoUtilsTestSuite, testReadParams) {
-    std::istringstream input(
-            "#note line\n"
-            "# key = value\n"
-            "noSpace=noSpace\n"
-            " headingSpace= headingSpace\n"
-            "trailingSpace  =trailingSpace    \n"
-            " bothSpaces =  bothSpaces   \n"
-            "internal Space=internal Space\n"
-            " internal and external Space = internal and external Space \n"
-            " spaces and a comment = spaces and a comment    # this is an inline comment\n"
-            "non matching line\n"
-            );
-    auto map = IoUtils::readParams(input);
-    EXPECT_EQ(map.size(), 7);
-    EXPECT_EQ(map["noSpace"], "noSpace");
-    EXPECT_EQ(map["headingSpace"], "headingSpace");
-    EXPECT_EQ(map["trailingSpace"], "trailingSpace");
-    EXPECT_EQ(map["bothSpaces"], "bothSpaces");
-    EXPECT_EQ(map["internal Space"], "internal Space");
-    EXPECT_EQ(map["internal and external Space"], "internal and external Space");
-    EXPECT_EQ(map["spaces and a comment"], "spaces and a comment");
-}
-
 TEST(IoUtilsTestSuite, testSubset_idx_to_grouping_mat) {
     std::vector<std::vector<std::vector<int>>> multipleGroupings{
         {{0,1,2,3,4,5,}},
@@ -119,23 +95,4 @@ TEST(IoUtilsTestSuite, testSubset_idx_to_grouping_mat) {
     std::cout << "calculated\n" << IoUtils::subset_idx_to_grouping_mat(multipleGroupings) << std::endl;
 
     TestHelper<KEnRef_Real_t>::EXPECT_MATRIX_EQ(expected, IoUtils::subset_idx_to_grouping_mat(multipleGroupings));
-}
-
-TEST(IoUtilsTestSuite, restOfTests){
-    //TODO make them tests
-    std::ifstream in("../../res/noe_1.tsv");
-    const auto& [group1names, group2names, values] = IoUtils::read_noe_table(in);
-    for(int i = 0; i < group1names.size(); ++i){
-        std::cout<< group1names[i] << "\t| " << group2names[i] << "\t| " << values[i] << std::endl;
-    }
-
-    std::ifstream noe_groups_file("../../res/noe_groups.R");
-    auto noe_groups = IoUtils::read_noe_groups(noe_groups_file);
-    for(const auto& [key, val] : noe_groups){
-        std::cout << "<" << key<< ">"  << " " << val.size() << ":";
-        for(const auto& str: val){
-            std::cout << " [" << str << ']';
-        }
-        std::cout << std::endl;
-    }
 }

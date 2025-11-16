@@ -559,7 +559,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
 
     this->atomName_pairs_ = new std::vector<std::tuple<std::string, std::string> >();
 
-    if (selectedEnergyModel == KEnRef<double>::energyModel::SIGMA) {
+    if (selectedEnergyModel == KEnRef<KEnRef_Real_t>::energyModel::SIGMA) {
         this->proton_mhz_ = Settings::proton_mhz;
 
         const bool handleNames = IoUtils::should_handleNames(atomName_to_atomGlobalId_map);

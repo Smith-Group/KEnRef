@@ -96,11 +96,11 @@ public:
         if (fst.step % dt == 0) {
             KEnRef_Real_t energy = 0;
             std::optional<std::vector<CoordsMatrixType<KEnRef_Real_t> > > allDerivatives_vector;
-            if (selected_energy_model == KEnRef<double>::energyModel::PLATEAUS) {
+            if (selected_energy_model == KEnRef<KEnRef_Real_t>::energyModel::PLATEAUS) {
                 std::tie(energy, allDerivatives_vector) =
                         KEnRef<KEnRef_Real_t>::coord_array_to_g_energy(
                             allSimulationsSubAtomsXVector, subAtomIdPairs, simulated_grouping_list, g0, k, n, false, 1);
-            }else if (selected_energy_model == KEnRef<double>::energyModel::SIGMA) {
+            }else if (selected_energy_model == KEnRef<KEnRef_Real_t>::energyModel::SIGMA) {
                 std::tie(energy, allDerivatives_vector) =
                         KEnRef<KEnRef_Real_t>::coord_array_to_sigma_energy(
                             allSimulationsSubAtomsXVector, rates, spec_den_data_vector, proton_mhz, k, n,

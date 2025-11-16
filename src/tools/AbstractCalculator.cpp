@@ -26,7 +26,7 @@ int AbstractCalculator::calc(int argc, char **argv) {
     auto atomName_to_atomGlobalId_map /*(1-based)*/ = IoUtils::getAtomMappingFromPdb<std::string, int>(refFileName, IoUtils::fill_atomId_to_index_Map);
     const bool handleNames = IoUtils::should_handleNames(atomName_to_atomGlobalId_map);
 
-    if (selected_energy_model == KEnRef<double>::energyModel::SIGMA) {
+    if (selected_energy_model == KEnRef<KEnRef_Real_t>::energyModel::SIGMA) {
         handle_sigma_energy_model(atomName_to_atomGlobalId_map, handleNames);
     } else if (selected_energy_model == KEnRef<KEnRef_Real_t>::energyModel::PLATEAUS) {
         handle_plateaus_energy_model();
@@ -246,7 +246,7 @@ void AbstractCalculator::add_common_parameters(CLI::App &app) {
 }
 
 void AbstractCalculator::handle_sigma_energy_model(std::map<std::string, int> atomName_to_atomGlobalId_map, const bool handleNames) {
-    const std::vector<std::string> &spec_den_data_prefixes = KEnRef<KEnRef_Real_t>::spec_den_data_prefixes;
+    const std::vector<std::string> &spec_den_data_prefixes = IoUtils::find_spec_den_data_prefixes(experimentalDataFolder);
     // spec_den_data_vector.reserve(spec_den_data_prefixes.size());
     for (const auto &spec_den_data_prefix : spec_den_data_prefixes) {
         //AtomPairs

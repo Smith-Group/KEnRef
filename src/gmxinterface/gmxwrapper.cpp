@@ -6,6 +6,7 @@
  */
 #include <string>
 #include <map>
+#include <unistd.h>
 #include <CLI11/CLI11.hpp>
 #include "gmxpre.h"
 #include "mdrun/mdrun_main.h"
@@ -73,12 +74,12 @@ int main(int argc, char *argv[]) {
             ->required() ->envname("KENREF_MODEL")
             ->transform(CLI::CheckedTransformer(KEnRef<KEnRef_Real_t>::energyModelMap, CLI::ignore_case));
     app.add_option("-x,--exp-data-folder", Settings::experimentalDataFolder, "experimental data folder for sigma")
-        ->envname("KENREF_EXP_DATA_FOLDER") ->check(CLI::ExistingDirectory);
+        ->envname("KENREF_EXP_DATA_FOLDER"); // ->check(CLI::ExistingDirectory);
     app.add_option("-X,--exp-data-file", Settings::experimentalDataFileName, "experimental data file for plateaus")
-        ->envname("KENREF_EXP_DATA_FILE") ->check(CLI::ExistingFile);
+        ->envname("KENREF_EXP_DATA_FILE"); //->check(CLI::ExistingFile);
 
     app.add_option("--atomname-mapping", Settings::atomName_mapping_fileName, "atom name mapping file name")
-        ->envname("KENREF_ATOMNAME_MAPPING") ->check(CLI::ExistingFile);
+        ->envname("KENREF_ATOMNAME_MAPPING"); // ->check(CLI::ExistingFile);
 
     app.add_option("-z,--proton-mhz", Settings::proton_mhz, "spectrometer proton field strength in MHz")->envname("KENREF_PROTON_MHZ");
     app.add_option("--max-atom-to-read", Settings::max_atom_to_read, "maximum number of atoms to read")->envname("KENREF_MAX_ATOM_TO_READ");
@@ -92,17 +93,17 @@ int main(int argc, char *argv[]) {
     app.usage("Kinetic Ensemble Refinement library.");
     app.footer(
         "\nUse '--' to separate KEnRef options from GROMACS options.\n"
-        "This is very useful if KEnRef parameter(s) colloids with Gromacs parameter(s)\n"
+        "This is very useful if KEnRef parameter(s) colloides with Gromacs parameter(s)\n"
         "Example: KEnRef -g CA -d index.ndx -- -deffnm simulation\n"
         "or when you want to pass a parameter to Gromacs that could be consumed by KEnRef otherwise\n"
         "Example: KEnRef -m SIGMA -- -h");
     CLI11_PARSE(app, argc, argv);
 
     if (Settings::refFileName.empty()) {
-        std::cout << "Reference file (--ref) not found, using ATOMNAME_MAPPING_FILENAME (" << Settings::atomName_mapping_fileName << ")" << std::endl;
+        std::cout << "Reference file parameter (--ref) not found, using atomname-mapping (" << Settings::atomName_mapping_fileName << ")" << std::endl;
         Settings::refFileName = Settings::atomName_mapping_fileName;
     }else {
-        std::cout << "Reference file (--ref) found, (" << Settings::refFileName << ")" << std::endl;
+        std::cout << "Reference file parameter (--ref) set to , (" << Settings::refFileName << ")" << std::endl;
     }
 
     //============================================================

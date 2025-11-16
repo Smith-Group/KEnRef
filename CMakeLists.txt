@@ -6,7 +6,7 @@ string(TOLOWER ${CMAKE_BUILD_TYPE} build_type)
 message(STATUS "the build type is: ${build_type}")
 
 ### comment the next line to make it float. Uncomment to make it double.
-#add_compile_options(-DDOUBLE)
+add_compile_options(-DDOUBLE)
 
 if (NOT DEFINED ACCEL)
 	set(ACCEL "AVX2_256")
@@ -32,8 +32,6 @@ endif()
 
 #set(CMAKE_MODULE_PATH /usr/local/gromacs-dev/share/gromacs/template/cmake:$CMAKE_MODULE_PATH)
 set(Eigen3_DIR /smithlab/opt/eigen/3.4.0/share/eigen3/cmake) #set(Eigen3_DIR /smithlab/opt/eigen/3.4.9/share/eigen3/cmake)
-## comment the next line to make it float. Uncomment to make it double.
-add_compile_options(-DDOUBLE)
 
 find_package(MPI REQUIRED)
 

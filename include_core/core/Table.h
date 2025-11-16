@@ -37,7 +37,7 @@ public:
     // Dimension accessors
     [[nodiscard]] size_t rowCount() const;
     [[nodiscard]] size_t colCount() const;
-    [[nodiscard]] bool isRowComplete(const size_t row) const;
+    [[nodiscard]] bool isRowComplete(size_t row) const;
 
     // Name management
     [[nodiscard]] bool hasColNames() const;
@@ -57,9 +57,9 @@ public:
 
 
 
-    // // Conversion to Matrix
-    // template<typename Scalar, int Options = Eigen::ColMajor>
-    // [[nodiscard]] Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic, Options> toEigenMatrix() const;
+    // Conversion to Matrix
+    template<typename Scalar, int Options = Eigen::ColMajor>
+    [[nodiscard]] Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic, Options> toEigenMatrix() const;
     // Conversion to NamedMatrix
     template<typename Scalar, int Options = Eigen::ColMajor>
     [[nodiscard]] NamedMatrix<Scalar, Options> toNamedMatrix() const;
