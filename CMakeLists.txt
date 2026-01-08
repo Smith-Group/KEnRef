@@ -6,7 +6,7 @@ string(TOLOWER ${CMAKE_BUILD_TYPE} build_type)
 message(STATUS "the build type is: ${build_type}")
 
 ### comment the next line to make it float. Uncomment to make it double.
-add_compile_options(-DDOUBLE)
+add_compile_options(-DKENREF_DOUBLE)
 
 if (NOT DEFINED ACCEL)
 	set(ACCEL "AVX2_256")

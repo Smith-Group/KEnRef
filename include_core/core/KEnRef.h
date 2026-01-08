@@ -19,7 +19,7 @@
 #include "Table.h"
 // #include "../config/KEnRefConfig.h"
 
-#ifdef DOUBLE
+#ifdef KENREF_DOUBLE
 typedef double KEnRef_Real_t;
 #else
 typedef float KEnRef_Real_t;
