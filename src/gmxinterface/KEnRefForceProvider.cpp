@@ -24,6 +24,9 @@
 #include "core/KEnRef.h"
 #include "core/kabsch.h"
 #include "gmxinterface/KEnRefForceProvider.h"
+
+#include <gromacs/mdrunutility/mdmodulesnotifiers.h>
+
 #include "gmxinterface/KEnRefMDModule.h"
 #include "gmxinterface/gmxwrapper.h"
 
@@ -193,12 +196,13 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 //    subAtomsXAfterFitting = subAtomsX;
 //    std::cout << "subAtomsX after transform: \n" << subAtomsX(Eigen::seqN(0, 5, 10), Eigen::indexing::all) << std::endl;
 
+    int subAtomsXSize = static_cast<int>(subAtomsX.size());
     // Gather allSimulationsSubAtomsX to rank 0 (in allSimulationsSubAtomsX)
     if (isMultiSimulation) {
-        MPI_Gather(subAtomsX.data(), static_cast<int>(subAtomsX.size()),
-                   ((std::is_same_v<KEnRef_Real_t, float>) ? MPI_FLOAT : MPI_DOUBLE),
-                   allSimulationsSubAtomsX.data(), static_cast<int>(subAtomsX.size()),
-                   ((std::is_same_v<KEnRef_Real_t, float>) ? MPI_FLOAT : MPI_DOUBLE), 0,
+        MPI_Gather(subAtomsX.data(), subAtomsXSize,
+                   (std::is_same_v<KEnRef_Real_t, float> ? MPI_FLOAT : MPI_DOUBLE),
+                   allSimulationsSubAtomsX.data(), subAtomsXSize,
+                   (std::is_same_v<KEnRef_Real_t, float> ? MPI_FLOAT : MPI_DOUBLE), 0,
                    mainRanksComm);
         //I don't think this line is important. Only for easy printing
         //        gmx_barrier(mainRanksComm);
@@ -234,7 +238,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         for (int i = 0; i < numSimulations; i++) {
             //TODO Review (and Simplify?). May need memory alignment
             allSimulationsSubAtomsX_vector.emplace_back(std::move(
-                CoordsMapType<KEnRef_Real_t>(&allSimulationsSubAtomsX.data()[i * subAtomsX.size()], subAtomsX.rows(), 3)));
+                CoordsMapType<KEnRef_Real_t>(&allSimulationsSubAtomsX.data()[i * subAtomsXSize], subAtomsX.rows(), 3)));
         }
 
         const auto &atomId_pairs = *this->atomId_pairs_;
@@ -276,13 +280,13 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         //I will use the slow method of copying data now, as it is less error-prone. TODO To change it, we need first to make sure the function returns the data contagiously.
         for (int i = 0; i < all_derivatives_vector_optional.value().size(); ++i) {
             const auto &matrix = all_derivatives_vector_optional.value()[i];
-            std::copy_n(matrix.data(), subAtomsX.size(), &allDerivatives_buffer[i * subAtomsX.size()]);
+            std::copy_n(matrix.data(), subAtomsXSize, &allDerivatives_buffer[i * subAtomsXSize]);
         }
     }
     // Use it to distribute all derivatives
     if (isMultiSimulation) {
-        MPI_Scatter(allDerivatives_buffer, static_cast<int>(subAtomsX.size()), ((std::is_same<KEnRef_Real_t, float>()) ? MPI_FLOAT : MPI_DOUBLE),
-                    derivatives_buffer, static_cast<int>(subAtomsX.size()), ((std::is_same<KEnRef_Real_t, float>()) ? MPI_FLOAT : MPI_DOUBLE), 0, mainRanksComm);
+        MPI_Scatter(allDerivatives_buffer, subAtomsXSize, ((std::is_same<KEnRef_Real_t, float>()) ? MPI_FLOAT : MPI_DOUBLE),
+                    derivatives_buffer, subAtomsXSize, ((std::is_same<KEnRef_Real_t, float>()) ? MPI_FLOAT : MPI_DOUBLE), 0, mainRanksComm);
     } else { //if a single simulation
         //Do nothing. allDerivatives_buffer and derivatives_buffer are already the same.
     }
@@ -553,7 +557,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
     this->maxForceSquared_ = std::pow(Settings::max_force, 2.f);
     this->k_ = Settings::k;
     this->n_ = Settings::n;
-    int maxAtomPairsToRead = Settings::max_atom_to_read; //TODO remove
+    // int maxAtomPairsToRead = Settings::max_atom_to_read; //TODO remove
 
     std::cout << "KEnRef_Real_t type is: " << typeid(KEnRef_Real_t).name() << '\n';
 
@@ -564,27 +568,18 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
 
         const bool handleNames = IoUtils::should_handleNames(atomName_to_atomGlobalId_map);
 
-        int maxId0 = -1;
-        for (const auto &[atomName, id1]: atomName_to_atomGlobalId_map) {
-            std::string tempName = atomName;
-            if (const int id0 = id1 - 1; id0 > maxId0) {
-                maxId0 = id0;
-            }
-        }
         this->SpecDenData_ = std::make_shared<std::vector<SpecDenData<KEnRef_Real_t> > >(
             IoUtils::load_spec_den_data(Settings::experimentalDataFolder, handleNames));
         auto &specDenData = *this->SpecDenData_;
         for (const auto& spec_den_datum: specDenData) {
-            const auto& atomPairs = spec_den_datum.get_atom_pairs();
-            for (const auto&[atom1, atom2]: atomPairs) {
-                this->atomName_pairs_->emplace_back(atom1, atom2);
-            }
+            for (const auto &ap: spec_den_datum.get_atom_pairs())
+                atomName_pairs_->emplace_back(ap);
         }
     }else /*if (selectedEnergyModel == PLATEAUS)*/ {
 
         this->experimentalData_table_ = std::make_shared<Table>(
             IoUtils::readTable(Settings::experimentalDataFileName, true, false,
-                "\\s*,\\s*", maxAtomPairsToRead));
+                "\\s*,\\s*", -1));
         GMX_ASSERT(experimentalData_table_ && experimentalData_table_->rowCount() > 0, "No simulated data found");
         const Table &table = *experimentalData_table_;
 #if VERBOSE

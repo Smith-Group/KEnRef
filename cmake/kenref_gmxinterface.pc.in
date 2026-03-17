@@ -1,0 +1,11 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: KEnRef Gromacs Interface
+Description: Kinetic Ensemble Refinement Gromacs Interface (GPL-compatible)
+Version: 1.0.0
+Libs: -L${libdir} -lkenref_gmxinterface -lkenref_core @MPI_CXX_LIBRARIES_STR@
+Cflags: -I${includedir}/gmxinterface -I${includedir}/core @MPI_CXX_COMPILE_OPTIONS_STR@
+Requires: 

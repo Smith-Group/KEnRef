@@ -1084,8 +1084,8 @@ KEnRef<KEnRef_Real>::coord_array_to_sigma_energy(
     std::optional<std::vector<CoordsMatrixType<KEnRef_Real> >> d_energy_d_coord_array;
 
     if (gradient) {
-        d_energy_d_coord_array = std::vector<CoordsMatrixType<KEnRef_Real> >(coord_array.size());
-        for (int i = 0; i < coord_array.size(); ++i) {
+        d_energy_d_coord_array = std::vector<CoordsMatrixType<KEnRef_Real> >(numModels);
+        for (int i = 0; i < numModels; ++i) {
             d_energy_d_coord_array->at(i) = std::move(CoordsMatrixType<KEnRef_Real>::Zero(coord_array[0 /*i*/].rows(), 3));
         }
 

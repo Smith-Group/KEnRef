@@ -30,7 +30,7 @@ public:
     inline static KEnRef_Real_t k = 1;
     inline static KEnRef_Real_t n = 0.25;
     inline static KEnRef_Real_t max_force = 999;
-    inline static int max_atom_to_read = -1;
+    // inline static int max_atom_to_read = -1;
     inline static std::string GUIDE_C_ALPHA = "guideC-alpha";
     inline static std::string indexFileName; // = "../../res/cleanstart/KEnRefAtomIndex.ndx";
     inline static std::string refFileName; //"ref.pdb"; // = "../../res/cleanstart/6v5d_step0_for_atomname_mapping.pdb";

@@ -82,7 +82,7 @@ int main(int argc, char *argv[]) {
         ->envname("KENREF_ATOMNAME_MAPPING"); // ->check(CLI::ExistingFile);
 
     app.add_option("-z,--proton-mhz", Settings::proton_mhz, "spectrometer proton field strength in MHz")->envname("KENREF_PROTON_MHZ");
-    app.add_option("--max-atom-to-read", Settings::max_atom_to_read, "maximum number of atoms to read")->envname("KENREF_MAX_ATOM_TO_READ");
+    // app.add_option("--max-atom-to-read", Settings::max_atom_to_read, "maximum number of atoms to read")->envname("KENREF_MAX_ATOM_TO_READ");
     app.add_option("--alt-out-path", Settings::alt_out_path, "path to redirect output stream")->envname("KENREF_ALT_OUT_PATH");
 
 
@@ -98,6 +98,13 @@ int main(int argc, char *argv[]) {
         "or when you want to pass a parameter to Gromacs that could be consumed by KEnRef otherwise\n"
         "Example: KEnRef -m SIGMA -- -h");
     CLI11_PARSE(app, argc, argv);
+
+    if (Settings::debug) {
+        volatile bool holdToDebug = Settings::debug;
+        while (/*simulationIndex > 0 &&*/ holdToDebug) {
+            sleep(1);
+        }
+    }
 
     if (Settings::refFileName.empty()) {
         std::cout << "Reference file parameter (--ref) not found, using atomname-mapping (" << Settings::atomName_mapping_fileName << ")" << std::endl;
