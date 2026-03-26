@@ -951,8 +951,9 @@ KEnRef<KEnRef_Real>::g_matrix_to_a_matrix_backprop(
     // Backpropagation: d_energy/d_g = sum_j (d_energy/d_a_j * da_j/d_g)
     for (int i = 0; i < num_groupings; ++i) {          // Loop over groupings (rows of a_coef)
         for (int j = 0; j < a_coef.cols(); ++j) {      // Loop over eigenvalues (columns of a_coef)
-            if (a_coef(i, j) != KEnRef_Real(0)) {      // Only for non-zero coefficients
-                d_energy_d_g_matrix.col(i) += d_energy_d_a_matrix.col(j) / a_coef(i, j);
+            const auto a_coef_i_j = a_coef(i, j);
+            if (a_coef_i_j != KEnRef_Real(0)) {      // Only for non-zero coefficients
+                d_energy_d_g_matrix.col(i) += d_energy_d_a_matrix.col(j) * a_coef_i_j;
             }
         }
     }
