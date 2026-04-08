@@ -633,12 +633,14 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy(
         for (int i = 0; i < num_models; i++)
             d_energy_d_d_vector.at(i) = std::move(
                 Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>::Zero(static_cast<int>(num_pairs), 5));
-
-        //#pragma omp parallel for collapse(3) num_threads(numOmpThreads)
-#pragma omp parallel for collapse(2) num_threads(numOmpThreads)
-        for (int i = 0; i < g_list.size(); i++) {
-            //for each grouping
-            for (int j = 0; j < g_list_grad[i].size(); j++) {
+        std::cout << "Before suspect loop" << std::endl;
+        // Parallelise over models (j): each thread owns one d_energy_d_d_vector[j]
+        // and iterates over all groupings (i) sequentially.
+        // The original collapse(2) over (i,j) was a data race: two iterations with the
+        // same j but different i could write to d_energy_d_d_vector[j] concurrently.
+#pragma omp parallel for num_threads(numOmpThreads)
+        for (int j = 0; j < static_cast<int>(num_models); j++) {
+            for (int i = 0; i < static_cast<int>(g_list.size()); i++) {
                 d_energy_d_d_vector[j].array() += energy_matrix_grad->col(i).rowwise().template replicate<5>().array() *
                         g_list_grad[i][j].array();
 //                // OMP line by line was slower (!)
@@ -649,6 +651,7 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy(
 //                }
             }
         }
+        std::cout << "After suspect loop" << std::endl;
 
         // Then calculate de/dr = de/dd * dd/dr for each xyz component of the internuclear vectors
         std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 3> > d_energy_d_r_array(num_models);
