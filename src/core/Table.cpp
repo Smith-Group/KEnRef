@@ -2,6 +2,26 @@
 #include "core/Table.h"
 #include "core/IoUtils.h"
 
+namespace {
+    template<typename Scalar, int Rows, int Cols, int Options>
+    void fillNamed(NamedMatrixImpl<Scalar, Rows, Cols, Options> &result,
+                   const std::vector<std::vector<std::string>> &data,
+                   const std::optional<std::vector<std::string>> &colNames,
+                   const std::optional<std::vector<std::string>> &rowNames) {
+        for (Eigen::Index i = 0; i < result.rows(); ++i)
+            for (Eigen::Index j = 0; j < result.cols(); ++j)
+                result(i, j) = IoUtils::convertValue<Scalar>(data[i][j]);
+        if constexpr (Rows == 1) {
+            if (colNames) result.setNames(*colNames);
+        } else if constexpr (Cols == 1) {
+            if (rowNames) result.setNames(*rowNames);
+        } else {
+            if (colNames) result.setColNames(*colNames);
+            if (rowNames) result.setRowNames(*rowNames);
+        }
+    }
+}
+
 Table::Table() = default;
 
 Table::Table(const std::vector<std::vector<std::string> > &data,
@@ -218,43 +238,29 @@ template<typename Scalar, int Options>
     return matrix;
 }
 
-// template<typename KEnRef_Real>
-template<typename Scalar, int  Options>
+template<typename Scalar, int Options>
 NamedMatrix<Scalar, Options> Table::toNamedMatrix() const {
-    const size_t rows = rowCount();
-    const size_t cols = colCount();
-    NamedMatrix<Scalar, Options> matrix(rows, cols);
-
-    // Convert data
-    for (size_t i = 0; i < rows; ++i) {
-        for (size_t j = 0; j < cols; ++j) {
-            matrix(i,j) = IoUtils::convertValue<Scalar>(data_[i][j]);
-        }
-    }
-
-    // Set names if available
-    if (colNames_) {
-        matrix.setColNames(*colNames_);
-    }
-    if (rowNames_) {
-        matrix.setRowNames(*rowNames_);
-    }
-    return matrix;
+    NamedMatrix<Scalar, Options> result(rowCount(), colCount());
+    fillNamed(result, data_, colNames_, rowNames_);
+    return result;
 }
+
 template<typename Scalar, int Options>
 NamedVector<Scalar> Table::toNamedVector() const {
-    if (colCount() != 1) {
+    if (colCount() != 1)
         throw std::invalid_argument("Table must have exactly 1 column");
-    }
-    return NamedVector<Scalar, Options>(toNamedMatrix<Scalar>());
+    NamedVector<Scalar, Options> result(rowCount(), 1);
+    fillNamed(result, data_, colNames_, rowNames_);
+    return result;
 }
 
 template<typename Scalar, int Options>
 NamedRowVector<Scalar> Table::toNamedRowVector() const {
-    if (rowCount() != 1) {
+    if (rowCount() != 1)
         throw std::invalid_argument("Table must have exactly 1 row");
-    }
-    return NamedRowVector<Scalar, Options>(toNamedMatrix<Scalar>());
+    NamedRowVector<Scalar, Options> result(1, colCount());
+    fillNamed(result, data_, colNames_, rowNames_);
+    return result;
 }
 
 
