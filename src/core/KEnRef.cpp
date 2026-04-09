@@ -680,17 +680,28 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy(
             gradients.at(i) = CoordsMatrixType<KEnRef_Real>::Zero(num_atoms, 3);
         }
         // propagate the internuclear vector derivatives back onto the atomic coordinates
-#pragma omp parallel for collapse(2) num_threads(numOmpThreads)
-        for (int p = 0; p < num_pairs; ++p) {
-            // seq_len(dim(d_energy_d_r_array)[1])
-            for (int m = 0; m < num_models; m++) {
+        // Thread-local reduction: each thread accumulates into private buffers,
+        // then results are summed. No atomics → no serialisation → SIMD-friendly.
+#pragma omp parallel num_threads(numOmpThreads)
+        {
+            // Private gradient buffers for this thread, zero-initialised
+            std::vector<CoordsMatrixType<KEnRef_Real>> local_grad(num_models);
+            for (int m = 0; m < num_models; m++)
+                local_grad[m] = CoordsMatrixType<KEnRef_Real>::Zero(num_atoms, 3);
+#pragma omp for nowait
+            for (int p = 0; p < num_pairs; ++p) {
                 const auto [atomId0, atomId1] = atomId_pairs[p];
-                const auto &pair_grad = d_energy_d_r_array[m].row(p);
-#pragma omp atomic
-                gradients[m].row(atomId0) -= pair_grad;
-#pragma omp atomic
-                gradients[m].row(atomId1) += pair_grad;
+                // seq_len(dim(d_energy_d_r_array)[1])
+                for (int m = 0; m < num_models; m++) {
+                    const auto pair_grad = d_energy_d_r_array[m].row(p);
+                    local_grad[m].row(atomId0) -= pair_grad;
+                    local_grad[m].row(atomId1) += pair_grad;
+                }
             }
+            // Reduce into shared gradients
+#pragma omp critical
+            for (int m = 0; m < num_models; m++)
+                gradients[m] += local_grad[m];
         }
 
         //        std::cout << "gradients" << std::endl;
