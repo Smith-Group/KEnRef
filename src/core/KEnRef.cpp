@@ -600,22 +600,28 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy(
     std::cout << g0.format(fmt) << "\n" << std::endl;
 #endif
     // calculate inter nuclear vectors
+    std::cout << "A: coord_array_to_r_array" << std::endl;
     const auto &r_arrays = coord_array_to_r_array(coord_array, atomId_pairs, numOmpThreads);
 
     // calculate dipole-dipole interaction tensors [and their derivatives]
+    std::cout << "B: r_array_to_d_array" << std::endl;
     const auto &[d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, gradient, false, numOmpThreads);
 
     // calculate norm squared for different groupings of dipole-dipole interaction tensors
+    std::cout << "C: d_array_to_g_multiple_groupings" << std::endl;
     const auto &[g_list, g_list_grad] = d_array_to_g_multiple_groupings(d_arrays, grouping_list, gradient,
                                                                         numOmpThreads);
 
+    std::cout << "D: vectorOfVectors_to_Matrix" << std::endl;
     const auto &g_matrix = vectorOfVectors_to_Matrix(g_list, numOmpThreads);
 #if VERBOSE
     std::cout << "========>\n";
     std::cout << "g_matrix 0\tg_matrix 1\tg_matrix Z\n" << g_matrix.format(fmt) << "\n" << std::endl;
 #endif
     // calculate energies from the norm squared values
+    std::cout << "E: power_scaled_loss_function" << std::endl;
     const auto &[energy_matrix, energy_matrix_grad] = power_scaled_loss_function(g_matrix, g0, k, n, gradient, numOmpThreads);
+    std::cout << "F: after power_scaled_loss_function" << std::endl;
     //	std::cout << "energy_matrix_grad" << std::endl << *energy_matrix_grad << std::endl;
 
     // return the sum of all the individual restraint energies
