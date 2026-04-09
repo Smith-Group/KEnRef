@@ -654,6 +654,7 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy(
         std::cout << "After suspect loop" << std::endl;
 
         // Then calculate de/dr = de/dd * dd/dr for each xyz component of the internuclear vectors
+        std::cout << "Before d_energy_d_r_array loop" << std::endl;
         std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 3> > d_energy_d_r_array(num_models);
 #pragma omp parallel for num_threads(numOmpThreads)
         for (int i = 0; i < num_models; i++)
@@ -674,6 +675,7 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy(
             //std::cout << "d_energy_d_r_array[" << i<< "]\n" << d_energy_d_r_array[i] << std::endl << std::endl;
         }
 
+        std::cout << "After d_energy_d_r_array loop" << std::endl;
         std::vector<CoordsMatrixType<KEnRef_Real> > gradients(num_models);
 #pragma omp parallel for num_threads(numOmpThreads)
         for (int i = 0; i < num_models; i++) {
@@ -703,6 +705,7 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy(
             for (int m = 0; m < num_models; m++)
                 gradients[m] += local_grad[m];
         }
+        std::cout << "After gradient propagation loop" << std::endl;
 
         //        std::cout << "gradients" << std::endl;
         //        for (int m = 0; m < num_models; m++){
