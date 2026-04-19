@@ -315,7 +315,10 @@ KEnRef<KEnRef_Real>::d_array_to_g(
         d_matrix /= CURRENT_GROUP_SIZE_real;
 
         // calculate self dot product (norm squared) and accumulate group's contribution to mean g
-        #pragma omp parallel for num_threads(numOmpThreads) reduction(+:ret1) //TODO Modified: use OpenMP reduction
+        // NOTE: no reduction needed — each iteration writes to a distinct ret1(j).
+        // reduction(+:Eigen::VectorX) without declare reduction creates a zero-size private
+        // copy, causing out-of-bounds heap writes that corrupt malloc metadata.
+        #pragma omp parallel for num_threads(numOmpThreads)
         for (int j = 0; j < num_interactionIds; j++) {
             //It is safe to use the vector directly
             ret1(j) += d_matrix.row(j).squaredNorm() * currentGroupSize_OVER_num_models_real;
