@@ -593,10 +593,8 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy(
     // list of lists of integer vectors giving groupings of models to average interaction tensors
     const Eigen::MatrixX<KEnRef_Real> &g0, KEnRef_Real k, KEnRef_Real n, bool gradient,
     int numOmpThreads) {
-#if true
-    Eigen::IOFormat fmt(Eigen::FullPrecision, 0, "\t", "\n", "", "");
-#endif
 #if VERBOSE
+    Eigen::IOFormat fmt(Eigen::FullPrecision, 0, "\t", "\n", "", "");
     std::cout << "========>\n";
     std::cout << "g0 0\tg0 1\n";
     std::cout << g0.format(fmt) << "\n" << std::endl;
