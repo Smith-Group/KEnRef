@@ -721,7 +721,7 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy(
         //            std::cout << "model " << m << " first 100 rows" << std::endl;
         //            std::cout << gradients[m].topRows(100) << std::endl;
         //        }
-        return {sum, {gradients}};
+        return {sum, {std::move(gradients)}};
     }
     return {sum, std::nullopt};
 }
