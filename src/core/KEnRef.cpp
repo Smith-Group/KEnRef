@@ -208,7 +208,7 @@ KEnRef<KEnRef_Real>::d_array_to_g_multiple_groupings(
     ret1.reserve(d_array.size());
 
     for (const auto &grouping: groupings) {
-        const auto &[ret1_temp, ret2_temp] = d_array_to_g(d_array, grouping, gradient, numOmpThreads);
+        const auto [ret1_temp, ret2_temp] = d_array_to_g(d_array, grouping, gradient, numOmpThreads);
         ret1.emplace_back(ret1_temp);
         if (gradient)
             ret2.emplace_back(ret2_temp);
@@ -233,7 +233,7 @@ KEnRef<KEnRef_Real>::d_array_to_g_matrix(
     const auto &groupings = IoUtils::grouping_mat_to_subset_idx(grouping_mat);
     for (int row = 0; row < grouping_mat.rows(); ++row) {
         const auto& grouping = groupings[row];
-        const auto &[ret1_temp, ret2_temp] = d_array_to_g(d_array, grouping, gradient, numOmpThreads);
+        const auto [ret1_temp, ret2_temp] = d_array_to_g(d_array, grouping, gradient, numOmpThreads);
         ret1.emplace_back(ret1_temp);
         if (gradient)
             ret2.emplace_back(ret2_temp);
@@ -608,11 +608,11 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy(
 
     // calculate dipole-dipole interaction tensors [and their derivatives]
     std::cout << "B: r_array_to_d_array" << std::endl;
-    const auto &[d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, gradient, false, numOmpThreads);
+    const auto [d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, gradient, false, numOmpThreads);
 
     // calculate norm squared for different groupings of dipole-dipole interaction tensors
     std::cout << "C: d_array_to_g_multiple_groupings" << std::endl;
-    const auto &[g_list, g_list_grad] = d_array_to_g_multiple_groupings(d_arrays, grouping_list, gradient,
+    const auto [g_list, g_list_grad] = d_array_to_g_multiple_groupings(d_arrays, grouping_list, gradient,
                                                                         numOmpThreads);
 
     std::cout << "D: vectorOfVectors_to_Matrix" << std::endl;
@@ -623,7 +623,7 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy(
 #endif
     // calculate energies from the norm squared values
     std::cout << "E: power_scaled_loss_function" << std::endl;
-    const auto &[energy_matrix, energy_matrix_grad] = power_scaled_loss_function(g_matrix, g0, k, n, gradient, numOmpThreads);
+    const auto [energy_matrix, energy_matrix_grad] = power_scaled_loss_function(g_matrix, g0, k, n, gradient, numOmpThreads);
     std::cout << "F: after power_scaled_loss_function" << std::endl;
     //	std::cout << "energy_matrix_grad" << std::endl << *energy_matrix_grad << std::endl;
 
@@ -1267,15 +1267,15 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy_refactored(
     const auto &r_arrays = coord_array_to_r_array(coord_array, atomId_pairs, numOmpThreads);
 
     // calculate dipole-dipole interaction tensors [and their derivatives]
-    const auto &[d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, gradient, false, numOmpThreads);
+    const auto [d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, gradient, false, numOmpThreads);
 
     const auto &grouping_matrix = IoUtils::subset_idx_to_grouping_mat(grouping_list);
     // calculate norm squared for different groupings of dipole-dipole interaction tensors
-    const auto &[g_list, g_list_grad] = d_array_to_g_matrix(d_arrays, grouping_matrix, gradient, numOmpThreads);
+    const auto [g_list, g_list_grad] = d_array_to_g_matrix(d_arrays, grouping_matrix, gradient, numOmpThreads);
 
     const auto &g_matrix = vectorOfVectors_to_Matrix(g_list, numOmpThreads);
     // calculate energies from the norm squared values
-    const auto &[energy_matrix, energy_matrix_grad] = power_scaled_loss_function(g_matrix, g0, k, n, gradient, numOmpThreads);
+    const auto [energy_matrix, energy_matrix_grad] = power_scaled_loss_function(g_matrix, g0, k, n, gradient, numOmpThreads);
 
     // return the sum of all the individual restraint energies
     KEnRef_Real sum = energy_matrix.sum();
@@ -1388,7 +1388,7 @@ KEnRef<KEnRef_Real>::s2OrderParams(
     //    const auto &r_arrays = coord_array_to_r_array(coord_array, atomId_pairs, numOmpThreads);
     //
     //    // calculate dipole-dipole interaction tensors [and their derivatives]
-    //    const auto &[d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, numOmpThreads);
+    //    const auto [d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, numOmpThreads);
 
     ////////////////////////////////////////////////////////////////////////////////
 
