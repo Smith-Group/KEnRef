@@ -5,6 +5,12 @@ set(CMAKE_CXX_STANDARD 17)
 string(TOLOWER ${CMAKE_BUILD_TYPE} build_type)
 message(STATUS "the build type is: ${build_type}")
 
+# ============================================================================
+# BUILD OPTIONS
+# ============================================================================
+option(BUILD_KENREF_CORE "Build KENREF_CORE library" ON)
+option(BUILD_KENREF_GMX "Build KENREF GMX interface" ON)
+
 ### comment the next line to make it float. Uncomment to make it double.
 add_compile_options(-DKENREF_DOUBLE)
 
@@ -15,28 +21,98 @@ else ()
 	message(STATUS "ACCEL variable is: ${ACCEL}")
 endif ()
 
-#TODO rearrange setting *_DIR variables after reading https://cmake.org/cmake/help/latest/command/find_package.html [then delete this line :)]
-##change these if needed
-set(SUFFIX_MPI _mpi)
-set(GROMACS_SRC_DIR /home/amr/git/gromacs) # make sure you `git checkout` the right Gromacs branch and tag first.
-set(GROMACS_BUILD_DIR /home/amr/git/gromacs/cmake-build-${build_type}) # build_type is all_small
-set(GROMACS_INSTALL_DIR /smithlab/opt/gromacs-dev/2025/2025.3/${build_type}/${ACCEL})
+#Important to fix incompatibility bug with PLUMED
+if(ACCEL STREQUAL "AVX_512")
+	add_compile_options(-march=skylake-avx512)
+elseif(ACCEL STREQUAL "AVX2_256")
+	add_compile_options(-march=haswell)
+elseif(ACCEL STREQUAL "AVX_256")
+	add_compile_options(-march=sandybridge)
+endif()
+# ============================================================================
+# GROMACS PATHS (only needed for GMX interface)
+# ============================================================================
+if(BUILD_KENREF_GMX)
+	set(SUFFIX_MPI _mpi)
+
+	# Accept paths as CMake variables or environment variables with fallback defaults
+	if(NOT DEFINED GROMACS_SRC_DIR)
+		if(DEFINED ENV{GROMACS_SRC_DIR})
+			set(GROMACS_SRC_DIR $ENV{GROMACS_SRC_DIR})
+		else()
+			set(GROMACS_SRC_DIR "${CMAKE_SOURCE_DIR}/../gromacs")
+		endif()
+	endif()
+
+	if(NOT DEFINED GROMACS_BUILD_DIR)
+		if(DEFINED ENV{GROMACS_BUILD_DIR})
+			set(GROMACS_BUILD_DIR $ENV{GROMACS_BUILD_DIR})
+		else()
+			set(GROMACS_BUILD_DIR "${GROMACS_SRC_DIR}/cmake-build-${build_type}")
+		endif()
+	endif()
+
+	if(NOT DEFINED GROMACS_INSTALL_DIR)
+		if(DEFINED ENV{GROMACS_INSTALL_DIR})
+			set(GROMACS_INSTALL_DIR $ENV{GROMACS_INSTALL_DIR})
+		else()
+			set(GROMACS_INSTALL_DIR "/smithlab/opt/gromacs-4-kenref/2025/2025.3/${build_type}/${ACCEL}")
+		endif()
+	endif()
+
+	message(STATUS "GROMACS_SRC_DIR: ${GROMACS_SRC_DIR}")
+	message(STATUS "GROMACS_BUILD_DIR: ${GROMACS_BUILD_DIR}")
+	message(STATUS "GROMACS_INSTALL_DIR: ${GROMACS_INSTALL_DIR}")
+endif()
+
 set(GROMACS_DIR ${GROMACS_INSTALL_DIR}/share/cmake/gromacs${SUFFIX_MPI}) #where libgromacs*.cmake are located
 
+# ============================================================================
+# INSTALLATION PATHS
+# ============================================================================
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
-	string(FIND ${GROMACS_INSTALL_DIR} "gromacs-dev" replaceable)
-	if (replaceable GREATER_EQUAL -1)
-		string(REPLACE "gromacs-dev" "kenref-dev" proposed_path ${GROMACS_INSTALL_DIR})
-		set(CMAKE_INSTALL_PREFIX ${proposed_path} CACHE PATH "root directory to install KEnRef (default is a tree parallel to GROMACS_INSTALL_DIR)" FORCE)
-	endif ()
+	if(BUILD_KENREF_CORE AND NOT BUILD_KENREF_GMX)
+		# Core only: /smithlab/opt/kenref/${build_type}/${ACCEL}
+		set(CMAKE_INSTALL_PREFIX "/smithlab/opt/kenref/${build_type}/${ACCEL}" CACHE PATH "root directory to install KEnRef CORE" FORCE)
+	elseif(BUILD_KENREF_GMX)
+		# GMX interface (with or without core): /smithlab/opt/kenref-gmx/${year}/${GROMACS_VERSION}/${build_type}/${ACCEL}
+		# Extract GROMACS year and version from GROMACS_INSTALL_DIR
+		# Expected format: /smithlab/opt/gromacs-*/2025/2025.x/${build_type}/${ACCEL}
+		string(REGEX MATCH "gromacs-4-kenref/([0-9]+)/([0-9.]+)" GROMACS_VERSION_MATCH "${GROMACS_INSTALL_DIR}")
+		if(CMAKE_MATCH_1 AND CMAKE_MATCH_2)
+			set(GROMACS_YEAR "${CMAKE_MATCH_1}")
+			set(GROMACS_VERSION "${CMAKE_MATCH_2}")
+		else()
+			# Fallback: try to get from GROMACS package if available
+			if(GROMACS_VERSION)
+				# Use existing GROMACS_VERSION variable
+				string(REGEX MATCH "^([0-9]+)" YEAR_MATCH "${GROMACS_VERSION}")
+				if(CMAKE_MATCH_1)
+					set(GROMACS_YEAR "${CMAKE_MATCH_1}")
+				else()
+					set(GROMACS_YEAR "unknown")
+				endif()
+			else()
+				message(WARNING "Could not extract GROMACS version from GROMACS_INSTALL_DIR: ${GROMACS_INSTALL_DIR}")
+				set(GROMACS_YEAR "unknown")
+				set(GROMACS_VERSION "unknown")
+			endif()
+		endif()
+		set(CMAKE_INSTALL_PREFIX "/smithlab/opt/kenref-gmx/${GROMACS_YEAR}/${GROMACS_VERSION}/${build_type}/${ACCEL}" CACHE PATH "root directory to install KEnRef GMX" FORCE)
+	endif()
 endif()
 
 #set(CMAKE_MODULE_PATH /usr/local/gromacs-dev/share/gromacs/template/cmake:$CMAKE_MODULE_PATH)
 set(Eigen3_DIR /smithlab/opt/eigen/3.4.0/share/eigen3/cmake) #set(Eigen3_DIR /smithlab/opt/eigen/3.4.9/share/eigen3/cmake)
 
+# ============================================================================
+# COMMON DEPENDENCIES
+# ============================================================================
 find_package(MPI REQUIRED)
 
-find_package (Eigen3 3.4 REQUIRED)
+if(BUILD_KENREF_CORE)
+	find_package (Eigen3 3.4 REQUIRED)
+endif()
 if (Eigen3_FOUND)
 	message("Eigen3 FOUND")
 	# Get Eigen include directory for pkg-config
@@ -51,19 +127,22 @@ if (Eigen3_FOUND)
 	message(STATUS "Eigen3 include directory (clean): ${EIGEN3_INCLUDE_DIR}")
 endif ()
 
-message(STATUS "Searching for Gromacs in ${GROMACS_DIR}")
-find_package(GROMACS NAMES gromacs_mpi gromacs REQUIRED)
-if (GROMACS_FOUND)
-	message("GROMACS FOUND")
-	message(STATUS "GROMACS_DIR folder is: ${GROMACS_DIR}")
-	message(STATUS "GROMACS_CONFIG file is: ${GROMACS_CONFIG}")
-endif ()
+if(BUILD_KENREF_GMX)
+	message(STATUS "Searching for Gromacs in ${GROMACS_DIR}")
+	find_package(GROMACS NAMES gromacs_mpi gromacs REQUIRED)
+	if (GROMACS_FOUND)
+		message("GROMACS FOUND")
+		message(STATUS "GROMACS_DIR folder is: ${GROMACS_DIR}")
+		message(STATUS "GROMACS_CONFIG file is: ${GROMACS_CONFIG}")
+	endif ()
+endif()
 
-find_package(OpenMP REQUIRED)
-# ============================================================================
-# TEST EIGEN MATRIX REDUCTION SUPPORT
-# ============================================================================
-message(STATUS "Testing Eigen matrix reduction support with OpenMP...")
+if(BUILD_KENREF_CORE)
+	find_package(OpenMP REQUIRED)
+	# ============================================================================
+	# TEST EIGEN MATRIX REDUCTION SUPPORT
+	# ============================================================================
+	message(STATUS "Testing Eigen matrix reduction support with OpenMP...")
 
 # Try to compile and run the test
 try_run(
@@ -92,138 +171,55 @@ else()
 	message(STATUS "  Test output: ${EIGEN_TEST_OUTPUT}")
 endif()
 
-# Set the preprocessor definition
-if(EIGEN_MATRIX_REDUCTION_SUPPORTED)
-	add_compile_definitions(EIGEN_MATRIX_REDUCTION_SUPPORTED=1)
-else()
-	add_compile_definitions(EIGEN_MATRIX_REDUCTION_SUPPORTED=0)
-endif()
-# ============================================================================
-
-# SEPARATE CORE SOURCES (Permissive license)
-FILE(GLOB core_sources "src/core/*.cpp")  # Only pure math/algorithms
-FILE(GLOB gmxinterface_sources "src/gmxinterface/*.cpp")
-#FILE(GLOB tools_sources "src/tools/*.cpp")  # Tools depend on both
-#FILE(GLOB core_headers "src/core/*.h")
-#FILE(GLOB gmxinterface_headers "src/gmxinterface/*.h")
-
-# Create separate targets with clear boundaries (libraries with simple names)
-add_library(kenref_core STATIC ${core_sources})           # Lowercase, no namespace
-add_library(kenref_gmxinterface STATIC ${gmxinterface_sources})
-
-# Create namespace aliases
-add_library(KENREF::CORE ALIAS kenref_core)
-add_library(KENREF::GMXINTERFACE ALIAS kenref_gmxinterface)
-
-# ============================================================================
-# CREATE KENREF_AND_EIGEN3 LIBRARY (FOR PLUMED WHEN EIGEN3 IS NOT AVAILABLE)
-# ============================================================================
-
-message(STATUS "Preparing kenref_and_eigen3 library...")
-
-# Create a target that includes Eigen headers
-add_library(kenref_and_eigen3 STATIC ${core_sources})
-
-# Copy Eigen headers to our source tree for distribution
-set(EIGEN_HEADERS_DEST "${CMAKE_CURRENT_BINARY_DIR}/eigen_headers")
-file(MAKE_DIRECTORY "${EIGEN_HEADERS_DEST}")
-
-# Function to copy Eigen headers
-function(copy_eigen_headers eigen_source_dir dest_dir)
-    file(GLOB_RECURSE eigen_headers
-        "${eigen_source_dir}/Eigen/*"
-        "${eigen_source_dir}/unsupported/Eigen/*"
-    )
-    foreach(header IN LISTS eigen_headers)
-        file(RELATIVE_PATH rel_path "${eigen_source_dir}" "${header}")
-        set(dest_file "${dest_dir}/${rel_path}")
-        get_filename_component(dest_dir_path "${dest_file}" DIRECTORY)
-        file(MAKE_DIRECTORY "${dest_dir_path}")
-        configure_file("${header}" "${dest_file}" COPYONLY)
-    endforeach()
-endfunction()
-
-# Copy Eigen headers if they exist
-if(EXISTS "${EIGEN3_INCLUDE_DIR}/Eigen")
-    copy_eigen_headers("${EIGEN3_INCLUDE_DIR}" "${EIGEN_HEADERS_DEST}")
-    message(STATUS "Eigen headers copied to: ${EIGEN_HEADERS_DEST}")
-else()
-    message(WARNING "Eigen headers not found at ${EIGEN3_INCLUDE_DIR}/Eigen")
+	# Set the preprocessor definition
+	if(EIGEN_MATRIX_REDUCTION_SUPPORTED)
+		add_compile_definitions(EIGEN_MATRIX_REDUCTION_SUPPORTED=1)
+	else()
+		add_compile_definitions(EIGEN_MATRIX_REDUCTION_SUPPORTED=0)
+	endif()
+	# ============================================================================
 endif()
 
-# Create the kenref_and_eigen3 library
-target_include_directories(kenref_and_eigen3 PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include_core>
-    $<BUILD_INTERFACE:${EIGEN_HEADERS_DEST}>
-    $<INSTALL_INTERFACE:include/core>
-    $<INSTALL_INTERFACE:include/eigen>
-)
-
-target_link_libraries(kenref_and_eigen3 PUBLIC
-    MPI::MPI_CXX
-)
-
-# Create namespace alias
-add_library(KENREF::CORE_WITH_EIGEN ALIAS kenref_and_eigen3)
-
 # ============================================================================
-# SEPARATE DEPENDENCIES based on license compatibility
+# INCLUDE COMPONENT MODULES
 # ============================================================================
 
-# Core: Only permissively licensed dependencies
-target_link_libraries(kenref_core PUBLIC
-    MPI::MPI_CXX           # Check MPI license
-    Eigen3::Eigen          # MPL2 - permissive
-    # NO GROMACS here!
-)
+if(BUILD_KENREF_CORE)
+	include(cmake/KEnRefCore.cmake)
+endif()
 
-# GMXInterface: GPL-compatible dependencies
-target_link_libraries(kenref_gmxinterface PUBLIC
-    KENREF::CORE           # Core is permissively licensed
-    Gromacs::libgromacs    # GPL - only here!
-    MPI::MPI_CXX           # Check MPI license
-)
+if(BUILD_KENREF_GMX)
+	# If building GMX without CORE, need to find installed CORE
+	if(NOT BUILD_KENREF_CORE AND NOT TARGET KENREF::CORE)
+		message(STATUS "Searching for installed KENREF CORE...")
+		set(KENREF_CORE_CMAKE_PATH "/smithlab/opt/kenref/${build_type}/${ACCEL}/lib/cmake/KEnRef")
+		message(STATUS "  Looking in: ${KENREF_CORE_CMAKE_PATH}")
 
-# Separate include directories
-target_include_directories(kenref_core PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include_core>
-    $<INSTALL_INTERFACE:include/core>
-    ${EIGEN3_INCLUDE_DIR} # TODO check its license
-)
-target_include_directories(kenref_gmxinterface PUBLIC
-    # GROMACS includes - THE ORDER IS CRITICAL
-    "${GROMACS_BUILD_DIR}/src/include/"                    # 1. config.h
-    "${GROMACS_SRC_DIR}/src/include"                       # 2. Core API
-    "${GROMACS_SRC_DIR}/src/gromacs/math/include"          # 3. Math
-    "${GROMACS_SRC_DIR}/src/gromacs/mdtypes"               # 4. MD types
-    "${GROMACS_SRC_DIR}/src/gromacs/utility/include"       # 5. Utility
-    "${GROMACS_SRC_DIR}/src/programs"                      # 6. Programs
-    "${GROMACS_SRC_DIR}/src"							   # 7. I am not sure
-    # Our interface (lowest priority)
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include_gmxinterface>
-    $<INSTALL_INTERFACE:include/gmxinterface>
-    ${EIGEN3_INCLUDE_DIR}
-)
+		# KENREF CORE depends on Eigen3, so find it first
+		if(NOT TARGET Eigen3::Eigen)
+			find_package(Eigen3 3.4 REQUIRED)
+			if(Eigen3_FOUND)
+				message(STATUS "  Found Eigen3 for KENREF CORE")
+			endif()
+		endif()
 
-# ============================================================================
-# EXECUTABLES
-# ============================================================================
+		if(EXISTS "${KENREF_CORE_CMAKE_PATH}/KEnRefCoreConfig.cmake")
+			message(STATUS "  Found KEnRefCoreConfig.cmake, including it...")
+			include("${KENREF_CORE_CMAKE_PATH}/KEnRefCoreConfig.cmake")
 
-add_executable(KEnRef "src/gmxinterface/gmxwrapper.cpp")
-target_link_libraries(KEnRef PRIVATE KENREF::CORE KENREF::GMXINTERFACE)
+			# The exported target is KENREF::kenref_core, create an alias to KENREF::CORE
+			if(TARGET KENREF::kenref_core AND NOT TARGET KENREF::CORE)
+				add_library(KENREF::CORE ALIAS KENREF::kenref_core)
+			endif()
 
-# Tools depend on both
-add_executable(s2calc "src/tools/S2OrderParamsCalculator.cpp" "src/tools/AbstractCalculator.cpp")
-add_executable(energycalc "src/tools/EnergyCalculator.cpp" "src/tools/AbstractCalculator.cpp")
-target_link_libraries(s2calc PRIVATE
-    KENREF::CORE           # Permissive part
-    KENREF::GMXINTERFACE   # GPL part - tools become GPL
-)
+			message(STATUS "  ✓ Loaded KENREF CORE from ${KENREF_CORE_CMAKE_PATH}")
+		else()
+			message(FATAL_ERROR "KENREF CORE not found at ${KENREF_CORE_CMAKE_PATH}\nPlease build and install KENREF CORE first, or build with -DBUILD_KENREF_CORE=ON")
+		endif()
+	endif()
 
-target_link_libraries(energycalc PRIVATE
-    KENREF::CORE
-    KENREF::GMXINTERFACE   # Tools inherit GPL
-)
+	include(cmake/KEnRefGMX.cmake)
+endif()
 
 # ============================================================================
 # PKG-CONFIG GENERATION FOR PLUMED INTEGRATION
@@ -250,138 +246,9 @@ if(TARGET MPI::MPI_CXX)
     endif()
 endif()
 
-# Create pkg-config file for kenref_core (with external Eigen)
-configure_file(
-		"${CMAKE_CURRENT_SOURCE_DIR}/cmake/kenref_core.pc.in"
-		"${CMAKE_CURRENT_BINARY_DIR}/kenref_core.pc"
-		@ONLY
-)
-
-# Create pkg-config file for kenref_and_eigen3 (self-contained)
-configure_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/kenref_and_eigen3.pc.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/kenref_and_eigen3.pc"
-    @ONLY
-)
-
-# Create pkg-config file for kenref_gmxinterface (with GROMACS dependency)
-configure_file(
-		"${CMAKE_CURRENT_SOURCE_DIR}/cmake/kenref_gmxinterface.pc.in"
-		"${CMAKE_CURRENT_BINARY_DIR}/kenref_gmxinterface.pc"
-		@ONLY
-)
-
 # ============================================================================
-# INSTALLATION - Install in BOTH locations
+# COMMON INSTALLATION SETTINGS
 # ============================================================================
-
-# Install executables
-install(TARGETS KEnRef s2calc energycalc
-		RUNTIME DESTINATION bin
-		LIBRARY DESTINATION lib
-		ARCHIVE DESTINATION lib
-)
-
-# Install libraries
-install(TARGETS kenref_core kenref_gmxinterface kenref_and_eigen3
-		EXPORT KEnRefTargets
-		DESTINATION lib
-		INCLUDES DESTINATION include
-)
-
-# Install headers
-install(DIRECTORY include_core/
-		DESTINATION include/core
-		FILES_MATCHING PATTERN "*.h"
-)
-
-install(DIRECTORY include_gmxinterface/
-		DESTINATION include/gmxinterface
-		FILES_MATCHING PATTERN "*.h"
-)
-
-#------------------------
-# Install pkg-config files
-#------------------------
-
-# For self-contained version, install Eigen headers
-install(DIRECTORY "${EIGEN_HEADERS_DEST}/Eigen"
-    DESTINATION include/eigen
-    PATTERN "*.h"
-)
-
-if(EXISTS "${EIGEN_HEADERS_DEST}/unsupported")
-    install(DIRECTORY "${EIGEN_HEADERS_DEST}/unsupported/Eigen"
-        DESTINATION include/unsupported/eigen
-        PATTERN "*.h"
-    )
-endif()
-
-# Install pkg-config files in BOTH standard locations
-install(FILES
-		"${CMAKE_CURRENT_BINARY_DIR}/kenref_core.pc"
-    "${CMAKE_CURRENT_BINARY_DIR}/kenref_and_eigen3.pc"
-		"${CMAKE_CURRENT_BINARY_DIR}/kenref_gmxinterface.pc"
-		DESTINATION lib/pkgconfig
-)
-
-# Also install to share/pkgconfig for compatibility
-install(FILES
-    "${CMAKE_CURRENT_BINARY_DIR}/kenref_core.pc"
-    "${CMAKE_CURRENT_BINARY_DIR}/kenref_and_eigen3.pc"
-    "${CMAKE_CURRENT_BINARY_DIR}/kenref_gmxinterface.pc"
-    DESTINATION share/pkgconfig
-)
-
-# Install export configuration
-install(EXPORT KEnRefTargets
-		FILE KEnRefConfig.cmake
-		NAMESPACE KENREF::
-		DESTINATION lib/cmake/KEnRef
-)
-
-# Install license files
-install(FILES LICENSE_CORE.txt DESTINATION share/licenses/kenref)
-install(FILES LICENSE_GMX.txt DESTINATION share/licenses/kenref)
-install(FILES LICENSE_CLI11.txt DESTINATION share/licenses/cli11)
-
-
-# ============================================================================
-# TESTING
-# ============================================================================
-add_subdirectory(google_tests)
-
-# ============================================================================
-# CREATE A SIMPLE TEST FOR PLUMED INTEGRATION
-# ============================================================================
-add_executable(test_kenref_plumed
-		${CMAKE_CURRENT_SOURCE_DIR}/cmake/test_plumed_integration.cpp
-)
-target_link_libraries(test_kenref_plumed PRIVATE kenref_and_eigen3)
-target_include_directories(test_kenref_plumed PRIVATE
-		${CMAKE_CURRENT_SOURCE_DIR}/include_core
-)
-
-# Test that both libraries work
-add_executable(test_kenref_core
-    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/test_plumed_integration.cpp
-)
-target_link_libraries(test_kenref_core PRIVATE kenref_core)
-target_include_directories(test_kenref_core PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include_core
-		${EIGEN3_INCLUDE_DIR}
-)
-
-# ============================================================================
-# ADDITIONAL TARGET PROPERTIES
-# ============================================================================
-
-# Set VERSION and SOVERSION properties for shared libraries (if any)
-set_target_properties(kenref_core kenref_gmxinterface kenref_and_eigen3
-    PROPERTIES
-    VERSION 1.0.0
-    SOVERSION 1
-)
 
 # Add install RPATH
 set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
