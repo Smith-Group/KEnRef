@@ -299,6 +299,12 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     CoordsMatrixType<KEnRef_Real_t> derivatives_rectified = Kabsch_Umeyama<KEnRef_Real_t>::applyInverseOfTransform(affine, derivatives_map);
 //    CoordsMatrixType<KEnRef_Real_t> derivatives_rectified = derivatives_map;
 
+    //TODO FIXME This condition is kept for backwards compatibility with the published manuscript. However, the unit
+    //  conversion should be applied unconditionally to all energy models.
+    if (selectedEnergyModel != KEnRef<KEnRef_Real_t>::energyModel::PLATEAUS) {
+        //converts them back to nm^-1
+        derivatives_rectified *= 10;
+    }
 
     KEnRef<KEnRef_Real_t>::saturate(derivatives_rectified, this->maxForceSquared_,
                                     gmx_omp_nthreads_get(ModuleMultiThread::Default));
