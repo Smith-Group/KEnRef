@@ -5,12 +5,11 @@ Eigen::IOFormat insideCsvLineFormat(Eigen::StreamPrecision, Eigen::DontAlignCols
 class S2OrderParamsCalculator : public AbstractCalculator{
 
 public:
-    S2OrderParamsCalculator() : AbstractCalculator("S2 Order Parameters calculator", "s2") {
-    }
-    void fill_spec_den_data_vector(const std::string &spec_den_data_prefix, const Table &atomPairAndSigmaTable, std::vector<std::tuple<std::string, std::string>> iterationAtomPairs) override {
-    }
-    void addSpecificParameters(CLI::App& app) override {
-    }
+    S2OrderParamsCalculator() : AbstractCalculator("S2 Order Parameters calculator", "s2") { }
+
+    void fill_spec_den_data_vector(const std::string &spec_den_data_prefix, const Table &atomPairAndSigmaTable, std::vector<std::tuple<std::string, std::string>> iterationAtomPairs) override { }
+
+    void addSpecificParameters(CLI::App &app) override { }
 
     void handle_plateaus_energy_model() override {
         auto experimentalData_table = IoUtils::readTable(experimentalDataFileName, true, false, ",");

@@ -18,6 +18,7 @@ int AbstractCalculator::calc(int argc, char **argv) {
     }
     ///////////////////////////////////////////////////////
     num_models = static_cast<int>(inputFiles.size());
+    std::cout << "Number of Models = " << num_models <<std::endl;
     std::string ext = std::filesystem::path(inputFiles.front()).extension().string();
     inputFileType = ext == ".trr" ? InputFileType::trr : ext == ".xtc" ? InputFileType::xtc : InputFileType::UNKNOWN;
     using CLI::enums::operator<<;

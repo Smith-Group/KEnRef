@@ -13,6 +13,8 @@
 #include <gromacs/mdrun/simulationcontext.h>
 #include <gromacs/selection/selection.h>
 #include <chrono>
+
+#include "gmxwrapper.h"
 #include "core/KEnRef.h"
 
 
@@ -23,7 +25,7 @@ private:
 	KEnRef<KEnRef_Real_t>::energyModel selectedEnergyModel = KEnRef<KEnRef_Real_t>::energyModel::UNKNOWN; //SIGMA; // PLATEAUS;
 
 	gmx::SimulationContext *simulationContext_ = nullptr;
-	KEnRef_Real_t maxForceSquared_ = 200.0 * 200.0;
+	KEnRef_Real_t maxForceSquared_ = std::pow(Settings::max_force, 2.f);
 	KEnRef_Real_t k_ = 1.0;
 	KEnRef_Real_t n_ = 0.25;
 	bool paramsInitialized = false; // We use it instead of (step == 0), because the simulation may be continuing after 0
