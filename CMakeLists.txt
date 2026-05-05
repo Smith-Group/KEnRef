@@ -56,7 +56,7 @@ if(BUILD_KENREF_GMX)
 		if(DEFINED ENV{GROMACS_INSTALL_DIR})
 			set(GROMACS_INSTALL_DIR $ENV{GROMACS_INSTALL_DIR})
 		else()
-			set(GROMACS_INSTALL_DIR "/smithlab/opt/gromacs-4-kenref/2025/2025.3/${build_type}/${ACCEL}")
+			set(GROMACS_INSTALL_DIR "/smithlab/opt/gromacs-4-kenref/2025/2025.4/${build_type}/${ACCEL}")
 		endif()
 	endif()
 
@@ -103,7 +103,7 @@ if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 endif()
 
 #set(CMAKE_MODULE_PATH /usr/local/gromacs-dev/share/gromacs/template/cmake:$CMAKE_MODULE_PATH)
-set(Eigen3_DIR /smithlab/opt/eigen/3.4.0/share/eigen3/cmake) #set(Eigen3_DIR /smithlab/opt/eigen/3.4.9/share/eigen3/cmake)
+set(Eigen3_DIR /smithlab/opt/eigen/5.0.1/${build_type}/share/eigen3/cmake)
 
 # ============================================================================
 # COMMON DEPENDENCIES
@@ -111,7 +111,7 @@ set(Eigen3_DIR /smithlab/opt/eigen/3.4.0/share/eigen3/cmake) #set(Eigen3_DIR /sm
 find_package(MPI REQUIRED)
 
 if(BUILD_KENREF_CORE)
-	find_package (Eigen3 3.4 REQUIRED)
+	find_package (Eigen3 5.0 REQUIRED)
 endif()
 if (Eigen3_FOUND)
 	message("Eigen3 FOUND")

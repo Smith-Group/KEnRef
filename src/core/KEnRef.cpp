@@ -12,6 +12,8 @@
 #include "core/KEnRef.h"
 //#include <iostream>//for testing only
 
+#include <cassert>
+
 #include "core/IoUtils.h"
 //#include <utility>
 
@@ -68,10 +70,10 @@ KEnRef<KEnRef_Real>::array_shift(const std::vector<Eigen::Matrix<KEnRef_Real, Ei
         //generalization of pairId
         for (int modelNo = 0; modelNo < arrays_to_shift.size(); modelNo++) {
             for (int interactionComponent = 0; interactionComponent < nShift; interactionComponent++) {
-                // std::cout << "To ret[" <<(modelNo*nShift+interactionComponent) <<"]("<<interactionId<<", Eigen::all)\t";
-                // std::cout << "from arrays_to_shift["<<modelNo<<"]("<<(interactionId + interactionComponent * numInteractions)<<", Eigen::all)" << std::endl;
-                ret[modelNo * nShift + interactionComponent](interactionId, Eigen::all) =
-                        arrays_to_shift[modelNo](interactionId + interactionComponent * numInteractions, Eigen::all);
+                // std::cout << "To ret[" <<(modelNo*nShift+interactionComponent) <<"]("<<interactionId<<", Eigen::placeholders::all)\t";
+                // std::cout << "from arrays_to_shift["<<modelNo<<"]("<<(interactionId + interactionComponent * numInteractions)<<", Eigen::placeholders::all)" << std::endl;
+                ret[modelNo * nShift + interactionComponent](interactionId, Eigen::placeholders::all) =
+                        arrays_to_shift[modelNo](interactionId + interactionComponent * numInteractions, Eigen::placeholders::all);
                 //TODO is there a way other than copying with "="?
             }
         }
@@ -382,7 +384,7 @@ KEnRef<KEnRef_Real>::power_scaled_loss_function(
             ret1 = (k * common.square()).matrix();
 
             if (gradient) {
-                ret2 = (2.0 * k * common * (n * (1.0 + abs_g).pow(n - 1.0))).matrix();
+                ret2 = (2.0 * k * common * (n * (1.0 + abs_g).pow(n - KEnRef_Real{1}))).matrix(); //KEnRef_Real{1} prevents deprecation warning
             }
         }
     } else {
@@ -666,7 +668,7 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy(
                             (Eigen::seq(j, Eigen::fix<14>, Eigen::fix<3>)).sum();
                 }
                 //This line works, but it is slower than a loop one row at a time + OMP. You can delete it.
-                // d_energy_d_r_array[i].col(j) = (d_arrays_grad[i].array() * d_energy_d_d_vector[i].replicate(Eigen::fix<3>, num_pairs).reshaped(num_pairs, Eigen::fix<15>).array()) (Eigen::all, Eigen::seq(j, Eigen::fix<14>, Eigen::fix<3>)).rowwise().sum();
+                // d_energy_d_r_array[i].col(j) = (d_arrays_grad[i].array() * d_energy_d_d_vector[i].replicate(Eigen::fix<3>, num_pairs).reshaped(num_pairs, Eigen::fix<15>).array()) (Eigen::placeholders::all, Eigen::seq(j, Eigen::fix<14>, Eigen::fix<3>)).rowwise().sum();
             }
             //std::cout << "d_energy_d_r_array[" << i<< "]\n" << d_energy_d_r_array[i] << std::endl << std::endl;
         }
@@ -1050,7 +1052,7 @@ KEnRef<KEnRef_Real>::coord_array_to_sigma_energy(
     for (int i = 0, index = 0; i < specDenDataSize; ++i) {
         indexes.at(i) = index;
         const auto &sigmas = spec_den_data_list.at(i).sigmas();
-        sigma(Eigen::seqN(index, sigmas.rows()), Eigen::all) = sigma_vector_list[i];
+        sigma(Eigen::seqN(index, sigmas.rows()), Eigen::placeholders::all) = sigma_vector_list[i];
         index += sigmas.rows();
     }
 
@@ -1074,7 +1076,7 @@ KEnRef<KEnRef_Real>::coord_array_to_sigma_energy(
     Eigen::MatrixX<KEnRef_Real> sigma0(totalSigma0Values, 1);
     for (int i = 0, index = 0; i < specDenDataSize; ++i) {
         const auto &sigma0s = spec_den_data_list.at(i).sigmas();
-        sigma0(Eigen::seqN(index, sigma0s.rows()), Eigen::all) = sigma0s;
+        sigma0(Eigen::seqN(index, sigma0s.rows()), Eigen::placeholders::all) = sigma0s;
         index += sigma0s.rows();
     }
 
@@ -1092,7 +1094,7 @@ KEnRef<KEnRef_Real>::coord_array_to_sigma_energy(
             const auto &currentSpecDenData = spec_den_data_list[i];
 
             // extract particular segment of energy gradient
-            const auto &d_energy_d_sigma = sigma_energy_grad_vec.value()(Eigen::seqN(indexes[i],currentSpecDenData.sigmas().rows()), Eigen::all);
+            const auto &d_energy_d_sigma = sigma_energy_grad_vec.value()(Eigen::seqN(indexes[i],currentSpecDenData.sigmas().rows()), Eigen::placeholders::all);
 
             const auto & d_energy_d_a_matrix = a_matrix_to_sigma_backprop(sigma_grad_vector_list.at(i), d_energy_d_sigma);
             // std::cout << "d_energy_d_a_matrix("<<d_energy_d_a_matrix.rows()<<", "<<d_energy_d_a_matrix.cols()<<")\n";
