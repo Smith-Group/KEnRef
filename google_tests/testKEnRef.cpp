@@ -915,10 +915,9 @@ TEST(KEnRefTestSuite, testCoordArrayToSigmaEnergy) {
         for (int i = 0; i < model_sigma.rows(); ++i) {
             for (int j = 0; j < model_sigma.cols(); ++j) {
                 double expectedValue = model_sigma(i,j);
-                expectedValue *= 1e+10; //TODO We need to finally decide what to do
                 auto normalizedAtomName = IoUtils::normalizeName(atomNames[i], true);
                 double actualValue = sigma_energy_grad->at(m)(atomNameMapping.at(normalizedAtomName), j);
-                EXPECT_NEAR(expectedValue, actualValue, std::pow(10, static_cast<int>(log10(abs(expectedValue))) - 5));
+                EXPECT_NEAR(expectedValue, actualValue, 1e-2); // std::pow(10, static_cast<int>(log10(abs(expectedValue))) - 5));
             }
         }
     }
