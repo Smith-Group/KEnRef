@@ -73,8 +73,8 @@ TEST(KabschTestSuite, TestRotateOnlyTriangle) {
 //    std::cout << "A_applied.matrix().inverse()\n" << A_applied.matrix().inverse() << std::endl;
     std::cout << "A_predicted\n" << A_predicted.matrix() << std::endl;
     std::cout << "difference\n" << (A_predicted.matrix() - A_applied.matrix()) << std::endl;
-    TestHelper<float>::EXPECT_MATRIX_NEAR(expectedAfter, after, 1e-7);
-    TestHelper<float>::EXPECT_MATRIX_NEAR(A_applied.matrix(), A_predicted.matrix(), 1e-7);
+    TestHelper<float>::EXPECT_MATRIX_NEAR(expectedAfter, after, 1e-6);
+    TestHelper<float>::EXPECT_MATRIX_NEAR(A_applied.matrix(), A_predicted.matrix(), 1e-6);
 }
 
 

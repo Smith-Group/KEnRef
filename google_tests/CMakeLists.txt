@@ -1,4 +1,4 @@
-
+cmake_minimum_required(VERSION 3.24)
 project(Google_tests)
 
 include(FetchContent)
@@ -29,6 +29,8 @@ include_directories(${gtest_SOURCE_DIR})
 add_subdirectory(lib/google_tests-src)
 
 message(STATUS "gtest_SOURCE_DIR is: ${gtest_SOURCE_DIR}")
+include(GoogleTest)
+
 # Now simply link against gtest or gtest_main as needed. Eg
 add_executable(Google_tests_kenref_core_exe testKabsch.cpp testKEnRef.cpp testIoUtils.cpp)
 # Use namespace target for compatibility with both build and installed versions
@@ -37,21 +39,24 @@ if(TARGET KENREF::CORE)
 else()
 	target_link_libraries(Google_tests_kenref_core_exe gtest gtest_main kenref_core)
 endif()
-##add_test(NAME Google_tests COMMAND example)
 target_include_directories(Google_tests_kenref_core_exe PRIVATE
 	${gtest_SOURCE_DIR}/include
 	${gtest_SOURCE_DIR}
 	${CMAKE_CURRENT_SOURCE_DIR}/../include_core
 )
+gtest_discover_tests(Google_tests_kenref_core_exe)
 
-add_executable(Google_tests_kenref_gmxinterface_exe testKEnRefForceProvider.cpp)
-if(TARGET KENREF::CORE)
-	target_link_libraries(Google_tests_kenref_gmxinterface_exe gtest gtest_main KENREF::CORE kenref_gmxinterface)
-else()
-	target_link_libraries(Google_tests_kenref_gmxinterface_exe gtest gtest_main kenref_core kenref_gmxinterface)
+if(BUILD_KENREF_GMX OR TARGET kenref_gmxinterface)
+	add_executable(Google_tests_kenref_gmxinterface_exe testKEnRefForceProvider.cpp)
+	if(TARGET KENREF::CORE)
+		target_link_libraries(Google_tests_kenref_gmxinterface_exe gtest gtest_main KENREF::CORE kenref_gmxinterface)
+	else()
+		target_link_libraries(Google_tests_kenref_gmxinterface_exe gtest gtest_main kenref_core kenref_gmxinterface)
+	endif()
+	target_include_directories(Google_tests_kenref_gmxinterface_exe PRIVATE
+		${gtest_SOURCE_DIR}/include
+		${gtest_SOURCE_DIR}
+		${CMAKE_CURRENT_SOURCE_DIR}/../include_core
+	)
+	gtest_discover_tests(Google_tests_kenref_gmxinterface_exe)
 endif()
-target_include_directories(Google_tests_kenref_gmxinterface_exe PRIVATE
-	${gtest_SOURCE_DIR}/include
-	${gtest_SOURCE_DIR}
-	${CMAKE_CURRENT_SOURCE_DIR}/../include_core
-)

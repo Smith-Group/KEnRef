@@ -222,6 +222,15 @@ if(BUILD_KENREF_GMX)
 endif()
 
 # ============================================================================
+# TESTING
+# ============================================================================
+option(BUILD_TESTS "Build Google tests" OFF)
+if(BUILD_TESTS)
+	enable_testing()
+	add_subdirectory(google_tests)
+endif()
+
+# ============================================================================
 # PKG-CONFIG GENERATION FOR PLUMED INTEGRATION
 # ============================================================================
 
