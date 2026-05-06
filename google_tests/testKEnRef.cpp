@@ -2,7 +2,10 @@
 #include <Eigen/Core>
 #include <Eigen/src/Core/Matrix.h>
 #include <Eigen/src/Core/util/Constants.h>
+#include <cmath>
+#include <cstdlib>
 #include <fstream>
+#include <set>
 #include <vector>
 
 #include "core/KEnRef.h"
@@ -337,6 +340,62 @@ std::vector<CoordsMatrixType<KEnRef_Real>> getAllModels_allAtomCoordsMatrix(cons
     }
     return allModels_allAtomCoordsMap;
 }
+
+// ── Shared GB3 test fixture ───────────────────────────────────────────────────
+
+static constexpr const char*  GB3_FILENAME    = "../../res/google_tests/2lum.pdb";
+static constexpr double       GB3_PROTON_MHZ  = 700.0;
+static const std::vector<std::string> SPEC_DEN_PREFIXES{"1-1","1-2","1-3","2-2","2-3","3-3"};
+
+struct GB3SigmaEnergySetup {
+    NamedRowVector<double>              rates;
+    std::map<std::string, int>          atomNameMapping;
+    bool                                handleNames;
+    std::vector<SpecDenData<double>>    spec_den_data_list;  // sigma0 already set
+    std::vector<CoordsMatrixType<double>> coord_array;       // models 0-2, unscaled
+    std::vector<Table>                  tables;              // raw CSV (col 2 = sigma0)
+};
+
+static GB3SigmaEnergySetup makeGB3SigmaEnergySetup() {
+    const NamedRowVector<double> rates = Table(
+        {{"5.0e+08", "2.5e+08", "1.0e+12", "1.0e+04"}},
+        {{"kens", "kc", "kmethyl", "karo"}}
+    ).toNamedRowVector<double>();
+
+    const auto atomNameMapping_to1 = IoUtils::getAtomMappingFromPdb<std::string, int>(
+        GB3_FILENAME, IoUtils::fill_atomId_to_index_Map);
+    const bool handleNames = IoUtils::should_handleNames(atomNameMapping_to1);
+    const auto atomNameMapping = get_atomNameMapping<double>(atomNameMapping_to1, handleNames);
+
+    auto spec_den_data_list = getSpecDenData<double>(handleNames);
+    std::vector<Table> tables;
+    tables.reserve(SPEC_DEN_PREFIXES.size());
+    for (int i = 0; i < (int)SPEC_DEN_PREFIXES.size(); ++i) {
+        const Table& table = IoUtils::readTable(
+            "../../res/google_tests/" + SPEC_DEN_PREFIXES[i] + "_atom_pairs.csv",
+            true, false, "\\s*,\\s*", -1, true);
+        std::vector<std::tuple<std::string, std::string>> atomPairs;
+        atomPairs.reserve(table.rowCount());
+        for (int j = 0; j < table.rowCount(); ++j)
+            atomPairs.emplace_back(IoUtils::normalizeName(table.at(j, 0), handleNames),
+                                   IoUtils::normalizeName(table.at(j, 1), handleNames));
+        spec_den_data_list[i].setAtomPairs(atomPairs);
+        tables.push_back(table);
+    }
+
+    // Compute sigma0 from synthetic coords (models 3-5) and store in spec_den_data_list
+    auto coords_synthetic = getAllModels_allAtomCoordsMatrix<double>(GB3_FILENAME, {3, 5});
+    auto [sigma0, unused_grad] = KEnRef<double>::coord_array_to_sigma(
+        coords_synthetic, rates, spec_den_data_list, GB3_PROTON_MHZ, atomNameMapping, false, 0);
+    (void)unused_grad;
+    for (int i = 0; i < (int)spec_den_data_list.size(); ++i)
+        spec_den_data_list[i].set_sigmas(sigma0.at(i));
+
+    return {rates, atomNameMapping, handleNames, std::move(spec_den_data_list),
+            getAllModels_allAtomCoordsMatrix<double>(GB3_FILENAME, {0, 2}), std::move(tables)};
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 TEST(KEnRefTestSuite, TestRArrayToDArray1) {
     std::vector<std::vector<std::vector<int> > > toy_grouping_list{
@@ -811,115 +870,45 @@ TEST(KEnRefTestSuite, testGB3) {
 }
 
 TEST(KEnRefTestSuite, testCoordArrayToSigmaEnergy) {
-    constexpr float n = 1; //0.25;
-    constexpr float k = 1; //1e9;
-    // proton field strength in MHz
-    constexpr double proton_mhz = 700;
-    const NamedRowVector<double> rates = Table(
-        {{"5.0e+08", "2.5e+08", "1.0e+12", "1.0e+04"}},
-        {{"kens", "kc", "kmethyl", "karo"}}
-    ).toNamedRowVector<double>();
+    constexpr double k = 1;
+    constexpr double n = 1;
+    auto s = makeGB3SigmaEnergySetup();
 
-    static const auto FILENAME = "../../res/google_tests/2lum.pdb";
-
-    const std::map<std::string, int> atomNameMapping_to1 = IoUtils::getAtomMappingFromPdb<std::string, int>( FILENAME, IoUtils::fill_atomId_to_index_Map);
-    const bool handleNames = IoUtils::should_handleNames(atomNameMapping_to1);
-    const std::map<std::string, int>& atomNameMapping = get_atomNameMapping<double>(atomNameMapping_to1, handleNames);
-
-    auto spec_den_data_list = getSpecDenData<double>(handleNames);
-    const std::vector<std::string> spec_den_data_prefixes  {"1-1", "1-2", "1-3", "2-2", "2-3", "3-3"};
-    if (spec_den_data_list.size() != spec_den_data_prefixes.size()) {
-        throw std::runtime_error("Data list and prefixes size mismatch");
-    }
-    std::vector<Table> tables{};
-    // tables.reserve(spec_den_data_list.size());
-    for (int i = 0; i < spec_den_data_list.size(); ++i) {
-        std::string fileName = "../../res/google_tests/"+spec_den_data_prefixes[i]+"_atom_pairs.csv";
-        std::cout << fileName << std::endl;
-        const Table& table = IoUtils::readTable(fileName,true,false, "\\s*,\\s*", -1, true);
-        std::vector<std::tuple<std::string, std::string>> atomPairs;
-        atomPairs.reserve(table.rowCount());
-
-        for (int j = 0; j < table.rowCount(); ++j) {
-            // if (handleNames)
-            //     atomPairs.emplace_back(IoUtils::normalizeName(table.at(j, 0), handleNames),
-            //                            IoUtils::normalizeName(table.at(j, 1), handleNames));
-            // else
-            // atomPairs.emplace_back(IoUtils::normalizeName(table.at(j, 0), handleNames),
-            //                        IoUtils::normalizeName(table.at(j, 1), handleNames));
-            atomPairs.emplace_back(IoUtils::normalizeName(table.at(j, 0), handleNames),
-                                    IoUtils::normalizeName(table.at(j, 1), handleNames));
-        }
-        auto& data = spec_den_data_list[i];
-        data.setAtomPairs(atomPairs);
-        NamedVector<double> sigmas(table.rowCount());
-        for (int j = 0; j < sigmas.size(); ++j) {
-            std::istringstream iss(table.at(j, 0));
-            double value;
-            iss >> value;
-            sigmas(j, 0) = value;
-        }
-        data.set_sigmas(sigmas);
-        tables.push_back(table);
-    }
-
-    //use models 4-6 to generate coords_synthetic
-    const auto& coords_synthetic = getAllModels_allAtomCoordsMatrix<double>(FILENAME, {3,5});
-    // pass coords_synthetic to coord_array_to_sigma to generate sigma0
-    const auto &[sigma0, sigma0_grad] =
-        KEnRef<double>::coord_array_to_sigma(coords_synthetic, rates, spec_den_data_list, proton_mhz, atomNameMapping, true,0);
-
-    // verify that sigma0 is as expected from the files. No need to validate sigma0_grad.
-    for (int i = 0; i < spec_den_data_list.size(); ++i) {
-        const auto & specDenData = spec_den_data_list[i];
-        const auto &atomPairs = specDenData.get_atom_pairs();
+    // Validate sigma0 (from synthetic models 3-5) against CSV expected values (column 2)
+    auto coords_synthetic = getAllModels_allAtomCoordsMatrix<double>(GB3_FILENAME, {3, 5});
+    auto [sigma0, unused_grad] = KEnRef<double>::coord_array_to_sigma(
+        coords_synthetic, s.rates, s.spec_den_data_list, GB3_PROTON_MHZ, s.atomNameMapping, false, 0);
+    (void)unused_grad;
+    for (int i = 0; i < (int)s.spec_den_data_list.size(); ++i)
         for (int j = 0; j < sigma0[i].rows(); ++j) {
-            // std::cout << i << ", " << j << "\t"<< sigma0[i](j,0) << "\t" << specDenData.getSigma(atomPairs.at(j)) << std::endl;
-            double expectedValue = std::stod(tables[i].at(j,2));
-            EXPECT_NEAR(sigma0[i](j,0), expectedValue, std::pow(10, static_cast<int>(log10(abs(expectedValue))) - 5));
+            const double expected = std::stod(s.tables[i].at(j, 2));
+            EXPECT_NEAR(sigma0[i](j, 0), expected,
+                        std::pow(10, static_cast<int>(log10(std::abs(expected))) - 5));
         }
-    }
 
-    //set sigma0 in spec_den_data_list atom pairs
-    for (int i = 0; i < spec_den_data_list.size(); ++i) {
-        spec_den_data_list[i].set_sigmas(sigma0.at(i));
-    }
+    // Run coord_array_to_sigma_energy on models 0-2
+    auto coord_array = s.coord_array;  // copy: function scales in-place
+    const auto& [sigma_energy, sigma_energy_grad] = KEnRef<double>::coord_array_to_sigma_energy(
+        coord_array, s.rates, s.spec_den_data_list, GB3_PROTON_MHZ, k, n, s.atomNameMapping, true, 0);
 
-    auto&& allModels_allAtomCoordsMap = getAllModels_allAtomCoordsMatrix<double>(FILENAME, {0,2});
-    const auto &[sigma_energy, sigma_energy_grad] =
-        KEnRef<double>::coord_array_to_sigma_energy(allModels_allAtomCoordsMap, rates, spec_den_data_list, proton_mhz,
-        k, n, atomNameMapping, true, 0);
-    // std::cout << "sigma_energy: " << sigma_energy << std::endl;
-    // if (sigma_energy_grad.has_value()) {
-    //     for (int i = 0; i < sigma_energy_grad->size(); ++i) {
-    //         std::cout << "sigma_energy_grad["<<i<<"]: shape:(" <<sigma_energy_grad->at(i).rows()<<"," <<sigma_energy_grad->at(i).cols() << ")" << std::endl;
-    //         std::cout << sigma_energy_grad->at(i) << std::endl;
-    //     }
-    // }
     EXPECT_NEAR(sigma_energy, 228.98, 1e-2);
-    std::string fileName = "../../res/google_tests/2lum_sigma.csv";
-    std::ifstream instream(fileName);
-    if (!instream.is_open()) {
-        std::cerr << "Error opening file: " << fileName << std::endl;
-        throw std::runtime_error(std::string("Can't open file:").append(fileName));
-    }
-    std::vector<NamedMatrix<double>>modelsSigma(3);
-    for (int model = 0; model < 3; ++model) {
-        modelsSigma.at(model) = IoUtils::readTable(instream, true, true, "\\s*,\\s*", 423, false).toNamedMatrix<double>();
-        // std::cout << modelsSigma.at(model) << std::endl ;
-    }
-    for (int m = 0; m < modelsSigma.size(); ++m) {
-        auto &model_sigma = modelsSigma.at(m);
-        auto &atomNames = model_sigma.rowNames();
 
-        for (int i = 0; i < model_sigma.rows(); ++i) {
+    // Validate gradient against expected values from 2lum_sigma.csv
+    std::ifstream instream("../../res/google_tests/2lum_sigma.csv");
+    ASSERT_TRUE(instream.is_open()) << "Cannot open 2lum_sigma.csv";
+    std::vector<NamedMatrix<double>> modelsSigma(3);
+    for (int model = 0; model < 3; ++model)
+        modelsSigma[model] = IoUtils::readTable(instream, true, true, "\\s*,\\s*", 423, false).toNamedMatrix<double>();
+    for (int m = 0; m < (int)modelsSigma.size(); ++m) {
+        const auto& model_sigma = modelsSigma[m];
+        const auto& atomNames   = model_sigma.rowNames();
+        for (int i = 0; i < model_sigma.rows(); ++i)
             for (int j = 0; j < model_sigma.cols(); ++j) {
-                double expectedValue = model_sigma(i,j);
-                auto normalizedAtomName = IoUtils::normalizeName(atomNames[i], true);
-                double actualValue = sigma_energy_grad->at(m)(atomNameMapping.at(normalizedAtomName), j);
-                EXPECT_NEAR(expectedValue, actualValue, 1e-2); // std::pow(10, static_cast<int>(log10(abs(expectedValue))) - 5));
+                const double expected = model_sigma(i, j);
+                const auto normName   = IoUtils::normalizeName(atomNames[i], true);
+                const double actual   = sigma_energy_grad->at(m)(s.atomNameMapping.at(normName), j);
+                EXPECT_NEAR(expected, actual, 1e-2);
             }
-        }
     }
 }
 
@@ -965,4 +954,103 @@ TEST(KEnRefTestSuite, TestS2OrderParameters) {
     std::cout << "expectedS2    \t" << expectedS2.transpose() << std::endl;
     std::cout << "experimentalS2\t" << experimentalS2Double.transpose() << std::endl;
     TestHelper<KEnRef_Real_t>::EXPECT_MATRIX_NEAR(expectedS2, experimentalS2Double, epsilon);
+}
+
+TEST(KEnRefTestSuite, TestCoordArrayToSigmaEnergyFD) {
+    constexpr double k = 1;
+    constexpr double n = 1;
+    auto s = makeGB3SigmaEnergySetup();
+
+    // Per-interaction FD check (mirrors R's gradient_list loop over spec_den_data_ind_list)
+    constexpr double delta = 1e-5;
+    double overall_max_analytical = 0.0, overall_max_diff = 0.0;
+
+    for (int item_idx = 0; item_idx < (int)s.spec_den_data_list.size(); ++item_idx) {
+        const std::string& prefix = SPEC_DEN_PREFIXES[item_idx];
+        const std::vector<SpecDenData<double>> item_list{s.spec_den_data_list[item_idx]};
+
+        // Active atoms for this interaction
+        std::set<int> active_ids_set;
+        for (const auto& [a1, a2] : s.spec_den_data_list[item_idx].get_atom_pairs()) {
+            auto it1 = s.atomNameMapping.find(a1), it2 = s.atomNameMapping.find(a2);
+            if (it1 != s.atomNameMapping.end()) active_ids_set.insert(it1->second);
+            if (it2 != s.atomNameMapping.end()) active_ids_set.insert(it2->second);
+        }
+        const std::vector<int> active_atom_ids(active_ids_set.begin(), active_ids_set.end());
+
+        // Analytical gradient for this interaction
+        auto coord_copy = s.coord_array;
+        const auto& [energy, grad] = KEnRef<double>::coord_array_to_sigma_energy(
+            coord_copy, s.rates, item_list, GB3_PROTON_MHZ, k, n, s.atomNameMapping, true, 0);
+        ASSERT_TRUE(grad.has_value()) << "No gradient for " << prefix;
+
+        // FD gradient for this interaction
+        const auto fd = TestHelper<double>::finite_difference_grad(
+            s.coord_array,
+            [&](std::vector<CoordsMatrixType<double>> coords) -> double {
+                return std::get<0>(KEnRef<double>::coord_array_to_sigma_energy(
+                    coords, s.rates, item_list, GB3_PROTON_MHZ, k, n,
+                    s.atomNameMapping, false, 0));
+            },
+            active_atom_ids, delta);
+
+        // Collect (fd, analytical) pairs, compute stats
+        std::vector<std::pair<double, double>> pairs;
+        double max_anal = 0.0, max_diff = 0.0;
+        for (int m = 0; m < (int)grad->size(); ++m)
+            for (int atomId : active_atom_ids)
+                for (int j = 0; j < 3; ++j) {
+                    const double av = grad->at(m)(atomId, j);
+                    const double fv = fd[m](atomId, j);
+                    pairs.emplace_back(fv, av);
+                    max_anal = std::max(max_anal, std::abs(av));
+                    max_diff = std::max(max_diff, std::abs(av - fv));
+                }
+
+        overall_max_analytical = std::max(overall_max_analytical, max_anal);
+        overall_max_diff       = std::max(overall_max_diff,       max_diff);
+
+        std::cout << prefix
+                  << "  Max|anal|=" << max_anal
+                  << "  Max|diff|=" << max_diff;
+        if (max_anal > 0) {
+            std::cout << "  rel="
+            << std::setprecision(std::numeric_limits<double>::max_digits10) << std::defaultfloat
+            << max_diff / max_anal;
+        }
+        std::cout << "\n";
+
+        // CSV
+        {
+            std::ofstream csv(prefix + "_fd_check.csv");
+            csv << "fd,analytical\n";
+            // Set maximum precision for the CSV stream before the loop
+            csv << std::setprecision(std::numeric_limits<double>::max_digits10)
+                << std::defaultfloat;  // or std::fixed for fixed-point notation
+            for (const auto& [fv, av] : pairs) csv << fv << "," << av << "\n";
+            std::cout << "  written " << prefix << "_fd_check.csv\n";
+        }
+
+        // Gnuplot PNG — write a script file then invoke gnuplot (avoids SIGPIPE)
+        {
+            const std::string gp_file = prefix + "_fd_check.gp";
+            std::ofstream gp(gp_file);
+            gp << "set terminal pngcairo size 600,600\n"
+               << "set output '" << prefix << "_fd_check.png'\n"
+               << "set datafile separator ','\n"
+               << "set xlabel 'Finite Difference Gradient'\n"
+               << "set ylabel 'Analytical Gradient'\n"
+               << "set title '" << prefix << "'\n"
+               << "plot '" << prefix << "_fd_check.csv' skip 1 using 1:2 "
+                  "with points pt 7 ps 0.8 notitle, "
+                  "x lc rgb 'red' title 'y=x'\n";
+        }
+        if (std::system(("gnuplot " + prefix + "_fd_check.gp ").c_str()) == 0)
+            std::cout << "  written " << prefix << "_fd_check.png\n";
+
+        EXPECT_LT(max_diff / std::max(max_anal, 1.0), 1e-4) << "FD check failed for " << prefix;
+    }
+
+    std::cout << "Overall Max|anal|=" << overall_max_analytical
+              << "  Max|diff|=" << overall_max_diff << "\n";
 }
