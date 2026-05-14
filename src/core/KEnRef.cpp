@@ -116,9 +116,11 @@ KEnRef<KEnRef_Real>::array_shift(const std::vector<Eigen::Matrix<KEnRef_Real, Ei
 
 template<typename KEnRef_Real>
 std::tuple<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15> >
-KEnRef<KEnRef_Real>::r_array_to_d_array(const CoordsMatrixType<KEnRef_Real> &Nxyz, bool gradient, bool addEpsilon,
-                                        int /*numOmpThreads*/, Eigen::Index startRow, Eigen::Index numRows) {
+KEnRef<KEnRef_Real>::r_array_to_d_array(const CoordsMatrixType<KEnRef_Real> &Nxyz, bool unit, bool gradient,
+                                        bool addEpsilon, int /*numOmpThreads*/,
+                                        Eigen::Index startRow, Eigen::Index numRows) {
     //	std::cout << "r_array_to_d_array(Nxyz) called" << std::endl;
+    const bool dist = !unit;
     // Process the contiguous row-range [startRow, startRow+N). Default (startRow=0, numRows<0) => whole
     // matrix, identical to the original. Restricting to a sub-batch is bit-for-bit identical because every
     // operation below is per-row; this is what lets the vector overload fill its result in row-blocks.
@@ -130,14 +132,14 @@ KEnRef<KEnRef_Real>::r_array_to_d_array(const CoordsMatrixType<KEnRef_Real> &Nxy
     const auto z = Nxyz.col(2).segment(startRow, N).array();
     constexpr auto half = static_cast<KEnRef_Real>(0.5);
     constexpr auto two = static_cast<KEnRef_Real>(2.0);
-    constexpr auto five = static_cast<KEnRef_Real>(5.0);
-    constexpr KEnRef_Real neg_five = -five;
-    // const auto sqrt3 = static_cast<KEnRef_Real>(sqrt(3));
     constexpr auto sqrt3 = static_cast<KEnRef_Real>(1.7320508075688772);
     constexpr KEnRef_Real half_sqrt3 = sqrt3 * half;
-    constexpr KEnRef_Real neg_five_sqrt3 = neg_five * sqrt3;
-    constexpr KEnRef_Real half_neg_five_sqrt3 = neg_five_sqrt3 * half;
     constexpr KEnRef_Real epsilon_val = std::numeric_limits<KEnRef_Real>::epsilon();
+
+    // dist: coeff = -5 (r^5/r^7), unit: coeff = -2 (r^2/r^4)
+    const KEnRef_Real neg_coeff = unit ? KEnRef_Real(-2) : KEnRef_Real(-5);
+    const KEnRef_Real neg_coeff_sqrt3 = neg_coeff * sqrt3;
+    const KEnRef_Real half_neg_coeff_sqrt3 = neg_coeff_sqrt3 * half;
 
     // Precompute common terms efficiently
     const auto x2 = x.square();
@@ -147,68 +149,70 @@ KEnRef<KEnRef_Real>::r_array_to_d_array(const CoordsMatrixType<KEnRef_Real> &Nxy
     const auto xz = x * z;
     const auto yz = y * z;
     const auto x2_minus_y2 = x2 - y2;
-    const auto x2_y2_z2 = x2 + y2 + z2;
-    // More efficient power calculation using rSQRT and multiplication, then apply epsilon conditionally
-    // r^(5/2) = r^2 * sqrt(r)
-    auto x2_y2_z2_p52 = (x2_y2_z2 * x2_y2_z2 * Eigen::sqrt(x2_y2_z2)) + (addEpsilon ? epsilon_val : KEnRef_Real(0));
-    const auto inv_x2_y2_z2_p52 = x2_y2_z2_p52.inverse(); // Compute inverse once
+    const auto r2 = (x2 + y2 + z2).eval();
+    // dist: r^5 = r^2*r^2*r, unit: r^2; if/else avoids sqrt for unit path
+    const KEnRef_Real eps_addend = addEpsilon ? epsilon_val : KEnRef_Real(0);
+    typename decltype(r2)::PlainObject r_pow;
+    if (dist)
+        r_pow = r2 * r2 * r2.sqrt() + eps_addend;
+    else
+        r_pow = r2 + eps_addend;
+    const auto inv_r_pow = r_pow.inverse().eval();
 
     // Compute ret1 (d_array)
     Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> ret1(N, 5);
     // Manual assignment to avoid temporary matrices
     const auto half_minus_x2_y2_plus_z2 = ((-x2 - y2) * half) + z2;
 
-    ret1.col(0) = half_minus_x2_y2_plus_z2 * inv_x2_y2_z2_p52;
-    ret1.col(1) = half_sqrt3 * x2_minus_y2 * inv_x2_y2_z2_p52;
-    ret1.col(2) = sqrt3 * xz * inv_x2_y2_z2_p52;
-    ret1.col(3) = sqrt3 * yz * inv_x2_y2_z2_p52;
-    ret1.col(4) = sqrt3 * xy * inv_x2_y2_z2_p52;
+    ret1.col(0) = half_minus_x2_y2_plus_z2 * inv_r_pow;
+    ret1.col(1) = half_sqrt3 * x2_minus_y2 * inv_r_pow;
+    ret1.col(2) = sqrt3 * xz * inv_r_pow;
+    ret1.col(3) = sqrt3 * yz * inv_r_pow;
+    ret1.col(4) = sqrt3 * xy * inv_r_pow;
 
     if (!gradient) {
         return {std::move(ret1), Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15>{}};
     }
 
-    // r^(7/2) = r^(5/2) * r
-    auto x2_y2_z2_p72 = (x2_y2_z2_p52 * x2_y2_z2)+ (addEpsilon ? epsilon_val : KEnRef_Real(0));
-    const auto inv_x2_y2_z2_p72 = x2_y2_z2_p72.inverse();
+    // dist: r^7 = r^5*r^2 + eps, unit: r^4 = r^2*r^2 + eps; eager so it's computed once for all gradient cols
+    const auto inv_r_pow_grad = (r_pow * r2 + eps_addend).inverse().eval();
     // Precompute common gradient terms
-    const auto sqrt3_inv_p52 = sqrt3 * inv_x2_y2_z2_p52;
-    const auto neg5_inv_p72 = neg_five * inv_x2_y2_z2_p72;
-    const auto neg5_sqrt3_inv_p72 = neg_five_sqrt3 * inv_x2_y2_z2_p72;
-    const auto half_neg5_sqrt3_inv_p72 = half_neg_five_sqrt3 * inv_x2_y2_z2_p72;
-    // const auto inv_p52 = inv_x2_y2_z2_p52; // alias for clarity
+    const auto sqrt3_inv_r_pow = sqrt3 * inv_r_pow;
+    const auto neg_coeff_inv_r_pow_grad = neg_coeff * inv_r_pow_grad;
+    const auto neg_coeff_sqrt3_inv_r_pow_grad = neg_coeff_sqrt3 * inv_r_pow_grad;
+    const auto half_neg_coeff_sqrt3_inv_r_pow_grad = half_neg_coeff_sqrt3 * inv_r_pow_grad;
 
     Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15> ret2(N, 15);
 
     // Column 0-2
-    const auto half_minus_x2_y2_plus_z2_times_neg5_inv_p72 = half_minus_x2_y2_plus_z2 * neg5_inv_p72;
-    ret2.col(0) = x * half_minus_x2_y2_plus_z2_times_neg5_inv_p72 - x * inv_x2_y2_z2_p52;
-    ret2.col(1) = y * half_minus_x2_y2_plus_z2_times_neg5_inv_p72 - y * inv_x2_y2_z2_p52;
-    ret2.col(2) = z * half_minus_x2_y2_plus_z2_times_neg5_inv_p72 + two * z * inv_x2_y2_z2_p52;
+    const auto half_minus_x2_y2_plus_z2_times_neg_coeff_inv_r_pow_grad = half_minus_x2_y2_plus_z2 * neg_coeff_inv_r_pow_grad;
+    ret2.col(0) = x * half_minus_x2_y2_plus_z2_times_neg_coeff_inv_r_pow_grad - x * inv_r_pow;
+    ret2.col(1) = y * half_minus_x2_y2_plus_z2_times_neg_coeff_inv_r_pow_grad - y * inv_r_pow;
+    ret2.col(2) = z * half_minus_x2_y2_plus_z2_times_neg_coeff_inv_r_pow_grad + two * z * inv_r_pow;
 
     // Column 3-5
-    const auto x2_minus_y2_times_half_neg5_sqrt3_inv_p72 = x2_minus_y2 * half_neg5_sqrt3_inv_p72;
-    ret2.col(3) = x * x2_minus_y2_times_half_neg5_sqrt3_inv_p72 + x * sqrt3_inv_p52;
-    ret2.col(4) = y * x2_minus_y2_times_half_neg5_sqrt3_inv_p72 - y * sqrt3_inv_p52;
-    ret2.col(5) = z * x2_minus_y2_times_half_neg5_sqrt3_inv_p72;
+    const auto x2_minus_y2_times_half_neg_coeff_sqrt3_inv_r_pow_grad = x2_minus_y2 * half_neg_coeff_sqrt3_inv_r_pow_grad;
+    ret2.col(3) = x * x2_minus_y2_times_half_neg_coeff_sqrt3_inv_r_pow_grad + x * sqrt3_inv_r_pow;
+    ret2.col(4) = y * x2_minus_y2_times_half_neg_coeff_sqrt3_inv_r_pow_grad - y * sqrt3_inv_r_pow;
+    ret2.col(5) = z * x2_minus_y2_times_half_neg_coeff_sqrt3_inv_r_pow_grad;
 
     // Column 6-8
-    const auto xz_times_neg5_sqrt3_inv_p72 = xz * neg5_sqrt3_inv_p72;
-    ret2.col(6) = x * xz_times_neg5_sqrt3_inv_p72 + z * sqrt3_inv_p52;
-    ret2.col(7) = y * xz_times_neg5_sqrt3_inv_p72;
-    ret2.col(8) = z * xz_times_neg5_sqrt3_inv_p72 + x * sqrt3_inv_p52;
+    const auto xz_times_neg_coeff_sqrt3_inv_r_pow_grad = xz * neg_coeff_sqrt3_inv_r_pow_grad;
+    ret2.col(6) = x * xz_times_neg_coeff_sqrt3_inv_r_pow_grad + z * sqrt3_inv_r_pow;
+    ret2.col(7) = y * xz_times_neg_coeff_sqrt3_inv_r_pow_grad;
+    ret2.col(8) = z * xz_times_neg_coeff_sqrt3_inv_r_pow_grad + x * sqrt3_inv_r_pow;
 
     // Column 9-11
-    const auto yz_times_neg5_sqrt3_inv_p72 = yz * neg5_sqrt3_inv_p72;
-    ret2.col(9) = x * yz_times_neg5_sqrt3_inv_p72;
-    ret2.col(10) = y * yz_times_neg5_sqrt3_inv_p72 + z * sqrt3_inv_p52;
-    ret2.col(11) = z * yz_times_neg5_sqrt3_inv_p72 + y * sqrt3_inv_p52;
+    const auto yz_times_neg_coeff_sqrt3_inv_r_pow_grad = yz * neg_coeff_sqrt3_inv_r_pow_grad;
+    ret2.col(9) = x * yz_times_neg_coeff_sqrt3_inv_r_pow_grad;
+    ret2.col(10) = y * yz_times_neg_coeff_sqrt3_inv_r_pow_grad + z * sqrt3_inv_r_pow;
+    ret2.col(11) = z * yz_times_neg_coeff_sqrt3_inv_r_pow_grad + y * sqrt3_inv_r_pow;
 
     // Column 12-14
-    const auto xy_times_neg5_sqrt3_inv_p72 = xy * neg5_sqrt3_inv_p72;
-    ret2.col(12) = x * xy_times_neg5_sqrt3_inv_p72 + y * sqrt3_inv_p52;
-    ret2.col(13) = y * xy_times_neg5_sqrt3_inv_p72 + x * sqrt3_inv_p52;
-    ret2.col(14) = z * xy_times_neg5_sqrt3_inv_p72;
+    const auto xy_times_neg_coeff_sqrt3_inv_r_pow_grad = xy * neg_coeff_sqrt3_inv_r_pow_grad;
+    ret2.col(12) = x * xy_times_neg_coeff_sqrt3_inv_r_pow_grad + y * sqrt3_inv_r_pow;
+    ret2.col(13) = y * xy_times_neg_coeff_sqrt3_inv_r_pow_grad + x * sqrt3_inv_r_pow;
+    ret2.col(14) = z * xy_times_neg_coeff_sqrt3_inv_r_pow_grad;
 
     return {std::move(ret1), std::move(ret2)};
 }
@@ -217,22 +221,22 @@ KEnRef<KEnRef_Real>::r_array_to_d_array(const CoordsMatrixType<KEnRef_Real> &Nxy
 template<typename KEnRef_Real>
 std::tuple<std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> >, std::vector<Eigen::Matrix<KEnRef_Real,
     Eigen::Dynamic, 15> > >
-KEnRef<KEnRef_Real>::r_array_to_d_array(const std::vector<CoordsMatrixType<KEnRef_Real> > &models_Nxyz, bool gradient,
-                                        bool addEpsilon, int numOmpThreads) {
+KEnRef<KEnRef_Real>::r_array_to_d_array(const std::vector<CoordsMatrixType<KEnRef_Real> > &models_Nxyz, bool unit,
+                                        bool gradient, bool addEpsilon, int numOmpThreads) {
     //	std::cout << "r_array_to_d_array(models_Nxyz) called" << std::endl;
     // Fresh-allocation convenience wrapper: delegates to the buffer-reuse overload below. For a hot
     // per-step caller (e.g. MD refinement), prefer r_array_to_d_array_into() with persistent buffers to
     // avoid re-allocating (and re-faulting) the [N×5]/[N×15] results every call.
     std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > ret1;
     std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15> > ret2;
-    r_array_to_d_array_into(models_Nxyz, gradient, addEpsilon, numOmpThreads, ret1, ret2);
+    r_array_to_d_array_into(models_Nxyz, unit, gradient, addEpsilon, numOmpThreads, ret1, ret2);
     return {std::move(ret1), std::move(ret2)};
 }
 
 template<typename KEnRef_Real>
 void
 KEnRef<KEnRef_Real>::r_array_to_d_array_into(const std::vector<CoordsMatrixType<KEnRef_Real> > &models_Nxyz,
-                                             bool gradient, bool addEpsilon, int numOmpThreads,
+                                             bool unit, bool gradient, bool addEpsilon, int numOmpThreads,
                                              std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > &ret1,
                                              std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15> > &ret2) {
     const long M = static_cast<long>(models_Nxyz.size());
@@ -269,7 +273,7 @@ KEnRef<KEnRef_Real>::r_array_to_d_array_into(const std::vector<CoordsMatrixType<
         for (long b = 0; b < nBlocks; ++b) {
             const Eigen::Index r0 = static_cast<Eigen::Index>(b) * BLOCK;
             const Eigen::Index len = std::min<Eigen::Index>(BLOCK, N - r0);
-            auto arrs = r_array_to_d_array(models_Nxyz[m], gradient, addEpsilon, numOmpThreads, r0, len);
+            auto arrs = r_array_to_d_array(models_Nxyz[m], unit, gradient, addEpsilon, numOmpThreads, r0, len);
             ret1[m].middleRows(r0, len) = std::move(std::get<0>(arrs));
             if (gradient) ret2[m].middleRows(r0, len) = std::move(std::get<1>(arrs));
         }
@@ -696,7 +700,7 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy(
     // calculate dipole-dipole interaction tensors [and their derivatives]
     // NOTE: named locals (not a structured binding) — the OpenMP regions below reference these, and
     // clang does not support capturing a structured binding inside an OpenMP region.
-    auto d_arrays_tuple = r_array_to_d_array(r_arrays, gradient, false, numOmpThreads);
+    auto d_arrays_tuple = r_array_to_d_array(r_arrays, false, gradient, false, numOmpThreads);
     const auto &d_arrays = std::get<0>(d_arrays_tuple);
     const auto &d_arrays_grad = std::get<1>(d_arrays_tuple);
 
@@ -996,7 +1000,7 @@ KEnRef<KEnRef_Real>::coord_array_to_sigma(
         const auto &r_arrays = coord_array_to_r_array( coord_array_meter, atom_id_pairs, numOmpThreads);
 
         // calculate dipole-dipole interaction tensors [and their derivatives]
-        auto &&[d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, gradient, false, numOmpThreads);
+        auto &&[d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, false, gradient, false, numOmpThreads);
         // d_arrays_grad_list.at(i) = std::move(d_arrays_grad);
 
         const auto &grouping_matrix = IoUtils::subset_idx_to_grouping_mat(currentSpecDenData.get_multiple_grouping());
@@ -1096,7 +1100,7 @@ KEnRef<KEnRef_Real>::coord_array_to_sigma_energy(
             coord_array_to_r_array(coord_array, atom_id_pairs, numOmpThreads);
 
         // calculate dipole-dipole interaction tensors [and their derivatives]
-        auto &&[d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, gradient, false, numOmpThreads);
+        auto &&[d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, false, gradient, false, numOmpThreads);
         d_arrays_grad_list.at(i) = std::move(d_arrays_grad);
 
         //TODO get rid of the grouping_matrix. find nShift someway else.
@@ -1347,7 +1351,7 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy_refactored(
 
     // calculate dipole-dipole interaction tensors [and their derivatives]
     // Claude says that structured binding in an OMP region is dangerous. so Take care if you put the next line in an OMP region.
-    const auto &[d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, gradient, false, numOmpThreads);
+    const auto &[d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, false, gradient, false, numOmpThreads);
 
     const auto &grouping_matrix = IoUtils::subset_idx_to_grouping_mat(grouping_list);
     // calculate norm squared for different groupings of dipole-dipole interaction tensors
@@ -1397,7 +1401,7 @@ KEnRef<KEnRef_Real>::coord_array_to_g_matrix(
     const auto &r_arrays = coord_array_to_r_array(coord_array, atomId_pairs, numOmpThreads);
 
     // calculate dipole-dipole interaction tensors [and their derivatives]
-    auto [d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, false, false, numOmpThreads);
+    auto [d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, false, false, false, numOmpThreads);
 
     // calculate norm squared for different groupings of dipole-dipole interaction tensors
     //		g_list <- lapply(grouping_list, function(grouping) d_array_to_g(d_array, grouping, gradient=FALSE))
@@ -1491,7 +1495,7 @@ KEnRef<KEnRef_Real>::s2OrderParams(
     for (int i = 0; i < numModels; ++i) {
         const auto &group_rnorm_array = group_r_array[i].array() / group_r_mat[i].rowwise().template replicate<3>().
                                         array();
-        const auto &group_dnorm_array_1model = r_array_to_d_array(group_rnorm_array, false, false, numOmpThreads);
+        const auto &group_dnorm_array_1model = r_array_to_d_array(group_rnorm_array, false, false, false, numOmpThreads);
         group_dnorm_array_tempMeans += std::get<0>(group_dnorm_array_1model);
     }
     group_dnorm_array_tempMeans /= numModels;
@@ -1506,7 +1510,7 @@ KEnRef<KEnRef_Real>::s2OrderParams(
     // group_dnorm_array_alt <- group_d_array/as.vector(sqrt(rowSums(group_d_array^2, dims=2)))
     // group_s2_alt <- rowSums(colMeans(aperm(group_dnorm_array_alt, c(2,1,3)))^2)
     std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > group_d_array =
-            std::get<0>(r_array_to_d_array(group_r_array, false, false, numOmpThreads));
+            std::get<0>(r_array_to_d_array(group_r_array, false, false, false, numOmpThreads));
 
     std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > group_dnorm_array_alt;
     group_dnorm_array_alt.reserve(numModels);

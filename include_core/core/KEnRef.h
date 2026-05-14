@@ -133,7 +133,7 @@ public:
 	// processes just that batch of pair-rows (bit-for-bit identical — every op is per-row). Returned
 	// matrices have `numRows` (resolved block length) rows. The vector overload uses this for row-blocks.
 	static std::tuple<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15> >
-	r_array_to_d_array(const CoordsMatrixType<KEnRef_Real> &Nxyz, bool gradient = false, bool addEpsilon = false, int numOmpThreads = 0,
+	r_array_to_d_array(const CoordsMatrixType<KEnRef_Real> &Nxyz, bool unit = false, bool gradient = false, bool addEpsilon = false, int numOmpThreads = 0,
 	                   Eigen::Index startRow = 0, Eigen::Index numRows = -1);
 
     //return tuple where item0 is dipole-dipole interaction tensors (model<pairs, 5_tensor_elements>)
@@ -141,7 +141,7 @@ public:
     static std::tuple<std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> >, std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15> > >
     r_array_to_d_array(
         const std::vector<CoordsMatrixType<KEnRef_Real> > &models_Nxyz, //model<pairID, XYZ>
-        bool gradient = false, bool addEpsilon = false, int numOmpThreads = 0
+        bool unit = false, bool gradient = false, bool addEpsilon = false, int numOmpThreads = 0
 			);
 
     // Buffer-reuse variant: fills caller-provided ret1/ret2 (resized in place) instead of returning fresh
@@ -150,7 +150,7 @@ public:
     static void
     r_array_to_d_array_into(
         const std::vector<CoordsMatrixType<KEnRef_Real> > &models_Nxyz,
-        bool gradient, bool addEpsilon, int numOmpThreads,
+        bool unit, bool gradient, bool addEpsilon, int numOmpThreads,
         std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > &ret1,
         std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15> > &ret2);
 
