@@ -420,7 +420,7 @@ TEST(KEnRefTestSuite, TestRArrayToDArray1) {
     std::cout << "toy_r_mat" << std::endl << toy_r_mat.format(fullPrecisionFmt) << std::endl;
     EXPECT_EQ(toy_r_mat, expected_toy_r_mat);
 
-    const auto &[toy_d_array, toy_d_array_grad] = KEnRef<KEnRef_Real_t>::r_array_to_d_array(toy_r_mat, true);
+    const auto &[toy_d_array, toy_d_array_grad] = KEnRef<KEnRef_Real_t>::r_array_to_d_array(toy_r_mat, false, true);
     Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, 5> expected_toy_d_array(4, 5);
     Eigen::Matrix<KEnRef_Real_t, 5, Eigen::Dynamic> temp(5, 4);
     temp <<
@@ -666,7 +666,7 @@ TEST(KEnRefTestSuite, testEROS3) {
         std::cout << "Model " << i + 1 << std::endl << r_array << std::endl;
     }
     auto [eros3_sub_d_array, eros3_sub_d_array_grad] = KEnRef<KEnRef_Real_t>::r_array_to_d_array(
-        eros3_sub_r_array, true);
+        eros3_sub_r_array, false, true);
     std::cout << "eros3_sub_d_array" << std::endl;
     for (int i = 0; i < eros3_sub_d_array.size(); i++) {
         auto matrix = eros3_sub_d_array[i];
@@ -807,7 +807,7 @@ TEST(KEnRefTestSuite, testGB3) {
         //     std::cout << r_array[i] << std::endl;
         // }
 
-        const auto &[d_arrays, d_arrays_grad] = KEnRef<double>::r_array_to_d_array(r_arrays, true, false);
+        const auto &[d_arrays, d_arrays_grad] = KEnRef<double>::r_array_to_d_array(r_arrays, false, true, false);
         // std::cout << "d_arrays\n" << d_arrays[0] << std::endl;
         const auto &grouping_matrix = IoUtils::subset_idx_to_grouping_mat(
             dipole_kinetic_data[interaction].get_multiple_grouping());
@@ -1095,17 +1095,17 @@ TEST(KEnRefBench, DISABLED_RArrayToDArrayBlockThreadSweep) {
         for (int t : threads) {
             volatile R sink = 0;
             {
-                if (reuse) KEnRef<R>::r_array_to_d_array_into(models, true, false, t, ret1, ret2);
-                else { auto w = KEnRef<R>::r_array_to_d_array(models, true, false, t); ret1 = std::move(std::get<0>(w)); ret2 = std::move(std::get<1>(w)); }
+                if (reuse) KEnRef<R>::r_array_to_d_array_into(models, false, true, false, t, ret1, ret2);
+                else { auto w = KEnRef<R>::r_array_to_d_array(models, false, true, false, t); ret1 = std::move(std::get<0>(w)); ret2 = std::move(std::get<1>(w)); }
                 sink += ret1[0](0, 0);
             }
             const auto t0 = std::chrono::steady_clock::now();
             for (int it = 0; it < cfg.iters; ++it) {
                 if (reuse) {
-                    KEnRef<R>::r_array_to_d_array_into(models, true, false, t, ret1, ret2);
+                    KEnRef<R>::r_array_to_d_array_into(models, false, true, false, t, ret1, ret2);
                     sink += ret1[0](0, 0) + ret2[0](0, 0);
                 } else {
-                    auto r = KEnRef<R>::r_array_to_d_array(models, true, false, t);
+                    auto r = KEnRef<R>::r_array_to_d_array(models, false, true, false, t);
                     sink += std::get<0>(r)[0](0, 0) + std::get<1>(r)[0](0, 0);
                 }
             }
