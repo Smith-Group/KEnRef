@@ -339,7 +339,7 @@ public:
 
     // lambda_vector <- -colSums(rates[rownames(spec_den_data_list[[i]][["lambda_coef"]])]*spec_den_data_list[[i]][["lambda_coef"]])
     static NamedRowVector<KEnRef_Real>
-    calculateLambdaVector(const SpecDenData<KEnRef_Real> &currentSpecDenData, const NamedRowVector<KEnRef_Real> &rates, int numOmpThreads=0);
+    calculateLambdaVector(const SpecDenDataBase<KEnRef_Real> &currentSpecDenData, const NamedRowVector<KEnRef_Real> &rates, int numOmpThreads=0);
 
     static std::tuple<std::vector<NamedVector<KEnRef_Real>>, std::optional<std::vector<Eigen::MatrixX<KEnRef_Real> > > >
         coord_array_to_sigma(
