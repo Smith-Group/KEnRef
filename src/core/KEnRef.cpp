@@ -723,7 +723,7 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy_refactored(
 
 template<typename KEnRef_Real>
 NamedRowVector<KEnRef_Real>
-KEnRef<KEnRef_Real>::calculateLambdaVector(const SpecDenData<KEnRef_Real> &currentSpecDenData,
+KEnRef<KEnRef_Real>::calculateLambdaVector(const SpecDenDataBase<KEnRef_Real> &currentSpecDenData,
                                            const NamedRowVector<KEnRef_Real> &rates, int numOmpThreads) {
     // lambda_vector <- -colSums(rates[rownames(spec_den_data_list[[i]][["lambda_coef"]])]*spec_den_data_list[[i]][["lambda_coef"]])
     const auto &lambda_coef_matrix = currentSpecDenData.get_lambda_coef();
