@@ -49,6 +49,8 @@ public:
 
     static std::vector<SpecDenData<KEnRef_Real_t>> load_spec_den_data(const std::string& experimentalDataFolder, bool handleNames);
 
+    static std::vector<SpecDenRelaxData<KEnRef_Real_t>> load_spec_den_relax_data(const std::string& experimentalDataFolder, bool handleNames);
+
 
     static Table
     readTable(const std::string &fileName, bool has_columnNames = true, bool has_rowNames = false,
@@ -181,6 +183,7 @@ public:
 
     static std::vector<std::string> find_matching_files(const std::string& folder_path, const std::string& pattern_string);
     static std::vector<std::string> find_spec_den_data_prefixes(const std::string& folder_path);
+    static std::vector<std::string> find_spec_den_relax_data_prefixes(const std::string& folder_path);
 
     static std::vector<std::tuple<int, int> > readAtomIdPairs(const std::string &fileName);
 
