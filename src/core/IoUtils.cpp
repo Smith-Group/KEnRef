@@ -1,6 +1,7 @@
 #include <string>
 #include <sstream>
 #include <iostream>
+#include <algorithm>
 #include "core/IoUtils.h"
 
 std::regex atomRecordTemplate{"^((ATOM  )|(HETATM))([0-9 ]{5}) (.{15})   ([0-9 .-]{8})([0-9 .-]{8})([0-9 .-]{8}).+$"};
@@ -206,6 +207,225 @@ std::vector<SpecDenData<KEnRef_Real_t>> IoUtils::load_spec_den_data(const std::s
         spec_den_data_vector.emplace_back(std::move(SpecDenData<KEnRef_Real_t>{atomPairs, sigma, multiple_grouping, a_coef, lambda_coef}));
     }
     return spec_den_data_vector;
+}
+
+namespace {
+// Read the first line of a file verbatim (sans line terminator) so the *_atom_relax.csv
+// header can be kept for byte-exact debugging / backtracking.
+std::string readHeaderLine(const std::string &fileName) {
+    std::ifstream in(fileName);
+    if (!in.is_open()) {
+        std::cerr << "Error opening file: " << fileName << std::endl;
+        throw std::runtime_error(std::string("Can't open file:").append(fileName));
+    }
+    std::string line;
+    std::getline(in, line);
+    if (!line.empty() && line.back() == '\r') line.pop_back();   // drop CR from CRLF endings
+    return line;
+}
+
+// A column carries relaxation data (vs. an atom-pair / metadata column) iff its name
+// ends in one of these suffixes. Mirrors `!grepl("_(value|k|coef|freq)$", ...)` in ke.R.
+bool is_relax_col(const std::string &c) {
+    return IoUtils::ends_with(c, "_value") || IoUtils::ends_with(c, "_k")
+        || IoUtils::ends_with(c, "_coef") || IoUtils::ends_with(c, "_freq");
+}
+
+size_t index_of(const std::vector<std::string> &v, const std::string &s) {
+    return static_cast<size_t>(std::find(v.begin(), v.end(), s) - v.begin());
+}
+
+// Mirror of atom_relax_df_to_spec_den_term_array_list() + atom_relax_columns_to_spec_den_term_array():
+// reconstruct one RelaxEntry per rate from the first `n_data_rows` rows of the table.
+std::vector<RelaxEntry<KEnRef_Real_t> >
+build_relax_data_list(const Table &table, const size_t n_data_rows) {
+    static const std::regex term_full_re(R"(^(.+)_([^_]+)_(coef|freq)$)");   // <rate>_<freq>_<coef|freq>
+    static const std::regex term_suffix_re(R"(^([^_]+)_(coef|freq)$)");      // <freq>_<coef|freq>
+    const auto &colNames = table.getColNames();
+
+    // 1) discover rate names, in first-appearance (column) order. Parsing is right-anchored,
+    //    so rate names may themselves contain underscores (e.g. "r1_400").
+    std::vector<std::string> rate_names;
+    auto addRate = [&](const std::string &r) {
+        if (std::find(rate_names.begin(), rate_names.end(), r) == rate_names.end())
+            rate_names.push_back(r);
+    };
+    for (const auto &col : colNames) {
+        if (IoUtils::ends_with(col, "_value")) { addRate(col.substr(0, col.size() - 6)); continue; }
+        if (IoUtils::ends_with(col, "_k"))     { addRate(col.substr(0, col.size() - 2)); continue; }
+        std::smatch m;
+        if (std::regex_match(col, m, term_full_re)) addRate(m[1].str());
+        // otherwise: atom-pair / metadata column -> ignored
+    }
+
+    std::vector<RelaxEntry<KEnRef_Real_t> > out;
+    out.reserve(rate_names.size());
+    const auto N = static_cast<Eigen::Index>(n_data_rows);
+
+    for (const auto &rate_name : rate_names) {
+        const std::string value_col = rate_name + "_value";
+        const std::string k_col = rate_name + "_k";
+        const std::string rate_prefix = rate_name + "_";
+
+        // collect this rate's term columns; parse <freq>,<component>; gather unique freq labels in order
+        std::vector<std::string> term_cols, freq_labels, components, freq_levels;
+        for (const auto &col : colNames) {
+            if (col == value_col || col == k_col) continue;
+            if (col.size() <= rate_prefix.size() || col.compare(0, rate_prefix.size(), rate_prefix) != 0) continue;
+            const std::string suffix = col.substr(rate_prefix.size());
+            std::smatch m;
+            if (!std::regex_match(suffix, m, term_suffix_re))
+                throw std::runtime_error("All term columns for rate `" + rate_name + "` must match `" +
+                    rate_name + "_<freq_name>_<coef|freq>` with no underscores in <freq_name>");
+            term_cols.push_back(col);
+            freq_labels.push_back(m[1].str());
+            components.push_back(m[2].str());
+            if (std::find(freq_levels.begin(), freq_levels.end(), m[1].str()) == freq_levels.end())
+                freq_levels.push_back(m[1].str());
+        }
+        if (term_cols.empty())
+            throw std::runtime_error("No spectral-density term columns found for rate `" + rate_name + "`");
+
+        // each freq term must carry both a coef and a freq column
+        for (const auto &fl : freq_levels) {
+            bool hasCoef = false, hasFreq = false;
+            for (size_t j = 0; j < freq_labels.size(); ++j)
+                if (freq_labels[j] == fl) (components[j] == "coef" ? hasCoef : hasFreq) = true;
+            if (!(hasCoef && hasFreq))
+                throw std::runtime_error("Rate `" + rate_name + "` term `" + fl + "` must have both `coef` and `freq` columns");
+        }
+
+        const auto T = static_cast<Eigen::Index>(freq_levels.size());
+        NamedMatrix<KEnRef_Real_t> coef(N, T);
+        NamedMatrix<KEnRef_Real_t> freq(N, T);
+        for (size_t j = 0; j < term_cols.size(); ++j) {
+            const size_t c = index_of(freq_levels, freq_labels[j]);
+            const size_t colIdx = table.getColIndex(term_cols[j]);
+            NamedMatrix<KEnRef_Real_t> &target = (components[j] == "coef") ? coef : freq;
+            for (size_t r = 0; r < n_data_rows; ++r)
+                target(r, c) = IoUtils::convertValue<KEnRef_Real_t>(table.at(r, colIdx));
+        }
+        coef.setColNames(freq_levels);
+        freq.setColNames(freq_levels);
+
+        // optional target values / weights (first N rows)
+        std::optional<NamedVector<KEnRef_Real_t> > value;
+        if (std::find(colNames.begin(), colNames.end(), value_col) != colNames.end()) {
+            const size_t colIdx = table.getColIndex(value_col);
+            NamedVector<KEnRef_Real_t> v(N);
+            for (size_t r = 0; r < n_data_rows; ++r) v(r, 0) = IoUtils::convertValue<KEnRef_Real_t>(table.at(r, colIdx));
+            value = std::move(v);
+        }
+        std::optional<NamedVector<KEnRef_Real_t> > k;
+        if (std::find(colNames.begin(), colNames.end(), k_col) != colNames.end()) {
+            const size_t colIdx = table.getColIndex(k_col);
+            NamedVector<KEnRef_Real_t> kk(N);
+            for (size_t r = 0; r < n_data_rows; ++r) kk(r, 0) = IoUtils::convertValue<KEnRef_Real_t>(table.at(r, colIdx));
+            k = std::move(kk);
+        }
+
+        out.push_back(RelaxEntry<KEnRef_Real_t>{rate_name, std::move(value), std::move(k),
+            SpecDenTermArray<KEnRef_Real_t>{std::move(coef), std::move(freq)}});
+    }
+    return out;
+}
+}   // anonymous namespace
+
+std::vector<std::string>
+IoUtils::find_spec_den_relax_data_prefixes(const std::string &folder_path) {
+    std::vector<std::string> results;
+    // Generalized prefix: capture anything preceding the `_atom_relax.csv` suffix
+    // (e.g. "3-5", "gb3_15n"), not only the `\d+-\d+` interaction convention.
+    const std::regex pattern(R"((.+)_atom_relax\.csv)");
+    try {
+        for (const auto &entry : std::filesystem::directory_iterator(folder_path)) {
+            if (entry.is_regular_file()) {
+                std::string filename = entry.path().filename().string();
+                std::smatch matches;
+                if (std::regex_match(filename, matches, pattern)) {
+                    results.emplace_back(matches[1].str());
+                }
+            }
+        }
+    } catch (const std::filesystem::filesystem_error &ex) {
+        std::cerr << "Filesystem error: " << ex.what() << std::endl;
+    }
+    return results;
+}
+
+std::vector<SpecDenRelaxData<KEnRef_Real_t> >
+IoUtils::load_spec_den_relax_data(const std::string &experimentalDataFolder, const bool handleNames) {
+    const std::vector<std::string> &prefixes = find_spec_den_relax_data_prefixes(experimentalDataFolder);
+    std::vector<SpecDenRelaxData<KEnRef_Real_t> > result;
+    result.reserve(prefixes.size());
+    for (const auto &prefix : prefixes) {
+        // ---- *_atom_relax.csv ----
+        std::string atomRelaxFileName = std::filesystem::path(experimentalDataFolder) / (prefix + "_atom_relax.csv");
+        std::cout << atomRelaxFileName << std::endl;
+        std::string headerLine = readHeaderLine(atomRelaxFileName);
+        const Table &atomRelaxTable = IoUtils::readTable(atomRelaxFileName, true, false, "\\s*,\\s*", -1, true);
+        const auto &colNames = atomRelaxTable.getColNames();
+        const size_t numRows = atomRelaxTable.rowCount();
+        if (colNames.size() < 2)
+            throw std::runtime_error("`" + atomRelaxFileName + "` must have at least two atom-pair columns");
+
+        // unit flag: the first two column headers must both end in `_unit`, or neither may.
+        // This is independent of `handleNames` (the identifiers are still atom names).
+        const bool col0Unit = ends_with(colNames[0], "_unit");
+        const bool col1Unit = ends_with(colNames[1], "_unit");
+        if (col0Unit != col1Unit)
+            throw std::runtime_error("The first two columns of `*_atom_relax.csv` must either both end in `_unit` or neither may");
+        const bool unit = col0Unit && col1Unit;
+
+        // relaxation columns (everything that is not an atom-pair / metadata column)
+        std::vector<size_t> relaxColIdx;
+        for (size_t c = 0; c < colNames.size(); ++c)
+            if (is_relax_col(colNames[c])) relaxColIdx.push_back(c);
+
+        // n_data_rows N: leading rows carrying a full set of (non-empty) relaxation columns. Trailing
+        // rows hold atom pairs only and alias back into the first N via blockRow (idx % N), as sigma does.
+        size_t n_data_rows = 0;
+        if (relaxColIdx.empty()) {
+            n_data_rows = numRows;   // no rates -> every row is just an atom pair
+        } else {
+            for (size_t r = 0; r < numRows; ++r) {
+                if (!atomRelaxTable.isRowComplete(r)) break;   // guards against touching short rows' cells
+                bool anyEmpty = false;
+                for (const size_t c : relaxColIdx)
+                    if (atomRelaxTable.at(r, c).empty()) { anyEmpty = true; break; }
+                if (anyEmpty) break;
+                ++n_data_rows;
+            }
+        }
+
+        // atom pairs: the first two columns are the identifiers (for all rows), normalized as in the
+        // sigma loader. `unit` does not change this — handleNames still applies.
+        std::vector<std::tuple<std::string, std::string> > atomPairs(numRows);
+        for (size_t r = 0; r < numRows; ++r) {
+            auto a1 = IoUtils::normalizeName(atomRelaxTable.at(r, static_cast<size_t>(0)), handleNames);
+            auto a2 = IoUtils::normalizeName(atomRelaxTable.at(r, static_cast<size_t>(1)), handleNames);
+            atomPairs[r] = std::tuple<std::string, std::string>{a1, a2};
+        }
+
+        // relax_data_list from the first N rows
+        std::vector<RelaxEntry<KEnRef_Real_t> > relax_data_list = build_relax_data_list(atomRelaxTable, n_data_rows);
+
+        // ---- *_groupings.csv ----
+        std::string groupingsFileName = std::filesystem::path(experimentalDataFolder) / (prefix + "_groupings.csv");
+        const auto &grouping_matrix = NamedMatrix<int>(IoUtils::readTable(groupingsFileName, false, false).toNamedMatrix<int>().array() - 1);
+        const auto &multiple_grouping = IoUtils::grouping_mat_to_subset_idx(grouping_matrix);
+        // ---- *_a_coef.csv  (a_int_coef) ----
+        std::string aCoefFileName = std::filesystem::path(experimentalDataFolder) / (prefix + "_a_coef.csv");
+        const auto &a_int_coef = IoUtils::readTable(aCoefFileName, true, false, "\\s*,\\s*", -1, false).toNamedMatrix<KEnRef_Real_t>();
+        // ---- *_lambda_coef.csv  (lambda_int_coef) ----
+        std::string lambdaCoefFileName = std::filesystem::path(experimentalDataFolder) / (prefix + "_lambda_coef.csv");
+        const auto &lambda_int_coef = IoUtils::readTable(lambdaCoefFileName, true, true, "\\s*,\\s*", -1, false).toNamedMatrix<KEnRef_Real_t>();
+
+        result.emplace_back(SpecDenRelaxData<KEnRef_Real_t>{
+            atomPairs, unit, std::move(relax_data_list), n_data_rows, std::move(headerLine),
+            multiple_grouping, a_int_coef, lambda_int_coef});
+    }
+    return result;
 }
 
 Table
