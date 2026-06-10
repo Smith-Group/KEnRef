@@ -13,6 +13,8 @@
 #include <map>
 #include <tuple>
 #include <string>
+#include <optional>
+#include <cassert>
 
 #include <Eigen/Dense>
 
@@ -102,33 +104,128 @@ public:
 };
 
 /**
+ * One spectral-density term array for a single relaxation rate. Mirrors the
+ * `spec_den_term_array` member of an R `relax_entry`, but stored as the two 2-D
+ * slices the calculation actually consumes: a_matrix_to_relax() in ke.R immediately
+ * splits the R (pairs, terms, 2) array into a coef matrix and a freq matrix, so we
+ * store them pre-split.
+ *
+ * Both are (n_data_rows x terms) with column names = the frequency-term labels
+ * (e.g. "wHmwN", "wN", "2wH"). Rows are positional: atom-pair identity lives once in
+ * SpecDenDataBase and is not duplicated here.
+ *
+ * Note: freq.array().square() is loop-invariant in a_matrix_to_relax() and may be
+ * precomputed once per block at calculation time.
+ */
+template<typename KEnRef_Real>
+struct SpecDenTermArray {
+    NamedMatrix<KEnRef_Real> coef;   // n_data_rows x terms
+    NamedMatrix<KEnRef_Real> freq;   // n_data_rows x terms (same column labels as coef)
+};
+
+/**
+ * One entry of `relax_data_list`, for a single relaxation rate. Mirrors an R
+ * `relax_entry = list(value, k, spec_den_term_array)`, with the rate name (R's list
+ * `names` attribute) carried alongside so the flattened `*_atom_relax.csv` column
+ * names can be regenerated as `<rate_name>_<term>_<coef|freq>`, `<rate_name>_value`,
+ * and `<rate_name>_k`.
+ *
+ * `value` and the term arrays have n_data_rows rows; `k` has length 1 or n_data_rows
+ * (length 1 broadcasts). All are positional/nameless on the row axis.
+ */
+template<typename KEnRef_Real>
+struct RelaxEntry {
+    std::string rate_name;                              // e.g. "r1_400"
+    std::optional<NamedVector<KEnRef_Real>> value;      // n_data_rows x 1  (<rate>_value), or nullopt
+    std::optional<NamedVector<KEnRef_Real>> k;          // 1 or n_data_rows  (<rate>_k), or nullopt
+    SpecDenTermArray<KEnRef_Real> spec_den_term_array;
+
+    // Forwarding accessors to the term-array slices
+    // (R: relax_entry[["spec_den_term_array"]][, , "coef"|"freq"]).
+    [[nodiscard]] const NamedMatrix<KEnRef_Real> &coef() const { return spec_den_term_array.coef; }
+    [[nodiscard]] const NamedMatrix<KEnRef_Real> &freq() const { return spec_den_term_array.freq; }
+};
+
+/**
  * Relaxation-based spectral-density data. Mirrors read_spec_den_relax_data() in
- * ke.R. The shared `a_coef`/`lambda_coef` correspond to `a_int_coef`/`lambda_int_coef`
- * there.
+ * ke.R (the full `spec_den_relax_data` object). The shared `a_coef`/`lambda_coef`
+ * of the base correspond to `a_int_coef`/`lambda_int_coef` there.
  *
- * `unit` flags whether the first interaction is encoded by unit-vector identifiers
- * rather than atom identifiers (the first two `*_atom_relax.csv` columns ending in
- * `_unit`); when true the atom-pair names must NOT be normalized as atom names.
+ * `unit` is the dipole-dipole unit-vector flag forwarded to r_array_to_d_array()
+ * (true for e.g. a fixed backbone N-H bond). On disk it is encoded by the first two
+ * `*_atom_relax.csv` columns ending in `_unit`. It is INDEPENDENT of `handleNames`:
+ * the atom-pair identifiers are still atom names and are still normalized when
+ * handleNames is set.
  *
- * Skeleton only for now: the `relax_data_list` (per rate: optional target `value`,
- * optional weight `k`, and the spectral-density term array of coef/freq pairs) is
- * still to be added, modeled with NamedMatrix/NamedVector/NamedRowVector plus
- * column-name -> index mapping helpers.
+ * Wrapping: only the first n_data_rows atom pairs carry relaxation data; the full
+ * atom_pairs list may be a whole multiple of that (the trailing rows alias back,
+ * exactly as sigma does). After the array_shift pipeline the predicted rates collapse
+ * to n_data_rows, so each rate's value/k/coef/freq aligns row-for-row with the
+ * a-matrix. Use blockRow() to map a full atom-pair index/name to its data row (idx % N).
  */
 template<typename KEnRef_Real>
 class SpecDenRelaxData : public SpecDenDataBase<KEnRef_Real> {
     bool unit_ = false;
-    // TODO(relax): add relax_data_list — named per-rate blocks {value?, k?, spec_den_term_array[pairs x terms x 2]}.
+    std::vector<RelaxEntry<KEnRef_Real> > relax_data_list_{};
+    std::map<std::string, size_t> rateName_to_index_{};
+    size_t n_data_rows_ = 0;
+    std::string atom_relax_header_{};   // verbatim *_atom_relax.csv header line (byte-exact round-trip)
 
 public:
     SpecDenRelaxData(const std::vector<std::tuple<std::string, std::string> > &atom_pairs,
                      const bool unit,
+                     std::vector<RelaxEntry<KEnRef_Real> > relax_data_list,
+                     const size_t n_data_rows,
+                     std::string atom_relax_header,
                      const std::vector<std::vector<std::vector<int> > > &multiple_grouping,
                      const NamedMatrix<KEnRef_Real> &a_int_coef,
                      const NamedMatrix<KEnRef_Real> &lambda_int_coef)
-        : SpecDenDataBase<KEnRef_Real>(atom_pairs, multiple_grouping, a_int_coef, lambda_int_coef), unit_(unit) {}
+        : SpecDenDataBase<KEnRef_Real>(atom_pairs, multiple_grouping, a_int_coef, lambda_int_coef),
+          unit_(unit),
+          relax_data_list_(std::move(relax_data_list)),
+          n_data_rows_(n_data_rows),
+          atom_relax_header_(std::move(atom_relax_header)) {
+        for (size_t i = 0; i < relax_data_list_.size(); ++i) {
+            rateName_to_index_[relax_data_list_[i].rate_name] = i;
+        }
+        // Wrapping invariant: the full atom-pair list is a whole multiple of the data rows.
+        assert((n_data_rows_ == 0 || atom_pairs.size() % n_data_rows_ == 0)
+               && "atom_pairs count must be a whole multiple of n_data_rows");
+    }
 
     [[nodiscard]] bool is_unit() const { return unit_; }
+    [[nodiscard]] size_t n_data_rows() const { return n_data_rows_; }
+    [[nodiscard]] const std::string &get_atom_relax_header() const { return atom_relax_header_; }
+    [[nodiscard]] const std::vector<RelaxEntry<KEnRef_Real> > &get_relax_data_list() const { return relax_data_list_; }
+
+    // R: relax_data_list[[rate_name]]
+    [[nodiscard]] bool has_rate(const std::string &rate_name) const {
+        return rateName_to_index_.find(rate_name) != rateName_to_index_.end();
+    }
+    [[nodiscard]] const RelaxEntry<KEnRef_Real> &rate(const std::string &rate_name) const {
+        return relax_data_list_.at(rateName_to_index_.at(rate_name));
+    }
+
+    // Map a full atom-pair index/name to its data row, mirroring SpecDenData::getSigma's `% size` wrapping.
+    [[nodiscard]] size_t blockRow(const size_t pairIndex) const { return pairIndex % n_data_rows_; }
+    [[nodiscard]] size_t blockRow(const std::tuple<std::string, std::string> &pair) const {
+        return this->atomNamePairs_to_atomPairIndex.at(pair) % n_data_rows_;
+    }
+
+    // Debugging convenience: attach atom-pair identifiers as row names to a positional
+    // n_data_rows-row matrix (e.g. a coef/freq slice). Names are regenerated on demand
+    // from the base atom_pairs rather than stored per substructure.
+    [[nodiscard]] NamedMatrix<KEnRef_Real> withPairNames(const NamedMatrix<KEnRef_Real> &m) const {
+        NamedMatrix<KEnRef_Real> out(m);
+        std::vector<std::string> rowNames;
+        rowNames.reserve(n_data_rows_);
+        for (size_t r = 0; r < n_data_rows_; ++r) {
+            const auto &p = this->atom_pairs.at(r);
+            rowNames.emplace_back(std::get<0>(p) + " / " + std::get<1>(p));
+        }
+        out.setRowNames(rowNames);
+        return out;
+    }
 };
 
 
