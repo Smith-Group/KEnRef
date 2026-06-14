@@ -1533,6 +1533,74 @@ KEnRef<KEnRef_Real>::s2OrderParams(
     return group_s2;
 }
 
+template<typename KEnRef_Real>
+std::tuple<Eigen::VectorX<KEnRef_Real>, std::optional<Eigen::MatrixX<KEnRef_Real> > >
+KEnRef<KEnRef_Real>::a_matrix_to_relax(
+    const Eigen::MatrixX<KEnRef_Real> &a_int_matrix,
+    const Eigen::RowVectorX<KEnRef_Real> &lambda_int_vec,
+    const Eigen::MatrixX<KEnRef_Real> &a_overall_matrix,
+    const Eigen::RowVectorX<KEnRef_Real> &lambda_overall_vec,
+    const SpecDenTermArray<KEnRef_Real> &spec_den_term_array,
+    const bool gradient, const int numOmpThreads) {
+
+    const Eigen::Index pairs = a_int_matrix.rows();
+    const Eigen::Index n_int = a_int_matrix.cols();
+    const Eigen::Index n_overall = a_overall_matrix.cols();
+
+    assert(lambda_int_vec.size() == n_int);
+    assert(lambda_overall_vec.size() == n_overall);
+    assert(a_overall_matrix.rows() == pairs);
+    assert(spec_den_term_array.coef.rows() == pairs);
+    assert(spec_den_term_array.freq.rows() == spec_den_term_array.coef.rows()
+        && spec_den_term_array.freq.cols() == spec_den_term_array.coef.cols());
+
+    Eigen::VectorX<KEnRef_Real> value = Eigen::VectorX<KEnRef_Real>::Zero(pairs);
+    std::optional<Eigen::MatrixX<KEnRef_Real> > grad;
+    if (gradient) grad = Eigen::MatrixX<KEnRef_Real>::Zero(pairs, n_int);
+
+    // freq^2 is loop-invariant across (i, j); precompute once (read-only, shared across threads).
+    const Eigen::Array<KEnRef_Real, Eigen::Dynamic, Eigen::Dynamic> freq_sq = spec_den_term_array.freq.array().square();
+
+    // Parallelize over `pairs` in contiguous row-blocks. Each block keeps Eigen's SIMD over the
+    // (contiguous, ColMajor) pairs dimension, and different blocks write disjoint rows of value/grad,
+    // so there is no reduction and the result is bitwise-identical to the serial path. `numOmpThreads`
+    // follows the project convention (0 => use as many threads as available). Small problems stay serial:
+    // the minimum `pairs` to parallelize is env-configurable (KENREF_RELAX_PARALLEL_THRESHOLD, default 256).
+    [[maybe_unused]] static const Eigen::Index PARALLEL_THRESHOLD = []() -> Eigen::Index {
+        if (const char *env = std::getenv("KENREF_RELAX_PARALLEL_THRESHOLD")) {
+            char *end = nullptr;
+            const long v = std::strtol(env, &end, 10);
+            if (end != env && *end == '\0' && v >= 0) return static_cast<Eigen::Index>(v);
+        }
+        return 256;
+    }();
+    constexpr Eigen::Index BLOCK = 128;   // rows per chunk: SIMD-friendly, cache-resident, load-balanced
+    const long nChunks = static_cast<long>((pairs + BLOCK - 1) / BLOCK);
+
+#pragma omp parallel for num_threads(numOmpThreads) if(pairs >= PARALLEL_THRESHOLD) schedule(static)
+    for (long c = 0; c < nChunks; ++c) {
+        const Eigen::Index r0 = static_cast<Eigen::Index>(c) * BLOCK;
+        const Eigen::Index len = std::min<Eigen::Index>(BLOCK, pairs - r0);
+
+        const auto coef_b = spec_den_term_array.coef.middleRows(r0, len).array();   // [len x terms]
+        const auto freqsq_b = freq_sq.middleRows(r0, len);                          // [len x terms]
+        Eigen::Array<KEnRef_Real, Eigen::Dynamic, 1> term(len);                     // reused across (i, j)
+
+        for (Eigen::Index i = 0; i < n_overall; ++i) {
+            const auto a_over_i = a_overall_matrix.col(i).segment(r0, len).array(); // [len]
+            for (Eigen::Index j = 0; j < n_int; ++j) {
+                const KEnRef_Real lambda_prime = lambda_int_vec(j) + lambda_overall_vec(i);
+                // term = -a_overall[block,i] * lambda_prime * rowSum_t( coef / (lambda_prime^2 + freq^2) )
+                term = (-a_over_i) * lambda_prime
+                       * (coef_b / (freqsq_b + lambda_prime * lambda_prime)).rowwise().sum();
+                value.segment(r0, len).array() += a_int_matrix.col(j).segment(r0, len).array() * term;
+                if (gradient) grad->col(j).segment(r0, len).array() += term;
+            }
+        }
+    }
+    return {std::move(value), std::move(grad)};
+}
+
 template class SpecDenDataBase<float>;
 template class SpecDenDataBase<double>;
 template class SpecDenData<float>;
