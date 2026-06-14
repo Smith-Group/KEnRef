@@ -1118,4 +1118,34 @@ TEST(KEnRefBench, DISABLED_RArrayToDArrayBlockThreadSweep) {
         }
     }
     SUCCEED();
+// a_matrix_to_relax: port of a_matrix_to_relax() in ke.R. Hand-computed reference for
+// 1 pair, 2 terms, 2 internal eigenvalues, 1 overall mode.
+//   a_int = [2, 3], lambda_int = [-3, -5], a_overall = [5], lambda_overall = [-1]
+//   coef  = [0.5, 0.2], freq = [10, 20]
+//   j=0: lp=-4, rowsum=0.5/116+0.2/416=0.00479111406, term=-5*-4*rowsum=0.09582228117, +=2*term
+//   j=1: lp=-6, rowsum=0.5/136+0.2/436=0.00413518618, term=-5*-6*rowsum=0.12405558554, +=3*term
+//   value = 2*0.09582228117 + 3*0.12405558554 = 0.56381131895
+TEST(KEnRefTestSuite, AMatrixToRelaxKernel) {
+    using Real = double;
+    Eigen::MatrixX<Real> a_int(1, 2);            a_int << 2, 3;
+    Eigen::RowVectorX<Real> lambda_int(2);       lambda_int << -3, -5;
+    Eigen::MatrixX<Real> a_overall(1, 1);        a_overall << 5;
+    Eigen::RowVectorX<Real> lambda_overall(1);   lambda_overall << -1;
+    NamedMatrix<Real> coef(1, 2);                coef << 0.5, 0.2;
+    NamedMatrix<Real> freq(1, 2);                freq << 10, 20;
+    const SpecDenTermArray<Real> sdt{coef, freq};
+
+    auto [value, grad] = KEnRef<Real>::a_matrix_to_relax(a_int, lambda_int, a_overall, lambda_overall, sdt, true);
+    ASSERT_EQ(value.size(), 1);
+    EXPECT_NEAR(value(0), 0.5638113189451191, 1e-9);
+    ASSERT_TRUE(grad.has_value());
+    EXPECT_EQ(grad->rows(), 1);
+    EXPECT_EQ(grad->cols(), 2);
+    EXPECT_NEAR((*grad)(0, 0), 0.0958222811671087, 1e-9);   // d value / d a_int[:,0]
+    EXPECT_NEAR((*grad)(0, 1), 0.1240555855369672, 1e-9);   // d value / d a_int[:,1]
+
+    // value-only path returns no gradient
+    auto [value2, grad2] = KEnRef<Real>::a_matrix_to_relax(a_int, lambda_int, a_overall, lambda_overall, sdt, false);
+    EXPECT_NEAR(value2(0), 0.5638113189451191, 1e-9);
+    EXPECT_FALSE(grad2.has_value());
 }

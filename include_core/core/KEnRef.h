@@ -536,6 +536,25 @@ public:
     static a_matrix_to_sigma(const NamedMatrix<KEnRef_Real>& a_matrix,
         const NamedRowVector<KEnRef_Real>& lambda_prime_vec,
         KEnRef_Real proton_mhz, bool gradient = false);
+
+    /** Calculate relaxation rates from internal-motion amplitudes/eigenvalues and overall-tumbling modes.
+     *
+     * Port of a_matrix_to_relax() in ke.R. For each overall mode i and internal eigenvalue j, with
+     * lambda_prime = lambda_int_vec[j] + lambda_overall_vec[i], accumulates over pairs:
+     *   value += a_int_matrix[:,j] * ( -a_overall_matrix[:,i] * lambda_prime
+     *                                  * rowSum_t( coef[:,t] / (lambda_prime^2 + freq[:,t]^2) ) )
+     * The two spectral-density slices coef/freq come pre-split in `spec_den_term_array`.
+     *
+     * @return tuple of (relaxation rate per pair [N], optional gradient d(relax)/d(a_int) [N x n_int]).
+     */
+    static std::tuple<Eigen::VectorX<KEnRef_Real>, std::optional<Eigen::MatrixX<KEnRef_Real>>>
+    a_matrix_to_relax(
+        const Eigen::MatrixX<KEnRef_Real>& a_int_matrix,
+        const Eigen::RowVectorX<KEnRef_Real>& lambda_int_vec,
+        const Eigen::MatrixX<KEnRef_Real>& a_overall_matrix,
+        const Eigen::RowVectorX<KEnRef_Real>& lambda_overall_vec,
+        const SpecDenTermArray<KEnRef_Real>& spec_den_term_array,
+        bool gradient = false, int numOmpThreads = 0);
 };
 
 #endif /* KENREF_H_ */
