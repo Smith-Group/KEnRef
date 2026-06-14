@@ -138,7 +138,10 @@ if(BUILD_KENREF_GMX)
 endif()
 
 if(BUILD_KENREF_CORE)
-	find_package(OpenMP REQUIRED)
+	find_package(OpenMP)   # optional: if absent, the core still configures/builds (omp pragmas stay serial)
+	if(NOT OpenMP_CXX_FOUND)
+		message(STATUS "OpenMP not found - building KENREF CORE without OpenMP (pragmas compile to serial).")
+	endif()
 	# ============================================================================
 	# TEST EIGEN MATRIX REDUCTION SUPPORT
 	# ============================================================================
