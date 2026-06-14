@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
+#include <numeric>
 #include <set>
 #include <vector>
 
@@ -308,52 +309,54 @@ std::map<std::string, int> get_atomNameMapping(const std::map<std::string, int>&
 }
 
 template <typename KEnRef_Real>
-std::vector<CoordsMatrixType<KEnRef_Real>> getAllModels_allAtomCoordsMatrix(const std::string& FILENAME, std::tuple<int, int> boundsInclusive) {
+std::vector<int> generate_contiguous_indixes(std::tuple<int, int> boundsInclusive) {
+    auto [first, last] = boundsInclusive;
+    std::vector<int> indices(last - first + 1);
+    std::iota(indices.begin(), indices.end(), first);
+    return indices;
+}
 
-    auto[first, last] =  boundsInclusive;
-    int numModels = static_cast<int>(last - first + 1);
-    std::map<std::string, int> atomNameMapping_to1 = IoUtils::getAtomMappingFromPdb<std::string, int>( FILENAME, IoUtils::fill_atomId_to_index_Map);
-    auto allAtomCoordsMap_raw_vector = IoUtils::getMultipleAtomMappingFromPdb<int, Eigen::RowVector3<double> >(
+template <typename KEnRef_Real>
+std::vector<CoordsMatrixType<KEnRef_Real>> getAllModels_allAtomCoordsMatrix(
+        const std::string& FILENAME, const std::vector<int>& modelIndices) {
+    const auto atomNameMapping_to1 = IoUtils::getAtomMappingFromPdb<std::string, int>(
+        FILENAME, IoUtils::fill_atomId_to_index_Map);
+    auto allAtomCoordsMap_raw_vector = IoUtils::getMultipleAtomMappingFromPdb<int, Eigen::RowVector3<double>>(
         FILENAME, IoUtils::fill_atomIndex1_to_coords_Map<double>);
 
-    // allAtomCoordsMap_raw_vector.resize(numModels); //replaced with [first, last]
-    // const bool handleNames = IoUtils::should_handleNames(atomNameMapping_to1);
-
     int maxId0 = -1;
-    for (const auto &[atomName, id1]: atomNameMapping_to1) {
-        std::string tempName = atomName;
-        const int id0 = id1 - 1;
-        if (id0 > maxId0) {
-            maxId0 = id0;
-        }
-    }
-    //prepare coordsMatrix (0 based)
-    std::vector<int> allModelAtomIdsVector = {};
-    for (int i = 0; i <= maxId0; ++i) {
-        allModelAtomIdsVector.push_back(i);
-    }
-    std::vector<CoordsMatrixType<double> > allModels_allAtomCoordsMap{};
-    for (int i = 0; i < numModels; ++i) {
-        auto &allAtomCoordsMap_raw = allAtomCoordsMap_raw_vector[i + first];
-        const auto &allAtomCoordsMap = IoUtils::extractCoords(allModelAtomIdsVector, false, allAtomCoordsMap_raw, true);
-        allModels_allAtomCoordsMap.emplace_back(allAtomCoordsMap);
-    }
-    return allModels_allAtomCoordsMap;
+    for (const auto& [atomName, id1] : atomNameMapping_to1)
+        maxId0 = std::max(maxId0, id1 - 1);
+    std::vector<int> allModelAtomIdsVector(maxId0 + 1);
+    std::iota(allModelAtomIdsVector.begin(), allModelAtomIdsVector.end(), 0);
+    std::vector<CoordsMatrixType<double>> result;
+    result.reserve(modelIndices.size());
+    for (int idx : modelIndices)
+        result.emplace_back(IoUtils::extractCoords(allModelAtomIdsVector, false, allAtomCoordsMap_raw_vector[idx], true));
+    return result;
+}
+
+template<typename KEnRef_Real>
+std::vector<CoordsMatrixType<KEnRef_Real> > getAllModels_allAtomCoordsMatrix(
+    const std::string &FILENAME, const std::tuple<int, int> boundsInclusive) {
+    return getAllModels_allAtomCoordsMatrix<KEnRef_Real>(
+        FILENAME, generate_contiguous_indixes<KEnRef_Real>(boundsInclusive));
 }
 
 // ── Shared GB3 test fixture ───────────────────────────────────────────────────
 
-static constexpr const char*  GB3_FILENAME    = "../../res/google_tests/2lum.pdb";
+static constexpr const char*  GB3_FILENAME       = "../../res/google_tests/2lum.pdb";
+static constexpr const char*  GB3_PROTON_FILENAME = "../../res/google_tests/2lum_subset_proton.pdb";
 static constexpr double       GB3_PROTON_MHZ  = 700.0;
+static constexpr const char*  GB3_SPEC_DEN_DIR   = "../../res/google_tests/";
 static const std::vector<std::string> SPEC_DEN_PREFIXES{"1-1","1-2","1-3","2-2","2-3","3-3"};
 
 struct GB3SigmaEnergySetup {
     NamedRowVector<double>              rates;
     std::map<std::string, int>          atomNameMapping;
     bool                                handleNames;
-    std::vector<SpecDenData<double>>    spec_den_data_list;  // sigma0 already set
-    std::vector<CoordsMatrixType<double>> coord_array;       // models 0-2, unscaled
-    std::vector<Table>                  tables;              // raw CSV (col 2 = sigma0)
+    std::vector<SpecDenData<double>>    spec_den_data_list;  // sigma0 loaded from CSV
+    std::vector<CoordsMatrixType<double>> coord_array;       // models {0,2,4} (0-based), unscaled
 };
 
 static GB3SigmaEnergySetup makeGB3SigmaEnergySetup() {
@@ -363,36 +366,16 @@ static GB3SigmaEnergySetup makeGB3SigmaEnergySetup() {
     ).toNamedRowVector<double>();
 
     const auto atomNameMapping_to1 = IoUtils::getAtomMappingFromPdb<std::string, int>(
-        GB3_FILENAME, IoUtils::fill_atomId_to_index_Map);
+        GB3_PROTON_FILENAME, IoUtils::fill_atomId_to_index_Map);
     const bool handleNames = IoUtils::should_handleNames(atomNameMapping_to1);
     const auto atomNameMapping = get_atomNameMapping<double>(atomNameMapping_to1, handleNames);
 
-    auto spec_den_data_list = getSpecDenData<double>(handleNames);
-    std::vector<Table> tables;
-    tables.reserve(SPEC_DEN_PREFIXES.size());
-    for (int i = 0; i < (int)SPEC_DEN_PREFIXES.size(); ++i) {
-        const Table& table = IoUtils::readTable(
-            "../../res/google_tests/" + SPEC_DEN_PREFIXES[i] + "_atom_pairs.csv",
-            true, false, "\\s*,\\s*", -1, true);
-        std::vector<std::tuple<std::string, std::string>> atomPairs;
-        atomPairs.reserve(table.rowCount());
-        for (int j = 0; j < table.rowCount(); ++j)
-            atomPairs.emplace_back(IoUtils::normalizeName(table.at(j, 0), handleNames),
-                                   IoUtils::normalizeName(table.at(j, 1), handleNames));
-        spec_den_data_list[i].setAtomPairs(atomPairs);
-        tables.push_back(table);
-    }
+    // Load spec_den_data from CSVs — atom pairs, groupings, a_coef, lambda_coef, sigma all from R
+    auto spec_den_data_list = IoUtils::load_spec_den_data(GB3_SPEC_DEN_DIR, handleNames);
 
-    // Compute sigma0 from synthetic coords (models 3-5) and store in spec_den_data_list
-    auto coords_synthetic = getAllModels_allAtomCoordsMatrix<double>(GB3_FILENAME, {3, 5});
-    auto [sigma0, unused_grad] = KEnRef<double>::coord_array_to_sigma(
-        coords_synthetic, rates, spec_den_data_list, GB3_PROTON_MHZ, atomNameMapping, false, 0);
-    (void)unused_grad;
-    for (int i = 0; i < (int)spec_den_data_list.size(); ++i)
-        spec_den_data_list[i].set_sigmas(sigma0.at(i));
-
+    // coord_array: models {0,2,4} (0-based) = R's c(1,3,5) (1-based)
     return {rates, atomNameMapping, handleNames, std::move(spec_den_data_list),
-            getAllModels_allAtomCoordsMatrix<double>(GB3_FILENAME, {0, 2}), std::move(tables)};
+            getAllModels_allAtomCoordsMatrix<double>(GB3_PROTON_FILENAME, {0, 2, 4})};
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -732,7 +715,7 @@ TEST(KEnRefTestSuite, testGB3) {
     static const auto FILENAME = "../../res/google_tests/2lum.pdb";
     std::map<std::string, int> atomNameMapping_to1 = IoUtils::getAtomMappingFromPdb<std::string, int>(
         FILENAME, IoUtils::fill_atomId_to_index_Map);
-    const std::vector<CoordsMatrixType<double> >& allModels_allAtomCoordsMap = getAllModels_allAtomCoordsMatrix<double>(FILENAME,{0, 2});
+    const std::vector<CoordsMatrixType<double> >& allModels_allAtomCoordsMap = getAllModels_allAtomCoordsMatrix<double>(FILENAME, std::make_tuple(0, 2));
     int numModels = static_cast<int>(allModels_allAtomCoordsMap.size());
 
     auto allModels_allAtomCoordsMapMeters = std::vector<CoordsMatrixType<double> >(numModels);
@@ -874,24 +857,24 @@ TEST(KEnRefTestSuite, testCoordArrayToSigmaEnergy) {
     constexpr double n = 1;
     auto s = makeGB3SigmaEnergySetup();
 
-    // Validate sigma0 (from synthetic models 3-5) against CSV expected values (column 2)
-    auto coords_synthetic = getAllModels_allAtomCoordsMatrix<double>(GB3_FILENAME, {3, 5});
+    // Validate sigma0: C++ from synthetic models {1,3,5} must match R-generated CSV values
+    auto coords_synthetic = getAllModels_allAtomCoordsMatrix<double>(GB3_PROTON_FILENAME, {1, 3, 5});
     auto [sigma0, unused_grad] = KEnRef<double>::coord_array_to_sigma(
         coords_synthetic, s.rates, s.spec_den_data_list, GB3_PROTON_MHZ, s.atomNameMapping, false, 0);
     (void)unused_grad;
     for (int i = 0; i < (int)s.spec_den_data_list.size(); ++i)
         for (int j = 0; j < sigma0[i].rows(); ++j) {
-            const double expected = std::stod(s.tables[i].at(j, 2));
+            const double expected = s.spec_den_data_list[i].sigmas()(j, 0);
             EXPECT_NEAR(sigma0[i](j, 0), expected,
                         std::pow(10, static_cast<int>(log10(std::abs(expected))) - 5));
         }
 
-    // Run coord_array_to_sigma_energy on models 0-2
+    // Run coord_array_to_sigma_energy on models {0,2,4} (R's c(1,3,5))
     auto coord_array = s.coord_array;  // copy: function scales in-place
     const auto& [sigma_energy, sigma_energy_grad] = KEnRef<double>::coord_array_to_sigma_energy(
         coord_array, s.rates, s.spec_den_data_list, GB3_PROTON_MHZ, k, n, s.atomNameMapping, true, 0);
 
-    EXPECT_NEAR(sigma_energy, 228.98, 1e-2);
+    EXPECT_NEAR(sigma_energy, 124.8785, 1e-4);
 
     // Validate gradient against expected values from 2lum_sigma.csv
     std::ifstream instream("../../res/google_tests/2lum_sigma.csv");
@@ -907,7 +890,7 @@ TEST(KEnRefTestSuite, testCoordArrayToSigmaEnergy) {
                 const double expected = model_sigma(i, j);
                 const auto normName   = IoUtils::normalizeName(atomNames[i], true);
                 const double actual   = sigma_energy_grad->at(m)(s.atomNameMapping.at(normName), j);
-                EXPECT_NEAR(expected, actual, 1e-2);
+                EXPECT_NEAR(expected, actual, 1e-9);
             }
     }
 }
