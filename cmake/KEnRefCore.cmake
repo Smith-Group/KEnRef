@@ -76,6 +76,13 @@ target_link_libraries(kenref_core PUBLIC
     # NO GROMACS here!
 )
 
+# OpenMP (optional): when found, enables -fopenmp so the core's `#pragma omp` directives are active.
+# Linked conditionally so a machine without OpenMP can still configure and build (serial) the core.
+if(TARGET OpenMP::OpenMP_CXX)
+    target_link_libraries(kenref_core PUBLIC OpenMP::OpenMP_CXX)
+    target_link_libraries(kenref_and_eigen3 PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
 # Separate include directories
 target_include_directories(kenref_core PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include_core>
