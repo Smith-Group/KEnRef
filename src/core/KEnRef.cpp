@@ -280,14 +280,12 @@ KEnRef<KEnRef_Real>::d_array_to_g(
         // Use Eigen::Matrix instead of auto for better optimization
         Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> d_matrix = Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>::Zero(num_interactionIds, 5);
 
-// Case 1: If matrix reduction is supported
-#if EIGEN_MATRIX_REDUCTION_SUPPORTED  // Defined during CMake configuration
-        #pragma omp parallel for reduction(+:d_matrix)
-        for (int j = 0; j < currentGroupSize; ++j) {
-            d_matrix += d_arrays[currentGrouping[j]];
-        }
-#else
-        // Case 2: Thread-local accumulation (always safe)
+        // Thread-local accumulation then a single critical combine.
+        // NOTE: a built-in `reduction(+:d_matrix)` here is unsafe: d_matrix is Eigen::Matrix<.,Dynamic,5>,
+        // whose default ctor is 0x5, so OpenMP's default-constructed private reduction copy is empty ->
+        // size mismatch on `+=`. (A user-defined reduction with an explicit zero-sized initializer would
+        // work, but the gain over this thread-local path is negligible.) Each local accumulator below is
+        // explicitly sized + zeroed (never default-constructed) for exactly that reason.
         #pragma omp parallel num_threads(numOmpThreads)
         {
             Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> local_d_matrix = Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>::Zero(num_interactionIds, 5);
@@ -298,7 +296,6 @@ KEnRef<KEnRef_Real>::d_array_to_g(
             #pragma omp critical
             d_matrix += local_d_matrix;
         }
-#endif
 
         if (gradient) {
             const auto TWO_OVER_num_models_currentGroupSize = TWO / (num_models * CURRENT_GROUP_SIZE_real); //single division
@@ -317,7 +314,10 @@ KEnRef<KEnRef_Real>::d_array_to_g(
         d_matrix /= CURRENT_GROUP_SIZE_real;
 
         // calculate self dot product (norm squared) and accumulate group's contribution to mean g
-        #pragma omp parallel for num_threads(numOmpThreads) reduction(+:ret1) //TODO Modified: use OpenMP reduction
+        // Each iteration writes a DISTINCT ret1(j); the cross-grouping accumulation happens in the
+        // serial outer loop, so no reduction is needed. (A `reduction(+:ret1)` here was also broken:
+        // OpenMP default-constructs the private Eigen vector empty (size 0) -> out-of-bounds.)
+        #pragma omp parallel for num_threads(numOmpThreads)
         for (int j = 0; j < num_interactionIds; j++) {
             //It is safe to use the vector directly
             ret1(j) += d_matrix.row(j).squaredNorm() * currentGroupSize_OVER_num_models_real;
@@ -530,16 +530,24 @@ KEnRef<KEnRef_Real>::coord_array_to_r_array_backprop(
         gradients.at(i) = CoordsMatrixType<KEnRef_Real>::Zero(num_atoms, 3);
     }
     // propagate the internuclear vector derivatives back onto the atomic coordinates
+    // An atom may appear in many pairs, so different (p) iterations can target the same gradients[m]
+    // row concurrently. `#pragma omp atomic` is only valid on scalar lvalues, so each xyz component is
+    // updated individually. This keeps the full (pairs x models) parallelism.
+    // NOTE: atomic accumulation order is non-deterministic => results may differ at the ULP level
+    // between runs / thread counts. For bitwise-reproducible output, disable parallelism: call with
+    // numOmpThreads == 1 (or run with OMP_NUM_THREADS=1).
 #pragma omp parallel for collapse(2) num_threads(numOmpThreads)
     for (int p = 0; p < num_interactions; ++p) {
         // seq_len(dim(d_energy_d_r_array)[1])
         for (int m = 0; m < num_ensembleMembers; m++) {
             const auto [atomId0, atomId1] = atomId_pairs[p];
             const auto &pair_grad = d_energy_d_r_array[m].row(p);
+            for (int d = 0; d < 3; ++d) {
 #pragma omp atomic
-            gradients[m].row(atomId0) -= pair_grad;
+                gradients[m](atomId0, d) -= pair_grad(d);
 #pragma omp atomic
-            gradients[m].row(atomId1) += pair_grad;
+                gradients[m](atomId1, d) += pair_grad(d);
+            }
         }
     }
     //        std::cout << "gradients" << std::endl;
@@ -605,11 +613,16 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy(
     const auto &r_arrays = coord_array_to_r_array(coord_array, atomId_pairs, numOmpThreads);
 
     // calculate dipole-dipole interaction tensors [and their derivatives]
-    const auto &[d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, gradient, false, numOmpThreads);
+    // NOTE: named locals (not a structured binding) — the OpenMP regions below reference these, and
+    // clang does not support capturing a structured binding inside an OpenMP region.
+    auto d_arrays_tuple = r_array_to_d_array(r_arrays, gradient, false, numOmpThreads);
+    const auto &d_arrays = std::get<0>(d_arrays_tuple);
+    const auto &d_arrays_grad = std::get<1>(d_arrays_tuple);
 
     // calculate norm squared for different groupings of dipole-dipole interaction tensors
-    const auto &[g_list, g_list_grad] = d_array_to_g_multiple_groupings(d_arrays, grouping_list, gradient,
-                                                                        numOmpThreads);
+    auto g_tuple = d_array_to_g_multiple_groupings(d_arrays, grouping_list, gradient, numOmpThreads);
+    const auto &g_list = std::get<0>(g_tuple);
+    const auto &g_list_grad = std::get<1>(g_tuple);
 
     const auto &g_matrix = vectorOfVectors_to_Matrix(g_list, numOmpThreads);
 #if VERBOSE
@@ -617,7 +630,10 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy(
     std::cout << "g_matrix 0\tg_matrix 1\tg_matrix Z\n" << g_matrix.format(fmt) << "\n" << std::endl;
 #endif
     // calculate energies from the norm squared values
-    const auto &[energy_matrix, energy_matrix_grad] = power_scaled_loss_function(g_matrix, g0, k, n, gradient, numOmpThreads);
+    // (named locals, not a structured binding — see note above re: OpenMP capture)
+    auto energy_tuple = power_scaled_loss_function(g_matrix, g0, k, n, gradient, numOmpThreads);
+    const auto &energy_matrix = std::get<0>(energy_tuple);
+    const auto &energy_matrix_grad = std::get<1>(energy_tuple);
     //	std::cout << "energy_matrix_grad" << std::endl << *energy_matrix_grad << std::endl;
 
     // return the sum of all the individual restraint energies
@@ -636,19 +652,27 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy(
             d_energy_d_d_vector.at(i) = std::move(
                 Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>::Zero(static_cast<int>(num_pairs), 5));
 
-        //#pragma omp parallel for collapse(3) num_threads(numOmpThreads)
+        // de/dd[j] = sum over groupings i of ( energy_matrix_grad[:,i] (x) g_list_grad[i][j] ).
+        // Parallelize the two FREE (non-reduction) axes - model j and pair-block - via collapse(2), keeping
+        // the grouping reduction i as the serial inner loop. Distinct (j, pair-block) iterations write
+        // disjoint row ranges of distinct d_energy_d_d_vector[j], so this is race-free with NO internal
+        // accumulators. It scales whether num_models is small (pair-blocks supply the parallelism) or large
+        // (the models do); per-block Eigen ops retain SIMD over the pairs dimension. The ragged grouping
+        // membership is handled by the inner `j < g_list_grad[i].size()` guard (collapse stays rectangular).
+        constexpr Eigen::Index DEDD_BLOCK = 128;
+        const int nPairBlocks = static_cast<int>((static_cast<Eigen::Index>(num_pairs) + DEDD_BLOCK - 1) / DEDD_BLOCK);
 #pragma omp parallel for collapse(2) num_threads(numOmpThreads)
-        for (int i = 0; i < g_list.size(); i++) {
-            //for each grouping
-            for (int j = 0; j < g_list_grad[i].size(); j++) {
-                d_energy_d_d_vector[j].array() += energy_matrix_grad->col(i).rowwise().template replicate<5>().array() *
-                        g_list_grad[i][j].array();
-//                // OMP line by line was slower (!)
-//                for (int r = 0; r < d_energy_d_d_vector[j].rows(); ++r) {
-//                    const auto &temp = (*energy_matrix_grad)(r, i) * g_list_grad[i][j].row(r);
-//#pragma omp atomic
-//                    d_energy_d_d_vector[j].row(r) += temp;
-//                }
+        for (int j = 0; j < num_models; j++) {
+            for (int b = 0; b < nPairBlocks; b++) {
+                const Eigen::Index r0 = static_cast<Eigen::Index>(b) * DEDD_BLOCK;
+                const Eigen::Index len = std::min<Eigen::Index>(DEDD_BLOCK, static_cast<Eigen::Index>(num_pairs) - r0);
+                for (int i = 0; i < g_list.size(); i++) {
+                    if (j < static_cast<int>(g_list_grad[i].size())) {
+                        d_energy_d_d_vector[j].middleRows(r0, len).array() +=
+                            energy_matrix_grad->col(i).segment(r0, len).rowwise().template replicate<5>().array() *
+                            g_list_grad[i][j].middleRows(r0, len).array();
+                    }
+                }
             }
         }
 
@@ -679,16 +703,21 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy(
             gradients.at(i) = CoordsMatrixType<KEnRef_Real>::Zero(num_atoms, 3);
         }
         // propagate the internuclear vector derivatives back onto the atomic coordinates
+        // Scalar atomics per xyz component (an atom is shared across pairs); keeps (pairs x models)
+        // parallelism. Accumulation order is non-deterministic — see the note in
+        // coord_array_to_r_array_backprop; use numOmpThreads == 1 for bitwise-reproducible output.
 #pragma omp parallel for collapse(2) num_threads(numOmpThreads)
         for (int p = 0; p < num_pairs; ++p) {
             // seq_len(dim(d_energy_d_r_array)[1])
             for (int m = 0; m < num_models; m++) {
                 const auto [atomId0, atomId1] = atomId_pairs[p];
                 const auto &pair_grad = d_energy_d_r_array[m].row(p);
+                for (int d = 0; d < 3; ++d) {
 #pragma omp atomic
-                gradients[m].row(atomId0) -= pair_grad;
+                    gradients[m](atomId0, d) -= pair_grad(d);
 #pragma omp atomic
-                gradients[m].row(atomId1) += pair_grad;
+                    gradients[m](atomId1, d) += pair_grad(d);
+                }
             }
         }
 
@@ -728,18 +757,18 @@ KEnRef<KEnRef_Real>::calculateLambdaVector(const SpecDenDataBase<KEnRef_Real> &c
     // lambda_vector <- -colSums(rates[rownames(spec_den_data_list[[i]][["lambda_coef"]])]*spec_den_data_list[[i]][["lambda_coef"]])
     const auto &lambda_coef_matrix = currentSpecDenData.get_lambda_coef();
     const auto &rowNames = currentSpecDenData.get_lambda_coef().rowNames();
-    NamedRowVector<KEnRef_Real> lambda_vector(lambda_coef_matrix.cols());
-    lambda_vector.setZero();
-    lambda_vector.setColNames(lambda_coef_matrix.colNames());
 
-    // Calculate -colSums(rates[row_names,] * lambda_coef)
-#pragma omp parallel for num_threads(numOmpThreads)
+    // -colSums(rates[row_names,] * lambda_coef) is a vector-matrix product:
+    //   lambda_vector = -( rates_row . lambda_coef )   where rates_row(j) = rates(rowNames[j]).
+    // Building rates_row is a tiny serial gather (one entry per rate constant); the product itself is a
+    // GEMV that Eigen runs (and parallelizes for large operands) race-free and deterministically, so it
+    // keeps scaling if lambda_coef grows.
+    Eigen::RowVectorX<KEnRef_Real> rates_row(static_cast<Eigen::Index>(rowNames.size()));
     for (size_t j = 0; j < rowNames.size(); ++j) {
-        // Get corresponding rate value
-        auto rate = rates(rowNames[j]);
-        // Multiply rate with lambda_coef row and accumulate
-        lambda_vector -= rate * lambda_coef_matrix.row(j);
+        rates_row(static_cast<Eigen::Index>(j)) = rates(rowNames[j]);
     }
+    NamedRowVector<KEnRef_Real> lambda_vector(-(rates_row * lambda_coef_matrix));
+    lambda_vector.setColNames(lambda_coef_matrix.colNames());
     return lambda_vector;
 }
 
@@ -1171,19 +1200,23 @@ KEnRef<KEnRef_Real>::d_array_to_g_matrix_backprop(
         d_energy_d_d_vector.at(i) = std::move(
             Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>::Zero(static_cast<int>(num_pairs), 5));
 
-    //#pragma omp parallel for collapse(3) num_threads(numOmpThreads)
+    // d_energy_d_d_vector[j] accumulates across the grouping index i (the reduction axis). Parallelize the
+    // two FREE axes - model j and pair-block - via collapse(2), keeping i serial inside. Distinct
+    // (j, pair-block) iterations write disjoint row ranges of distinct d_energy_d_d_vector[j], so this is
+    // race-free with NO internal accumulators, and scales whether num_ensembleMembers is small (pair-blocks
+    // supply the parallelism) or large (the models do); per-block Eigen ops keep SIMD over the pairs axis.
+    constexpr Eigen::Index DEDD_BLOCK = 128;
+    const int nPairBlocks = static_cast<int>((static_cast<Eigen::Index>(num_pairs) + DEDD_BLOCK - 1) / DEDD_BLOCK);
 #pragma omp parallel for collapse(2) num_threads(numOmpThreads)
-    for (int i = 0; i < num_something; i++) {
-        //for each grouping
-        for (int j = 0; j < num_ensembleMembers; j++) {
-            d_energy_d_d_vector[j].array() += d_energy_d_g_matrix.col(i).rowwise().template replicate<5>().array() *
-                    d_g_matrix_d_d_array[i][j].array();
-            //             // OMP line by line was slower (!)
-            //             for (int r = 0; r < d_energy_d_d_vector[j].rows(); ++r) {
-            //                 const auto &temp = d_energy_d_g_matrix(r, i) * d_g_matrix_d_d_array[i][j].row(r);
-            // #pragma omp atomic
-            //                 d_energy_d_d_vector[j].row(r) += temp;
-            //             }
+    for (int j = 0; j < num_ensembleMembers; j++) {
+        for (int b = 0; b < nPairBlocks; b++) {
+            const Eigen::Index r0 = static_cast<Eigen::Index>(b) * DEDD_BLOCK;
+            const Eigen::Index len = std::min<Eigen::Index>(DEDD_BLOCK, static_cast<Eigen::Index>(num_pairs) - r0);
+            for (int i = 0; i < num_something; i++) {
+                d_energy_d_d_vector[j].middleRows(r0, len).array() +=
+                    d_energy_d_g_matrix.col(i).segment(r0, len).rowwise().template replicate<5>().array() *
+                    d_g_matrix_d_d_array[i][j].middleRows(r0, len).array();
+            }
         }
     }
     return d_energy_d_d_vector;
@@ -1243,6 +1276,7 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy_refactored(
     const auto &r_arrays = coord_array_to_r_array(coord_array, atomId_pairs, numOmpThreads);
 
     // calculate dipole-dipole interaction tensors [and their derivatives]
+    // Claude says that structured binding in an OMP region is dangerous. so Take care if you put the next line in an OMP region.
     const auto &[d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, gradient, false, numOmpThreads);
 
     const auto &grouping_matrix = IoUtils::subset_idx_to_grouping_mat(grouping_list);
@@ -1317,20 +1351,10 @@ KEnRef<KEnRef_Real>::g_matrix_to_a_matrix(
     int numOmpThreads) {
     // Initialize output matrix with zeros
     // NamedRowVector<KEnRef_Real> a_matrix = Eigen::MatrixX<KEnRef_Real>::Zero(g_matrix.rows(), a_coef.cols());
-    NamedMatrix<KEnRef_Real> a_matrix = NamedMatrix<KEnRef_Real>::Zero(g_matrix.rows(), a_coef.cols());
-
-    // Parallelize over output features (columns of a_matrix)
-#pragma omp parallel for collapse(2) num_threads(numOmpThreads)
-    for (int i = 0; i < a_coef.cols(); ++i) {
-        // Iterate over groupings (columns of g_matrix / rows of a_coef)
-        for (int j = 0; j < a_coef.rows(); ++j) {
-            const auto coef = a_coef(j, i);
-            if (coef != 0) {
-                // SAFE: Column operations in Eigen are thread-safe
-                a_matrix.col(i) += g_matrix.col(j) * coef;
-            }
-        }
-    }
+    // a_matrix(:,i) = sum_j g_matrix(:,j) * a_coef(j,i)  ==  g_matrix * a_coef : a plain matrix product.
+    // Expressing it as a GEMM keeps the whole computation parallel (Eigen, internally threaded for large
+    // operands) and deterministic, and removes the manual accumulation that raced under collapse(2).
+    NamedMatrix<KEnRef_Real> a_matrix(g_matrix * a_coef);
     // a_matrix.setRowNames(g_matrix.rowNames()); //TODO check it
     a_matrix.setColNames(a_coef.colNames()); //TODO not the best way. But it is the best available (yet).
     return a_matrix;
