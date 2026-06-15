@@ -747,7 +747,11 @@ TEST(KEnRefTestSuite, testGB3) {
         (Eigen::RowVectorX<double>(6)<< -2.50000e+08, -2.50010e+08, -7.50000e+08, -7.50010e+08, -1.00025e+12, -1.00075e+12).finished(),
         (Eigen::RowVectorX<double>(6)<< -2.50000e+08, -7.50000e+08, -1.00025e+12, -1.00075e+12, -2.00025e+12, -2.00075e+12).finished(),
     };
-    std::vector<double> expected_lambda_prime_vect_Epsilons_vector{1e7, 1e-8, 1e3, 1e-8, 1e3, 1e3};
+    // calculateLambdaVector is now a deterministic GEMV; lambda_prime matches the R reference exactly
+    // (verified at tol=0). Tightened from the old 1e7/1e3 to 1e-2 on the large-magnitude interactions
+    // (~1e12-2e12, where double granularity is ~5e-4, so 1e-2 stays cross-platform-safe); the already
+    // tight 1e-8 on interactions 1 and 3 (max ~7.5e8) is kept.
+    std::vector<double> expected_lambda_prime_vect_Epsilons_vector{1e-2, 1e-8, 1e-2, 1e-8, 1e-2, 1e-2};
 
     std::vector<double> expected_sigma_vector{-0.3469721, -0.009440785, -0.003519733, -0.001993476, -0.0001351006, -1.400239e-05};
     std::vector<double> expected_sigma_vector_Epsilons_vector{1e-6, 1e-8, 1e-8, 1e-8, 1e-9, 1e-10};
