@@ -555,6 +555,81 @@ public:
         const Eigen::RowVectorX<KEnRef_Real>& lambda_overall_vec,
         const SpecDenTermArray<KEnRef_Real>& spec_den_term_array,
         bool gradient = false, int numOmpThreads = 0);
+
+    /** Back-propagate the relaxation rate to the internal-motion amplitude matrix.
+     *
+     * Port of a_matrix_to_relax_backprop() in ke.R: elementwise
+     *   d_energy_d_a_int[:,j] = d_relax_d_a_matrix[:,j] * d_energy_d_relax[:]
+     * (the per-pair upstream gradient broadcasts across the n_int columns).
+     *
+     * @param d_relax_d_a_matrix [pairs x n_int] gradient returned by a_matrix_to_relax().
+     * @param d_energy_d_relax   [pairs] upstream gradient of the energy w.r.t. each relaxation rate.
+     * @return [pairs x n_int] contribution to d(energy)/d(a_int_matrix).
+     */
+    static Eigen::MatrixX<KEnRef_Real>
+    a_matrix_to_relax_backprop(
+        const Eigen::MatrixX<KEnRef_Real>& d_relax_d_a_matrix,
+        const Eigen::VectorX<KEnRef_Real>& d_energy_d_relax,
+        int numOmpThreads = 0);
+
+    /** Calculate overall rotational-diffusion tumbling modes from the diffusion tensor.
+     *
+     * Port of dxyz_dunit_to_overall_modes() in ke.R, 3-D-array autocorrelation path only
+     * (dunit_b == dunit_a). The coord pipeline always passes the array_shift()-ed unit-tensor
+     * array, so the regularized matrix path is not needed here.
+     *
+     * `dunit_a_array_shifted` is models<pairs, 5> (the shifted unit rank-2 tensors). For each
+     * pair the overall-mode amplitudes are averaged over models:
+     *   a_overall[p,i] = mean_m ( (d_pm . v_i)^2 ),  v_i = rank-2 diffusion eigenvectors.
+     * The number of columns collapses to the diffusion symmetry: isotropic (1), axially
+     * symmetric Dx==Dy (3), or fully anisotropic (5). lambda_overall_vec holds the matching
+     * negative decay rates.
+     *
+     * @return tuple (a_overall_matrix [pairs x nOverall], lambda_overall_vec [nOverall]).
+     */
+    static std::tuple<Eigen::MatrixX<KEnRef_Real>, Eigen::RowVectorX<KEnRef_Real>>
+    dxyz_dunit_to_overall_modes(
+        const Eigen::Matrix<KEnRef_Real, 3, 1>& dxyz_vec,
+        const std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>>& dunit_a_array_shifted,
+        KEnRef_Real tol = static_cast<KEnRef_Real>(1.4901161193847656e-08), // sqrt(DBL_EPSILON)
+        int numOmpThreads = 0);
+
+    /** Calculate per-pair relaxation rates from atomic coordinates.
+     *
+     * Port of coord_array_to_relax() in ke.R. For each SpecDenRelaxData substructure it runs the
+     * shared front-half pipeline (r_array -> d_array -> array_shift -> g_matrix -> a_int_matrix,
+     * lambda_int via calculateLambdaVector), derives the overall tumbling modes from the unit
+     * dipole tensors, then evaluates a_matrix_to_relax() for every rate in relax_data_list.
+     *
+     * @return vector (one per substructure) of [n_data_rows x n_rates] relaxation-rate matrices,
+     *         column order matching relax_data_list.
+     */
+    static std::vector<NamedMatrix<KEnRef_Real>>
+    coord_array_to_relax(
+        const std::vector<CoordsMatrixType<KEnRef_Real>>& coord_array,
+        const NamedRowVector<KEnRef_Real>& rates,
+        const std::vector<SpecDenRelaxData<KEnRef_Real>>& spec_den_relax_data_list,
+        const std::map<std::string, int>& atomNames_2_atomIds,
+        int numOmpThreads = 0);
+
+    /** Calculate the relaxation-rate restraint energy (and optional gradient) from coordinates.
+     *
+     * Port of coord_array_to_relax_energy() in ke.R using power_scaled_loss_function. Flattens the
+     * predicted and target (value) relaxation rates plus per-rate force constants k, applies the
+     * loss, and sums. The gradient (w.r.t. coord_array, scaled by 1e-10) propagates through the
+     * internal-motion amplitudes only — overall tumbling modes are treated as constant, exactly as
+     * documented for the R reference.
+     *
+     * @return tuple (scalar energy, optional gradient as models<atoms,3>).
+     */
+    static std::tuple<KEnRef_Real, std::optional<std::vector<CoordsMatrixType<KEnRef_Real>>>>
+    coord_array_to_relax_energy(
+        std::vector<CoordsMatrixType<KEnRef_Real>>& coord_array,
+        const NamedRowVector<KEnRef_Real>& rates,
+        const std::vector<SpecDenRelaxData<KEnRef_Real>>& spec_den_relax_data_list,
+        KEnRef_Real k, KEnRef_Real n,
+        const std::map<std::string, int>& atomNames_2_atomIds,
+        bool gradient = false, int numOmpThreads = 0);
 };
 
 #endif /* KENREF_H_ */
