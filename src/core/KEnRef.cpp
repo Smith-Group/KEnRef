@@ -1591,14 +1591,366 @@ KEnRef<KEnRef_Real>::a_matrix_to_relax(
             for (Eigen::Index j = 0; j < n_int; ++j) {
                 const KEnRef_Real lambda_prime = lambda_int_vec(j) + lambda_overall_vec(i);
                 // term = -a_overall[block,i] * lambda_prime * rowSum_t( coef / (lambda_prime^2 + freq^2) )
-                term = (-a_over_i) * lambda_prime
-                       * (coef_b / (freqsq_b + lambda_prime * lambda_prime)).rowwise().sum();
+                term = (-a_over_i) * lambda_prime * (coef_b / (freqsq_b + lambda_prime * lambda_prime)).rowwise().sum();
                 value.segment(r0, len).array() += a_int_matrix.col(j).segment(r0, len).array() * term;
                 if (gradient) grad->col(j).segment(r0, len).array() += term;
             }
         }
     }
     return {std::move(value), std::move(grad)};
+}
+
+template<typename KEnRef_Real>
+Eigen::MatrixX<KEnRef_Real>
+KEnRef<KEnRef_Real>::a_matrix_to_relax_backprop(
+    const Eigen::MatrixX<KEnRef_Real> &d_relax_d_a_matrix,
+    const Eigen::VectorX<KEnRef_Real> &d_energy_d_relax,
+    const int /*numOmpThreads*/) {
+    assert(d_relax_d_a_matrix.rows() == d_energy_d_relax.rows());
+    // R: d_relax_d_a_matrix * d_energy_d_relax — the length-`pairs` upstream gradient
+    // multiplies every column elementwise (R recycles the vector down each column).
+    return (d_relax_d_a_matrix.array().colwise() * d_energy_d_relax.array()).matrix();
+}
+
+template<typename KEnRef_Real>
+std::tuple<Eigen::MatrixX<KEnRef_Real>, Eigen::RowVectorX<KEnRef_Real> >
+KEnRef<KEnRef_Real>::dxyz_dunit_to_overall_modes(
+    const Eigen::Matrix<KEnRef_Real, 3, 1> &dxyz_vec,
+    const std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > &dunit_a_array_shifted,
+    const KEnRef_Real tol, const int /*numOmpThreads*/) {
+
+    assert(!dunit_a_array_shifted.empty());
+    const KEnRef_Real dx = dxyz_vec(0);
+    const KEnRef_Real dy = dxyz_vec(1);
+    const KEnRef_Real dz = dxyz_vec(2);
+    const KEnRef_Real sr3 = static_cast<KEnRef_Real>(1.73205080756888);   // sqrt(3), matches R literal
+
+    const Eigen::Index n_pairs = dunit_a_array_shifted[0].rows();
+    const size_t n_models = dunit_a_array_shifted.size();
+    const KEnRef_Real inv_m = static_cast<KEnRef_Real>(1) / static_cast<KEnRef_Real>(n_models);
+
+    using Arr = Eigen::Array<KEnRef_Real, Eigen::Dynamic, 1>;
+    // R: abs(a - b) <= tol * max(1, abs(a), abs(b))
+    auto isClose = [tol](const KEnRef_Real a, const KEnRef_Real b) {
+        return std::abs(a - b) <= tol * std::max(std::max(static_cast<KEnRef_Real>(1), std::abs(a)), std::abs(b));
+    };
+
+    // ── Isotropic: Dx == Dy == Dz ────────────────────────────────────────────
+    if (isClose(dx, dy) && isClose(dx, dz)) {
+        Arr acc = Arr::Zero(n_pairs);
+        for (size_t m = 0; m < n_models; ++m)
+            acc += dunit_a_array_shifted[m].array().square().rowwise().sum();
+        Eigen::MatrixX<KEnRef_Real> a_overall = (acc * inv_m).matrix();   // n_pairs x 1
+        Eigen::RowVectorX<KEnRef_Real> lambda(1);
+        lambda(0) = -6 * dx;
+        return {std::move(a_overall), std::move(lambda)};
+    }
+
+    // ── Axially symmetric: Dx == Dy ──────────────────────────────────────────
+    if (isClose(dx, dy)) {
+        Arr c0 = Arr::Zero(n_pairs), c1 = Arr::Zero(n_pairs), c2 = Arr::Zero(n_pairs);
+        for (size_t m = 0; m < n_models; ++m) {
+            const auto &d = dunit_a_array_shifted[m];
+            c0 += d.col(0).array().square();
+            c1 += d.col(1).array().square() + d.col(4).array().square();
+            c2 += d.col(2).array().square() + d.col(3).array().square();
+        }
+        Eigen::MatrixX<KEnRef_Real> a_overall(n_pairs, 3);
+        a_overall.col(0) = (c0 * inv_m).matrix();
+        a_overall.col(1) = (c1 * inv_m).matrix();
+        a_overall.col(2) = (c2 * inv_m).matrix();
+        Eigen::RowVectorX<KEnRef_Real> lambda(3);
+        lambda(0) = -3 * (dx + dy);
+        lambda(1) = -(2 * dx + 4 * dz);
+        lambda(2) = -(5 * dx + dz);
+        return {std::move(a_overall), std::move(lambda)};
+    }
+
+    // ── Fully anisotropic ────────────────────────────────────────────────────
+    const KEnRef_Real block_a = 3 * (dx + dy);
+    const KEnRef_Real block_b = sr3 * (dx - dy);
+    const KEnRef_Real block_c = dx + dy + 4 * dz;
+    const KEnRef_Real block_trace_half = static_cast<KEnRef_Real>(0.5) * (block_a + block_c);
+    const KEnRef_Real block_diff_half = static_cast<KEnRef_Real>(0.5) * (block_a - block_c);
+    const KEnRef_Real block_radius = std::sqrt(block_diff_half * block_diff_half + block_b * block_b);
+
+    Eigen::RowVectorX<KEnRef_Real> lambda(5);
+    lambda(0) = -(block_trace_half + block_radius);
+    lambda(1) = -(block_trace_half - block_radius);
+    lambda(2) = -(dx + 4 * dy + dz);
+    lambda(3) = -(4 * dx + dy + dz);
+    lambda(4) = -(dx + dy + 4 * dz);
+
+    const KEnRef_Real theta = static_cast<KEnRef_Real>(0.5) * std::atan2(2 * block_b, block_a - block_c);
+    const KEnRef_Real cos_t = std::cos(theta);
+    const KEnRef_Real sin_t = std::sin(theta);
+
+    Arr c0 = Arr::Zero(n_pairs), c1 = Arr::Zero(n_pairs), c2 = Arr::Zero(n_pairs),
+        c3 = Arr::Zero(n_pairs), c4 = Arr::Zero(n_pairs);
+    for (size_t m = 0; m < n_models; ++m) {
+        const auto &d = dunit_a_array_shifted[m];
+        const Arr mode1 = cos_t * d.col(0).array() + sin_t * d.col(1).array();
+        const Arr mode2 = -sin_t * d.col(0).array() + cos_t * d.col(1).array();
+        c0 += mode1.square();
+        c1 += mode2.square();
+        c2 += d.col(2).array().square();
+        c3 += d.col(3).array().square();
+        c4 += d.col(4).array().square();
+    }
+    Eigen::MatrixX<KEnRef_Real> a_overall(n_pairs, 5);
+    a_overall.col(0) = (c0 * inv_m).matrix();
+    a_overall.col(1) = (c1 * inv_m).matrix();
+    a_overall.col(2) = (c2 * inv_m).matrix();
+    a_overall.col(3) = (c3 * inv_m).matrix();
+    a_overall.col(4) = (c4 * inv_m).matrix();
+    return {std::move(a_overall), std::move(lambda)};
+}
+
+template<typename KEnRef_Real>
+std::vector<NamedMatrix<KEnRef_Real> >
+KEnRef<KEnRef_Real>::coord_array_to_relax(
+    const std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array,
+    const NamedRowVector<KEnRef_Real> &rates,
+    const std::vector<SpecDenRelaxData<KEnRef_Real> > &spec_den_relax_data_list,
+    const std::map<std::string, int> &atomNames_2_atomIds,
+    const int numOmpThreads) {
+
+    if (!rates.hasColNames())
+        throw std::runtime_error("rates has no column names");
+
+    const int numModels = static_cast<int>(coord_array.size());
+    Eigen::Matrix<KEnRef_Real, 3, 1> dxyz;
+    dxyz << rates("Dx"), rates("Dy"), rates("Dz");
+
+    // convert from Å to m once (shared by all substructures)
+    std::vector<CoordsMatrixType<KEnRef_Real> > coord_array_meter(numModels);
+    for (int m = 0; m < numModels; ++m)
+        coord_array_meter[m] = coord_array[m] * static_cast<KEnRef_Real>(1e-10);
+
+    std::vector<NamedMatrix<KEnRef_Real> > result;
+    result.reserve(spec_den_relax_data_list.size());
+
+    for (const auto &relaxData: spec_den_relax_data_list) {
+        const bool unit = relaxData.is_unit();
+        const auto &cache = relaxData.get_atomIdPairs_to_sub0Atom_id_pairs_cache();
+        const std::vector<std::tuple<int, int> > &atom_id_pairs =
+            cache.has_value() ? cache.value()
+                              : atomNamePairs_2_atomIdPairs(relaxData.get_atom_pairs(), atomNames_2_atomIds);
+
+        // internuclear vectors
+        const auto &r_arrays = coord_array_to_r_array(coord_array_meter, atom_id_pairs, numOmpThreads);
+
+        // dipole-dipole interaction tensors (R: dist = !unit)
+        auto &&[d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, unit, false, false, numOmpThreads);
+        (void) d_arrays_grad;
+
+        const auto &grouping_matrix = IoUtils::subset_idx_to_grouping_mat(relaxData.get_multiple_grouping());
+        const uint nShift = grouping_matrix.cols() / numModels;
+        const auto &d_arrays_shifted = array_shift(d_arrays, nShift);
+
+        // internal-motion amplitudes and eigenvalues
+        auto &&[g_list, g_grad] = d_array_to_g_matrix(d_arrays_shifted, grouping_matrix, false, numOmpThreads);
+        (void) g_grad;
+        const auto &g_matrix = vectorOfVectors_to_Matrix(g_list, numOmpThreads);
+        const auto &a_int_matrix = g_matrix_to_a_matrix(g_matrix, relaxData.get_a_coef(), numOmpThreads);
+        const auto &lambda_int_vec = calculateLambdaVector(relaxData, rates, numOmpThreads);
+
+        // unit dipole-dipole tensors (reuse d_arrays if it is already the unit form)
+        std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > d_unit_arrays;
+        if (unit) {
+            d_unit_arrays = d_arrays;
+        } else {
+            auto &&[du, du_grad] = r_array_to_d_array(r_arrays, true, false, false, numOmpThreads);
+            (void) du_grad;
+            d_unit_arrays = std::move(du);
+        }
+        const auto &d_unit_shifted = array_shift(d_unit_arrays, nShift);
+
+        // overall rotational-diffusion tumbling modes
+        auto &&[a_overall_matrix, lambda_overall_vec] = dxyz_dunit_to_overall_modes(dxyz, d_unit_shifted);
+
+        // one relaxation rate per relax_data_list entry
+        const auto &relax_list = relaxData.get_relax_data_list();
+        const Eigen::Index n_pairs = a_int_matrix.rows();
+        Eigen::MatrixX<KEnRef_Real> relax_eig(n_pairs, static_cast<Eigen::Index>(relax_list.size()));
+        std::vector<std::string> colNames;
+        colNames.reserve(relax_list.size());
+        for (size_t r = 0; r < relax_list.size(); ++r) {
+            auto &&[relax_vec, relax_grad] = a_matrix_to_relax(
+                a_int_matrix, lambda_int_vec, a_overall_matrix, lambda_overall_vec,
+                relax_list[r].spec_den_term_array, false, numOmpThreads);
+            (void) relax_grad;
+            relax_eig.col(static_cast<Eigen::Index>(r)) = relax_vec;
+            colNames.push_back(relax_list[r].rate_name);
+        }
+        // 3 explicit args select NamedMatrixImpl's (matrix, colNames, rowNames) constructor over the
+        // Eigen base constructors pulled in by `using Base::Base` (which have no matching 3-arg form).
+        NamedMatrix<KEnRef_Real> relax_mat(relax_eig,
+                                           std::optional<std::vector<std::string> >(colNames),
+                                           std::nullopt);
+        result.push_back(std::move(relax_mat));
+    }
+    return result;
+}
+
+template<typename KEnRef_Real>
+std::tuple<KEnRef_Real, std::optional<std::vector<CoordsMatrixType<KEnRef_Real> > > >
+KEnRef<KEnRef_Real>::coord_array_to_relax_energy(
+    std::vector<CoordsMatrixType<KEnRef_Real> > &coord_array,
+    const NamedRowVector<KEnRef_Real> &rates,
+    const std::vector<SpecDenRelaxData<KEnRef_Real> > &spec_den_relax_data_list,
+    const KEnRef_Real k, const KEnRef_Real n,
+    const std::map<std::string, int> &atomNames_2_atomIds, const bool gradient, const int numOmpThreads) {
+
+    if (!rates.hasColNames())
+        throw std::runtime_error("rates has no column names");
+
+    const size_t specDenSize = spec_den_relax_data_list.size();
+    const int numModels = static_cast<int>(coord_array.size());
+    Eigen::Matrix<KEnRef_Real, 3, 1> dxyz;
+    dxyz << rates("Dx"), rates("Dy"), rates("Dz");
+
+    // scale coords from Å to m in place (matches coord_array_to_sigma_energy convention)
+    for (int m = 0; m < numModels; ++m)
+        coord_array[m] *= static_cast<KEnRef_Real>(1e-10);
+
+    // captured for back-propagation
+    std::vector<std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15> > > d_arrays_grad_list(specDenSize);
+    std::vector<std::vector<std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > > > g_matrix_grad_list(specDenSize);
+    std::vector<std::vector<Eigen::MatrixX<KEnRef_Real> > > relax_grad_list(specDenSize); // [i][rate] -> [pairs x n_int]
+
+    // flattened predicted / target / force-constant vectors (order: substructure -> rate -> pair)
+    std::vector<KEnRef_Real> relax_flat, relax0_flat, k_flat;
+
+    for (size_t i = 0; i < specDenSize; ++i) {
+        const auto &relaxData = spec_den_relax_data_list[i];
+        const bool unit = relaxData.is_unit();
+        const auto &relax_list = relaxData.get_relax_data_list();
+
+        // R requires a target `value` for every relaxation rate
+        for (const auto &entry: relax_list)
+            if (!entry.value.has_value())
+                throw std::runtime_error(
+                    "coord_array_to_relax_energy() requires target `value` for all relaxation data; missing for rate "
+                    + entry.rate_name);
+
+        const auto &cache = relaxData.get_atomIdPairs_to_sub0Atom_id_pairs_cache();
+        const std::vector<std::tuple<int, int> > &atom_id_pairs =
+            cache.has_value() ? cache.value()
+                              : atomNamePairs_2_atomIdPairs(relaxData.get_atom_pairs(), atomNames_2_atomIds);
+
+        const auto &r_arrays = coord_array_to_r_array(coord_array, atom_id_pairs, numOmpThreads);
+
+        auto &&[d_arrays, d_arrays_grad] = r_array_to_d_array(r_arrays, unit, gradient, false, numOmpThreads);
+        d_arrays_grad_list.at(i) = std::move(d_arrays_grad);
+
+        const auto &grouping_matrix = IoUtils::subset_idx_to_grouping_mat(relaxData.get_multiple_grouping());
+        const uint nShift = grouping_matrix.cols() / numModels;
+        const auto &d_arrays_shifted = array_shift(d_arrays, nShift);
+
+        auto &&[g_list, g_matrix_grad] = d_array_to_g_matrix(d_arrays_shifted, grouping_matrix, gradient, numOmpThreads);
+        const auto &g_matrix = vectorOfVectors_to_Matrix(g_list, numOmpThreads);
+        g_matrix_grad_list.at(i) = std::move(g_matrix_grad);
+
+        const auto &a_int_matrix = g_matrix_to_a_matrix(g_matrix, relaxData.get_a_coef(), numOmpThreads);
+        const auto &lambda_int_vec = calculateLambdaVector(relaxData, rates, numOmpThreads);
+
+        // unit dipole-dipole tensors -> overall tumbling modes
+        std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > d_unit_arrays;
+        if (unit) {
+            d_unit_arrays = d_arrays;
+        } else {
+            auto &&[du, du_grad] = r_array_to_d_array(r_arrays, true, false, false, numOmpThreads);
+            (void) du_grad;
+            d_unit_arrays = std::move(du);
+        }
+        const auto &d_unit_shifted = array_shift(d_unit_arrays, nShift);
+        auto &&[a_overall_matrix, lambda_overall_vec] = dxyz_dunit_to_overall_modes(dxyz, d_unit_shifted);
+
+        relax_grad_list.at(i).resize(relax_list.size());
+        for (size_t r = 0; r < relax_list.size(); ++r) {
+            const auto &entry = relax_list[r];
+            auto &&[relax_vec, relax_grad] = a_matrix_to_relax(
+                a_int_matrix, lambda_int_vec, a_overall_matrix, lambda_overall_vec,
+                entry.spec_den_term_array, gradient, numOmpThreads);
+
+            const auto &value = entry.value.value();
+            const Eigen::Index n_value = value.rows();
+            assert(relax_vec.rows() == n_value);
+
+            for (Eigen::Index p = 0; p < n_value; ++p) {
+                relax_flat.push_back(relax_vec(p));
+                relax0_flat.push_back(value(p, 0));
+            }
+            // per-rate k: length 1 broadcasts, else length n_value; default 1
+            if (!entry.k.has_value()) {
+                for (Eigen::Index p = 0; p < n_value; ++p) k_flat.push_back(static_cast<KEnRef_Real>(1));
+            } else if (entry.k->rows() == 1) {
+                const KEnRef_Real kv = (*entry.k)(0, 0);
+                for (Eigen::Index p = 0; p < n_value; ++p) k_flat.push_back(kv);
+            } else {
+                assert(entry.k->rows() == n_value);
+                for (Eigen::Index p = 0; p < n_value; ++p) k_flat.push_back((*entry.k)(p, 0));
+            }
+
+            if (gradient) relax_grad_list.at(i).at(r) = std::move(relax_grad.value());
+        }
+    }
+
+    const Eigen::Index total = static_cast<Eigen::Index>(relax_flat.size());
+    Eigen::MatrixX<KEnRef_Real> relax = Eigen::Map<Eigen::VectorX<KEnRef_Real> >(relax_flat.data(), total);
+    Eigen::MatrixX<KEnRef_Real> relax0 = Eigen::Map<Eigen::VectorX<KEnRef_Real> >(relax0_flat.data(), total);
+    Eigen::Array<KEnRef_Real, Eigen::Dynamic, 1> k_vec =
+        Eigen::Map<Eigen::Array<KEnRef_Real, Eigen::Dynamic, 1> >(k_flat.data(), total);
+
+    // The loss is linear in its force constant, so evaluate with k=1 and scale by the
+    // per-rate k_vec (× the caller's scalar k) elementwise — matches R's vector-k loss.
+    const auto &[base_energy, base_grad] = power_scaled_loss_function(
+        relax, relax0, static_cast<KEnRef_Real>(1), n, gradient, numOmpThreads);
+
+    const KEnRef_Real value = (k * k_vec * base_energy.array().col(0)).sum();
+
+    std::optional<std::vector<CoordsMatrixType<KEnRef_Real> > > d_energy_d_coord_array;
+    if (gradient) {
+        // elementwise upstream gradient d(energy)/d(relax), scaled by k * k_vec
+        const Eigen::VectorX<KEnRef_Real> d_energy_d_relax_all =
+            (k * k_vec * base_grad.value().array().col(0)).matrix();
+
+        d_energy_d_coord_array = std::vector<CoordsMatrixType<KEnRef_Real> >(numModels);
+        for (int m = 0; m < numModels; ++m)
+            d_energy_d_coord_array->at(m) = CoordsMatrixType<KEnRef_Real>::Zero(coord_array[0].rows(), 3);
+
+        Eigen::Index offset = 0;
+        for (size_t i = 0; i < specDenSize; ++i) {
+            const auto &relaxData = spec_den_relax_data_list[i];
+            const auto &relax_list = relaxData.get_relax_data_list();
+            const Eigen::Index n_int = relaxData.get_a_coef().cols();
+            // a_int_matrix has n_data_rows rows; recover it from any stored relax gradient
+            const Eigen::Index n_pairs = relax_grad_list.at(i).at(0).rows();
+
+            Eigen::MatrixX<KEnRef_Real> d_energy_d_a_int = Eigen::MatrixX<KEnRef_Real>::Zero(n_pairs, n_int);
+            for (size_t r = 0; r < relax_list.size(); ++r) {
+                const Eigen::VectorX<KEnRef_Real> d_energy_d_relax = d_energy_d_relax_all.segment(offset, n_pairs);
+                offset += n_pairs;
+                d_energy_d_a_int += a_matrix_to_relax_backprop(relax_grad_list.at(i).at(r), d_energy_d_relax);
+            }
+
+            const auto &d_energy_d_g_matrix = g_matrix_to_a_matrix_backprop(relaxData.get_a_coef(), d_energy_d_a_int);
+            const auto &d_energy_d_d_array = d_array_to_g_matrix_backprop(g_matrix_grad_list.at(i), d_energy_d_g_matrix, 0);
+            const auto &d_energy_d_r_array = r_array_to_d_array_backprop(d_arrays_grad_list[i], d_energy_d_d_array, 0);
+
+            const auto &cache = relaxData.get_atomIdPairs_to_sub0Atom_id_pairs_cache();
+            const std::vector<std::tuple<int, int> > &atom_id_pairs =
+                cache.has_value() ? cache.value()
+                                  : atomNamePairs_2_atomIdPairs(relaxData.get_atom_pairs(), atomNames_2_atomIds);
+            const auto &gradients = coord_array_to_r_array_backprop(coord_array, atom_id_pairs, d_energy_d_r_array, 0);
+            for (int m = 0; m < numModels; ++m)
+                d_energy_d_coord_array->at(m) += gradients.at(m);
+        }
+        for (int m = 0; m < numModels; ++m)
+            d_energy_d_coord_array->at(m) *= static_cast<KEnRef_Real>(1e-10);
+    }
+    return {value, std::move(d_energy_d_coord_array)};
 }
 
 template class SpecDenDataBase<float>;

@@ -915,6 +915,94 @@ TEST(KEnRefTestSuite, testCoordArrayToSigmaEnergy) {
     }
 }
 
+// Relaxation-rate restraint energy + gradient end-to-end check against R's
+// coord_array_to_relax_energy() (demo/relax_deriv_check.R, isotropic diffusion).
+TEST(KEnRefTestSuite, testCoordArrayToRelaxEnergy) {
+    constexpr double k = 1;     // R power_scaled_loss default
+    constexpr double n = 1;     // R power_scaled_loss default p=1
+    constexpr const char* RELAX_DIR = "../../res/google_tests/relax/";
+
+    // rates: kens, kmethyl, karo, Dx=Dy=Dz (isotropic), from relax_deriv_check.R
+    const NamedRowVector<double> rates = Table(
+        {{"5.0e+08", "1.0e+12", "1.0e+04", "2.5e+08", "2.5e+08", "2.5e+08"}},
+        {{"kens", "kmethyl", "karo", "Dx", "Dy", "Dz"}}
+    ).toNamedRowVector<double>();
+
+    const auto atomNameMapping_to1 = IoUtils::getAtomMappingFromPdb<std::string, int>(
+        GB3_PROTON_FILENAME, IoUtils::fill_atomId_to_index_Map);
+    const bool handleNames = IoUtils::should_handleNames(atomNameMapping_to1);
+    const auto atomNameMapping = get_atomNameMapping<double>(atomNameMapping_to1, handleNames);
+
+    auto relax_data_list = IoUtils::load_spec_den_relax_data(RELAX_DIR, handleNames);
+    ASSERT_EQ(relax_data_list.size(), 6u);
+
+    // coord_array: models {0,2,4} (R's c(1,3,5))
+    auto coord_array = getAllModels_allAtomCoordsMatrix<double>(GB3_PROTON_FILENAME, {0, 2, 4});
+
+    const auto& [relax_energy, relax_energy_grad] = KEnRef<double>::coord_array_to_relax_energy(
+        coord_array, rates, relax_data_list, k, n, atomNameMapping, true, 0);
+
+    // expected energy from res/google_tests/relax/relax_energy.txt (R reference)
+    EXPECT_NEAR(relax_energy, 1840.2342988885609, 1e-2);
+
+    // gradient vs 2lum_relax_grad.csv (3 model-blocks of 423 rows: name, X, Y, Z)
+    std::ifstream instream(std::string(RELAX_DIR) + "2lum_relax_grad.csv");
+    ASSERT_TRUE(instream.is_open()) << "Cannot open 2lum_relax_grad.csv";
+    ASSERT_TRUE(relax_energy_grad.has_value());
+    for (int m = 0; m < 3; ++m) {
+        const auto model_grad = IoUtils::readTable(instream, true, true, "\\s*,\\s*", 423, false).toNamedMatrix<double>();
+        const auto& atomNames = model_grad.rowNames();
+        for (int i = 0; i < model_grad.rows(); ++i)
+            for (int j = 0; j < model_grad.cols(); ++j) {
+                const double expected = model_grad(i, j);
+                const auto normName   = IoUtils::normalizeName(atomNames[i], handleNames);
+                const double actual   = relax_energy_grad->at(m)(atomNameMapping.at(normName), j);
+                EXPECT_NEAR(expected, actual, 1e-4) << "model " << m << " atom " << atomNames[i] << " xyz " << j;
+            }
+    }
+}
+
+// coord_array_to_relax(): predicted per-pair relaxation rates vs R reference
+// (relax_pred.csv). Compared as a sorted multiset so the test is independent of
+// substructure-discovery order.
+TEST(KEnRefTestSuite, testCoordArrayToRelax) {
+    constexpr const char* RELAX_DIR = "../../res/google_tests/relax/";
+    const NamedRowVector<double> rates = Table(
+        {{"5.0e+08", "1.0e+12", "1.0e+04", "2.5e+08", "2.5e+08", "2.5e+08"}},
+        {{"kens", "kmethyl", "karo", "Dx", "Dy", "Dz"}}
+    ).toNamedRowVector<double>();
+
+    const auto atomNameMapping_to1 = IoUtils::getAtomMappingFromPdb<std::string, int>(
+        GB3_PROTON_FILENAME, IoUtils::fill_atomId_to_index_Map);
+    const bool handleNames = IoUtils::should_handleNames(atomNameMapping_to1);
+    const auto atomNameMapping = get_atomNameMapping<double>(atomNameMapping_to1, handleNames);
+
+    auto relax_data_list = IoUtils::load_spec_den_relax_data(RELAX_DIR, handleNames);
+    auto coord_array = getAllModels_allAtomCoordsMatrix<double>(GB3_PROTON_FILENAME, {0, 2, 4});
+
+    const auto relax = KEnRef<double>::coord_array_to_relax(
+        coord_array, rates, relax_data_list, atomNameMapping, 0);
+
+    std::vector<double> actual;
+    for (const auto& m : relax)
+        for (int j = 0; j < m.cols(); ++j)
+            for (int i = 0; i < m.rows(); ++i)
+                actual.push_back(m(i, j));
+
+    // expected values from R's coord_array_to_relax (relax_pred.csv, column "value")
+    auto predTable = IoUtils::readTable(std::string(RELAX_DIR) + "relax_pred.csv", true, false, "\\s*,\\s*", -1, false);
+    std::vector<double> expected;
+    expected.reserve(predTable.rowCount());
+    for (int r = 0; r < predTable.rowCount(); ++r)
+        expected.push_back(std::stod(predTable.at(r, "value")));
+
+    ASSERT_EQ(actual.size(), expected.size());
+    std::sort(actual.begin(), actual.end());
+    std::sort(expected.begin(), expected.end());
+    for (size_t i = 0; i < actual.size(); ++i)
+        EXPECT_NEAR(actual[i], expected[i], 1e-6) << "sorted index " << i;
+}
+
 TEST(KEnRefTestSuite, TestS2OrderParameters) {
     std::vector<std::string> files{
         "../../res/google_tests/ensemble_coord_model1.csv", "../../res/google_tests/ensemble_coord_model2.csv"
