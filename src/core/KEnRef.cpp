@@ -20,8 +20,9 @@
 //#include <utility>
 
 namespace {
-// Minimum number of rows below which the row-blocked kernels stay serial (thread-spawn cost would
+// Minimum number of rows below which the relaxation kernels stay serial (thread-spawn cost would
 // dominate). Env-configurable via KENREF_RELAX_PARALLEL_THRESHOLD (default 256), read once.
+// Shared by a_matrix_to_relax, a_matrix_to_relax_backprop and dxyz_dunit_to_overall_modes.
 Eigen::Index relax_parallel_threshold() {
     static const Eigen::Index threshold = []() -> Eigen::Index {
         if (const char *env = std::getenv("KENREF_RELAX_PARALLEL_THRESHOLD")) {
@@ -37,6 +38,8 @@ Eigen::Index relax_parallel_threshold() {
 // Pair-row block size for the vector r_array_to_d_array's collapse(2) parallelization. Env-tunable via
 // KENREF_DARRAY_BLOCK (default 256) so profiling can sweep it; a block >= N gives one block per model
 // (i.e. model-axis-only parallelism), a clean A/B against per-pair blocking. Read once.
+// Default 256 chosen from the June 2026 sweep (profiling/RESULTS.md): fastest 1-thread time and best
+// 8-thread scaling across configs; 128 was within ~7%.
 Eigen::Index darray_block_size() {
     static const Eigen::Index block = []() -> Eigen::Index {
         if (const char *env = std::getenv("KENREF_DARRAY_BLOCK")) {
@@ -235,8 +238,8 @@ KEnRef<KEnRef_Real>::r_array_to_d_array(const std::vector<CoordsMatrixType<KEnRe
 
 template<typename KEnRef_Real>
 void
-KEnRef<KEnRef_Real>::r_array_to_d_array_into(const std::vector<CoordsMatrixType<KEnRef_Real> > &models_Nxyz,
-                                             bool unit, bool gradient, bool addEpsilon, int numOmpThreads,
+KEnRef<KEnRef_Real>::r_array_to_d_array_into(const std::vector<CoordsMatrixType<KEnRef_Real> > &models_Nxyz, bool unit,
+                                             bool gradient, bool addEpsilon, int numOmpThreads,
                                              std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > &ret1,
                                              std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15> > &ret2) {
     const long M = static_cast<long>(models_Nxyz.size());
@@ -1566,14 +1569,7 @@ KEnRef<KEnRef_Real>::a_matrix_to_relax(
     // so there is no reduction and the result is bitwise-identical to the serial path. `numOmpThreads`
     // follows the project convention (0 => use as many threads as available). Small problems stay serial:
     // the minimum `pairs` to parallelize is env-configurable (KENREF_RELAX_PARALLEL_THRESHOLD, default 256).
-    [[maybe_unused]] static const Eigen::Index PARALLEL_THRESHOLD = []() -> Eigen::Index {
-        if (const char *env = std::getenv("KENREF_RELAX_PARALLEL_THRESHOLD")) {
-            char *end = nullptr;
-            const long v = std::strtol(env, &end, 10);
-            if (end != env && *end == '\0' && v >= 0) return static_cast<Eigen::Index>(v);
-        }
-        return 256;
-    }();
+    [[maybe_unused]] const Eigen::Index PARALLEL_THRESHOLD = relax_parallel_threshold();
     constexpr Eigen::Index BLOCK = 128;   // rows per chunk: SIMD-friendly, cache-resident, load-balanced
     const long nChunks = static_cast<long>((pairs + BLOCK - 1) / BLOCK);
 
@@ -1605,11 +1601,30 @@ Eigen::MatrixX<KEnRef_Real>
 KEnRef<KEnRef_Real>::a_matrix_to_relax_backprop(
     const Eigen::MatrixX<KEnRef_Real> &d_relax_d_a_matrix,
     const Eigen::VectorX<KEnRef_Real> &d_energy_d_relax,
-    const int /*numOmpThreads*/) {
+    const int numOmpThreads) {
     assert(d_relax_d_a_matrix.rows() == d_energy_d_relax.rows());
     // R: d_relax_d_a_matrix * d_energy_d_relax — the length-`pairs` upstream gradient
     // multiplies every column elementwise (R recycles the vector down each column).
-    return (d_relax_d_a_matrix.array().colwise() * d_energy_d_relax.array()).matrix();
+    const Eigen::Index pairs = d_relax_d_a_matrix.rows();
+    const Eigen::Index n_int = d_relax_d_a_matrix.cols();
+    Eigen::MatrixX<KEnRef_Real> result(pairs, n_int);
+
+    // Parallelize over contiguous row-blocks: each block writes disjoint rows of `result`, so the
+    // path is race-free and bitwise-identical to serial. The op is memory-bound (one multiply per
+    // element), so only large inputs are worth threading — same KENREF_RELAX_PARALLEL_THRESHOLD gate.
+    const Eigen::Index PARALLEL_THRESHOLD = relax_parallel_threshold();
+    constexpr Eigen::Index BLOCK = 128;
+    const long nChunks = static_cast<long>((pairs + BLOCK - 1) / BLOCK);
+
+#pragma omp parallel for num_threads(numOmpThreads) if(pairs >= PARALLEL_THRESHOLD) schedule(static)
+    for (long c = 0; c < nChunks; ++c) {
+        const Eigen::Index r0 = static_cast<Eigen::Index>(c) * BLOCK;
+        const Eigen::Index len = std::min<Eigen::Index>(BLOCK, pairs - r0);
+        result.middleRows(r0, len) =
+            (d_relax_d_a_matrix.middleRows(r0, len).array().colwise()
+             * d_energy_d_relax.segment(r0, len).array()).matrix();
+    }
+    return result;
 }
 
 template<typename KEnRef_Real>
@@ -1617,7 +1632,7 @@ std::tuple<Eigen::MatrixX<KEnRef_Real>, Eigen::RowVectorX<KEnRef_Real> >
 KEnRef<KEnRef_Real>::dxyz_dunit_to_overall_modes(
     const Eigen::Matrix<KEnRef_Real, 3, 1> &dxyz_vec,
     const std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > &dunit_a_array_shifted,
-    const KEnRef_Real tol, const int /*numOmpThreads*/) {
+    const KEnRef_Real tol, const int numOmpThreads) {
 
     assert(!dunit_a_array_shifted.empty());
     const KEnRef_Real dx = dxyz_vec(0);
@@ -1629,18 +1644,33 @@ KEnRef<KEnRef_Real>::dxyz_dunit_to_overall_modes(
     const size_t n_models = dunit_a_array_shifted.size();
     const KEnRef_Real inv_m = static_cast<KEnRef_Real>(1) / static_cast<KEnRef_Real>(n_models);
 
-    using Arr = Eigen::Array<KEnRef_Real, Eigen::Dynamic, 1>;
     // R: abs(a - b) <= tol * max(1, abs(a), abs(b))
     auto isClose = [tol](const KEnRef_Real a, const KEnRef_Real b) {
         return std::abs(a - b) <= tol * std::max(std::max(static_cast<KEnRef_Real>(1), std::abs(a)), std::abs(b));
     };
 
+    // The per-pair amplitudes reduce over models, but `pairs` is a free axis: we block over it and
+    // let each thread own a contiguous row-block of `a_overall` (disjoint writes → race-free and
+    // bitwise-identical to serial, since each pair is reduced over the same model order in one block).
+    // Block-local `len`-sized accumulators stay cache-resident, replacing the old full-`n_pairs`
+    // temporaries (one allocation per model). Size-gated on the shared KENREF_RELAX_PARALLEL_THRESHOLD.
+    const Eigen::Index PARALLEL_THRESHOLD = relax_parallel_threshold();
+    constexpr Eigen::Index BLOCK = 128;
+    const long nChunks = static_cast<long>((n_pairs + BLOCK - 1) / BLOCK);
+    using BlockArr = Eigen::Array<KEnRef_Real, Eigen::Dynamic, 1>;
+
     // ── Isotropic: Dx == Dy == Dz ────────────────────────────────────────────
     if (isClose(dx, dy) && isClose(dx, dz)) {
-        Arr acc = Arr::Zero(n_pairs);
-        for (size_t m = 0; m < n_models; ++m)
-            acc += dunit_a_array_shifted[m].array().square().rowwise().sum();
-        Eigen::MatrixX<KEnRef_Real> a_overall = (acc * inv_m).matrix();   // n_pairs x 1
+        Eigen::MatrixX<KEnRef_Real> a_overall(n_pairs, 1);
+#pragma omp parallel for num_threads(numOmpThreads) if(n_pairs >= PARALLEL_THRESHOLD) schedule(static)
+        for (long c = 0; c < nChunks; ++c) {
+            const Eigen::Index r0 = static_cast<Eigen::Index>(c) * BLOCK;
+            const Eigen::Index len = std::min<Eigen::Index>(BLOCK, n_pairs - r0);
+            BlockArr acc = BlockArr::Zero(len);
+            for (size_t m = 0; m < n_models; ++m)
+                acc += dunit_a_array_shifted[m].middleRows(r0, len).array().square().rowwise().sum();
+            a_overall.col(0).segment(r0, len) = (acc * inv_m).matrix();
+        }
         Eigen::RowVectorX<KEnRef_Real> lambda(1);
         lambda(0) = -6 * dx;
         return {std::move(a_overall), std::move(lambda)};
@@ -1648,17 +1678,22 @@ KEnRef<KEnRef_Real>::dxyz_dunit_to_overall_modes(
 
     // ── Axially symmetric: Dx == Dy ──────────────────────────────────────────
     if (isClose(dx, dy)) {
-        Arr c0 = Arr::Zero(n_pairs), c1 = Arr::Zero(n_pairs), c2 = Arr::Zero(n_pairs);
-        for (size_t m = 0; m < n_models; ++m) {
-            const auto &d = dunit_a_array_shifted[m];
-            c0 += d.col(0).array().square();
-            c1 += d.col(1).array().square() + d.col(4).array().square();
-            c2 += d.col(2).array().square() + d.col(3).array().square();
-        }
         Eigen::MatrixX<KEnRef_Real> a_overall(n_pairs, 3);
-        a_overall.col(0) = (c0 * inv_m).matrix();
-        a_overall.col(1) = (c1 * inv_m).matrix();
-        a_overall.col(2) = (c2 * inv_m).matrix();
+#pragma omp parallel for num_threads(numOmpThreads) if(n_pairs >= PARALLEL_THRESHOLD) schedule(static)
+        for (long c = 0; c < nChunks; ++c) {
+            const Eigen::Index r0 = static_cast<Eigen::Index>(c) * BLOCK;
+            const Eigen::Index len = std::min<Eigen::Index>(BLOCK, n_pairs - r0);
+            BlockArr c0 = BlockArr::Zero(len), c1 = BlockArr::Zero(len), c2 = BlockArr::Zero(len);
+            for (size_t m = 0; m < n_models; ++m) {
+                const auto d = dunit_a_array_shifted[m].middleRows(r0, len);
+                c0 += d.col(0).array().square();
+                c1 += d.col(1).array().square() + d.col(4).array().square();
+                c2 += d.col(2).array().square() + d.col(3).array().square();
+            }
+            a_overall.col(0).segment(r0, len) = (c0 * inv_m).matrix();
+            a_overall.col(1).segment(r0, len) = (c1 * inv_m).matrix();
+            a_overall.col(2).segment(r0, len) = (c2 * inv_m).matrix();
+        }
         Eigen::RowVectorX<KEnRef_Real> lambda(3);
         lambda(0) = -3 * (dx + dy);
         lambda(1) = -(2 * dx + 4 * dz);
@@ -1685,24 +1720,29 @@ KEnRef<KEnRef_Real>::dxyz_dunit_to_overall_modes(
     const KEnRef_Real cos_t = std::cos(theta);
     const KEnRef_Real sin_t = std::sin(theta);
 
-    Arr c0 = Arr::Zero(n_pairs), c1 = Arr::Zero(n_pairs), c2 = Arr::Zero(n_pairs),
-        c3 = Arr::Zero(n_pairs), c4 = Arr::Zero(n_pairs);
-    for (size_t m = 0; m < n_models; ++m) {
-        const auto &d = dunit_a_array_shifted[m];
-        const Arr mode1 = cos_t * d.col(0).array() + sin_t * d.col(1).array();
-        const Arr mode2 = -sin_t * d.col(0).array() + cos_t * d.col(1).array();
-        c0 += mode1.square();
-        c1 += mode2.square();
-        c2 += d.col(2).array().square();
-        c3 += d.col(3).array().square();
-        c4 += d.col(4).array().square();
-    }
     Eigen::MatrixX<KEnRef_Real> a_overall(n_pairs, 5);
-    a_overall.col(0) = (c0 * inv_m).matrix();
-    a_overall.col(1) = (c1 * inv_m).matrix();
-    a_overall.col(2) = (c2 * inv_m).matrix();
-    a_overall.col(3) = (c3 * inv_m).matrix();
-    a_overall.col(4) = (c4 * inv_m).matrix();
+#pragma omp parallel for num_threads(numOmpThreads) if(n_pairs >= PARALLEL_THRESHOLD) schedule(static)
+    for (long c = 0; c < nChunks; ++c) {
+        const Eigen::Index r0 = static_cast<Eigen::Index>(c) * BLOCK;
+        const Eigen::Index len = std::min<Eigen::Index>(BLOCK, n_pairs - r0);
+        BlockArr c0 = BlockArr::Zero(len), c1 = BlockArr::Zero(len), c2 = BlockArr::Zero(len),
+                 c3 = BlockArr::Zero(len), c4 = BlockArr::Zero(len);
+        for (size_t m = 0; m < n_models; ++m) {
+            const auto d = dunit_a_array_shifted[m].middleRows(r0, len);
+            const BlockArr mode1 = cos_t * d.col(0).array() + sin_t * d.col(1).array();
+            const BlockArr mode2 = -sin_t * d.col(0).array() + cos_t * d.col(1).array();
+            c0 += mode1.square();
+            c1 += mode2.square();
+            c2 += d.col(2).array().square();
+            c3 += d.col(3).array().square();
+            c4 += d.col(4).array().square();
+        }
+        a_overall.col(0).segment(r0, len) = (c0 * inv_m).matrix();
+        a_overall.col(1).segment(r0, len) = (c1 * inv_m).matrix();
+        a_overall.col(2).segment(r0, len) = (c2 * inv_m).matrix();
+        a_overall.col(3).segment(r0, len) = (c3 * inv_m).matrix();
+        a_overall.col(4).segment(r0, len) = (c4 * inv_m).matrix();
+    }
     return {std::move(a_overall), std::move(lambda)};
 }
 
@@ -1793,6 +1833,21 @@ KEnRef<KEnRef_Real>::coord_array_to_relax(
     return result;
 }
 
+// TODO(buffer-reuse): wire persistent scratch buffers through this stateless per-step function so a hot
+// large-N caller (MD refinement / the GMX force provider once relax is wired in) stops re-allocating and
+// first-touching its intermediates every step. Measured: at 3×300k pairs, reusing just r_array_to_d_array's
+// result buffers halves its 1-thread time (profiling/RESULTS.md §0). Steps:
+//   1. Add a RelaxEnergyScratch struct (or an _into overload) holding the reusable per-substructure
+//      intermediates: d_arrays/d_arrays_grad, d_unit_arrays, g buffers, a_int_matrix, the d_energy_d_*
+//      backprop matrices, and d_energy_d_coord_array. Caller owns it and reuses across steps.
+//   2. Replace the r_array_to_d_array(...) calls (both the dist d_arrays and the unit d_unit_arrays) with
+//      r_array_to_d_array_into(..., scratch.dX, scratch.dX_grad) — the reuse API already exists.
+//   3. Do the same for the other per-call allocations (the gradient chain dominates the page-fault cost).
+//   4. Gate by size / only enable for large-N callers: for the small relax-test data this is negligible
+//      and threading already hurts (run serial) — see RESULTS.md §3c. So land it together with the
+//      force-provider relax integration (and prime the atomId-pairs cache there, like the SIGMA branch).
+//   5. Re-validate bit-identical (relax energy+gradient vs R, and sigma FD), then re-bench the relax-energy
+//      pathway with reuse to confirm the win at production sizes.
 template<typename KEnRef_Real>
 std::tuple<KEnRef_Real, std::optional<std::vector<CoordsMatrixType<KEnRef_Real> > > >
 KEnRef<KEnRef_Real>::coord_array_to_relax_energy(
@@ -1878,16 +1933,20 @@ KEnRef<KEnRef_Real>::coord_array_to_relax_energy(
             const Eigen::Index n_value = value.rows();
             assert(relax_vec.rows() == n_value);
 
-            for (Eigen::Index p = 0; p < n_value; ++p) {
-                relax_flat.push_back(relax_vec(p));
-                relax0_flat.push_back(value(p, 0));
-            }
+            // Grow once per rate then bulk-append (relax_vec / value.col(0) are contiguous), avoiding
+            // O(total) reallocation churn from element-by-element push_back.
+            const size_t want = static_cast<size_t>(n_value);
+            relax_flat.reserve(relax_flat.size() + want);
+            relax0_flat.reserve(relax0_flat.size() + want);
+            k_flat.reserve(k_flat.size() + want);
+            relax_flat.insert(relax_flat.end(), relax_vec.data(), relax_vec.data() + n_value);
+            const auto value_col0 = value.col(0);
+            relax0_flat.insert(relax0_flat.end(), value_col0.data(), value_col0.data() + n_value);
             // per-rate k: length 1 broadcasts, else length n_value; default 1
             if (!entry.k.has_value()) {
-                for (Eigen::Index p = 0; p < n_value; ++p) k_flat.push_back(static_cast<KEnRef_Real>(1));
+                k_flat.insert(k_flat.end(), want, static_cast<KEnRef_Real>(1));
             } else if (entry.k->rows() == 1) {
-                const KEnRef_Real kv = (*entry.k)(0, 0);
-                for (Eigen::Index p = 0; p < n_value; ++p) k_flat.push_back(kv);
+                k_flat.insert(k_flat.end(), want, (*entry.k)(0, 0));
             } else {
                 assert(entry.k->rows() == n_value);
                 for (Eigen::Index p = 0; p < n_value; ++p) k_flat.push_back((*entry.k)(p, 0));

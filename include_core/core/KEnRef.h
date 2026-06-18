@@ -255,10 +255,11 @@ public:
     //                                                      x1d3,x2d3,x3d3,
     //                                                      x1d4,x2d4,x3d4,
     //                                                      x1d5,x2d5,x3d5>)
-	// Computes the d_array (+ optional gradient) for a contiguous row-range [startRow, startRow+numRows)
-	// of Nxyz. Defaults (startRow=0, numRows=-1) cover the whole matrix (original behavior); a sub-range
-	// processes just that batch of pair-rows (bit-for-bit identical — every op is per-row). Returned
-	// matrices have `numRows` (resolved block length) rows. The vector overload uses this for row-blocks.
+	// Computes the d_array (and optional gradient) for a contiguous row-range [startRow, startRow+numRows)
+	// of Nxyz. The defaults (startRow=0, numRows=-1) cover the whole matrix, reproducing the original
+	// whole-array behavior exactly; passing a sub-range processes just that batch of pair-rows (bit-for-bit
+	// identical, since every operation is per-row). The returned matrices have `numRows` (the resolved
+	// block length) rows. The vector overload below uses this to fill its result in independent row-blocks.
 	static std::tuple<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15> >
 	r_array_to_d_array(const CoordsMatrixType<KEnRef_Real> &Nxyz, bool unit = false, bool gradient = false, bool addEpsilon = false, int numOmpThreads = 0,
 	                   Eigen::Index startRow = 0, Eigen::Index numRows = -1);
@@ -271,9 +272,10 @@ public:
         bool unit = false, bool gradient = false, bool addEpsilon = false, int numOmpThreads = 0
 			);
 
-    // Buffer-reuse variant: fills caller-provided ret1/ret2 (resized in place) instead of returning fresh
-    // vectors. A caller that keeps them alive across calls (same model+pair counts) avoids re-allocating /
-    // re-faulting the [N×5] and [N×15] results every call. ret2 is filled only when `gradient`.
+    // Buffer-reuse variant of the above: fills the caller-provided ret1/ret2 (resized in place) instead
+    // of returning fresh vectors. A caller that keeps ret1/ret2 alive across calls (same model count and
+    // pair count) avoids re-allocating / re-faulting the [N×5] and [N×15] results every call — the hot
+    // per-step path for MD refinement. ret2 is filled only when `gradient` (else sized to 0 rows).
     static void
     r_array_to_d_array_into(
         const std::vector<CoordsMatrixType<KEnRef_Real> > &models_Nxyz,
