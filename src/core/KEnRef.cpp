@@ -21,11 +21,11 @@ template<typename KEnRef_Real>
 KEnRef_Real SpecDenData<KEnRef_Real>::getSigma(const std::tuple<std::string, std::string>& atomPairs) const {
     // const size_t pairId = atomNamePairs_to_atomPairIndex.at(atomPairs);
     // return getSigma(static_cast<const size_t>(pairId % sigma->size()));
-    return getSigma(atomNamePairs_to_atomPairIndex.at(atomPairs) % sigma->size());
+    return getSigma(this->atomNamePairs_to_atomPairIndex.at(atomPairs) % sigma->size());
 }
 
 template<typename KEnRef_Real>
-void SpecDenData<KEnRef_Real>::setAtomPairs(std::vector<std::tuple<std::string, std::string>> &atomPairs){
+void SpecDenDataBase<KEnRef_Real>::setAtomPairs(std::vector<std::tuple<std::string, std::string>> &atomPairs){
     this->atom_pairs = atomPairs;
     this->atomNamePairs_to_atomPairIndex.clear();
     for (int i = 0; i < atomPairs.size(); ++i) {
@@ -1435,6 +1435,8 @@ KEnRef<KEnRef_Real>::s2OrderParams(
     return group_s2;
 }
 
+template class SpecDenDataBase<float>;
+template class SpecDenDataBase<double>;
 template class SpecDenData<float>;
 template class SpecDenData<double>;
 template class KEnRef<float>;
