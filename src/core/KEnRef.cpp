@@ -1537,6 +1537,8 @@ template class SpecDenDataBase<float>;
 template class SpecDenDataBase<double>;
 template class SpecDenData<float>;
 template class SpecDenData<double>;
+template class SpecDenRelaxData<float>;
+template class SpecDenRelaxData<double>;
 template class KEnRef<float>;
 template class KEnRef<double>;
 #undef VERBOSE
