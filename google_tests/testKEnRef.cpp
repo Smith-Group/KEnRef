@@ -1146,66 +1146,6 @@ TEST(KEnRefTestSuite, TestCoordArrayToSigmaEnergyFD) {
               << "  Max|diff|=" << overall_max_diff << "\n";
 }
 
-// ---------------------------------------------------------------------------
-// Benchmark of the vector r_array_to_d_array (gradient path), DISABLED by default.
-// Sweeps OpenMP thread counts (overridable via KENREF_BENCH_THREADS) and reports
-// ms/call + speedup. Block size via KENREF_DARRAY_BLOCK (sweep across processes;
-// a block >= N == model-axis-only parallelism). KENREF_DARRAY_REUSE=1 uses the
-// buffer-reuse overload (r_array_to_d_array_into) instead of fresh allocation.
-//   ./Google_tests_kenref_core_exe --gtest_also_run_disabled_tests \
-//     --gtest_filter='*RArrayToDArrayBlockThreadSweep*'
-// ---------------------------------------------------------------------------
-TEST(KEnRefBench, DISABLED_RArrayToDArrayBlockThreadSweep) {
-    using R = double;
-    const char* blkEnv = std::getenv("KENREF_DARRAY_BLOCK");
-    const std::string blkStr = blkEnv ? blkEnv : "256 (default)";
-    const bool reuse = std::getenv("KENREF_DARRAY_REUSE") != nullptr;
-
-    struct Cfg { int M; long N; int iters; };
-    const std::vector<Cfg> cfgs = {{3, 2000, 200}, {3, 50000, 50}, {8, 50000, 30}, {3, 300000, 20}};
-    const std::vector<int> threads = benchThreadList({1, 2, 4, 8, 16, 0}); // 0 == "all"
-
-    std::printf("\n# r_array_to_d_array (gradient)  |  KENREF_DARRAY_BLOCK = %s  |  buffers = %s\n",
-                blkStr.c_str(), reuse ? "REUSED (_into)" : "fresh-alloc");
-    std::printf("# %-7s %-8s %-8s %-12s %-9s\n", "models", "pairs", "threads", "ms/call", "vs 1-thread");
-
-    for (const auto& cfg : cfgs) {
-        std::mt19937 gen(20260617u);
-        std::uniform_real_distribution<R> d(0.15e-9, 0.6e-9); // internuclear vectors, ~A in meters
-        std::vector<CoordsMatrixType<R>> models(cfg.M);
-        for (int m = 0; m < cfg.M; ++m)
-            models[m] = CoordsMatrixType<R>::NullaryExpr(cfg.N, 3, [&]() { return d(gen); });
-
-        std::vector<Eigen::Matrix<R, Eigen::Dynamic, 5>> ret1;
-        std::vector<Eigen::Matrix<R, Eigen::Dynamic, 15>> ret2;
-
-        double baseMs = 0.0;
-        for (int t : threads) {
-            volatile R sink = 0;
-            {
-                if (reuse) KEnRef<R>::r_array_to_d_array_into(models, false, true, false, t, ret1, ret2);
-                else { auto w = KEnRef<R>::r_array_to_d_array(models, false, true, false, t); ret1 = std::move(std::get<0>(w)); ret2 = std::move(std::get<1>(w)); }
-                sink += ret1[0](0, 0);
-            }
-            const auto t0 = std::chrono::steady_clock::now();
-            for (int it = 0; it < cfg.iters; ++it) {
-                if (reuse) {
-                    KEnRef<R>::r_array_to_d_array_into(models, false, true, false, t, ret1, ret2);
-                    sink += ret1[0](0, 0) + ret2[0](0, 0);
-                } else {
-                    auto r = KEnRef<R>::r_array_to_d_array(models, false, true, false, t);
-                    sink += std::get<0>(r)[0](0, 0) + std::get<1>(r)[0](0, 0);
-                }
-            }
-            const auto t1 = std::chrono::steady_clock::now();
-            const double ms = std::chrono::duration<double, std::milli>(t1 - t0).count() / cfg.iters;
-            if (t == 1) baseMs = ms;
-            const std::string tlabel = (t == 0) ? "all" : std::to_string(t);
-            std::printf("  %-7d %-8ld %-8s %-12.3f %-9.2f\n", cfg.M, cfg.N, tlabel.c_str(), ms, baseMs / ms);
-            (void) sink;
-        }
-    }
-    SUCCEED();
 // a_matrix_to_relax: port of a_matrix_to_relax() in ke.R. Hand-computed reference for
 // 1 pair, 2 terms, 2 internal eigenvalues, 1 overall mode.
 //   a_int = [2, 3], lambda_int = [-3, -5], a_overall = [5], lambda_overall = [-1]
@@ -1236,4 +1176,142 @@ TEST(KEnRefTestSuite, AMatrixToRelaxKernel) {
     auto [value2, grad2] = KEnRef<Real>::a_matrix_to_relax(a_int, lambda_int, a_overall, lambda_overall, sdt, false);
     EXPECT_NEAR(value2(0), 0.5638113189451191, 1e-9);
     EXPECT_FALSE(grad2.has_value());
+}
+
+// ---------------------------------------------------------------------------
+// Profiling harness for the vector r_array_to_d_array (gradient path) — DISABLED
+// by default. Run with:
+//   for B in 100000000 64 128 256 512; do \
+//     KENREF_DARRAY_BLOCK=$B ./Google_tests_kenref_core_exe \
+//       --gtest_also_run_disabled_tests \
+//       --gtest_filter='*RArrayToDArrayBlockThreadSweep*'; done
+// The block size is read once per process, so sweep it across process invocations
+// (B >= N == one block per model == model-axis-only parallelism: the A/B baseline).
+// Within a process it sweeps OpenMP thread counts and prints ms/call + speedup.
+// ---------------------------------------------------------------------------
+TEST(KEnRefBench, DISABLED_RArrayToDArrayBlockThreadSweep) {
+    using R = double;
+    const char* blkEnv = std::getenv("KENREF_DARRAY_BLOCK");
+    const std::string blkStr = blkEnv ? blkEnv : "256 (default)";
+    // KENREF_DARRAY_REUSE=1 -> reuse persistent ret1/ret2 buffers via r_array_to_d_array_into (no
+    // per-call allocation/first-touch); default -> fresh-allocating returning overload.
+    const bool reuse = std::getenv("KENREF_DARRAY_REUSE") != nullptr;
+
+    struct Cfg { int M; long N; int iters; };
+    const std::vector<Cfg> cfgs = {{3, 2000, 200}, {3, 50000, 50}, {8, 50000, 30}, {3, 300000, 20}};
+    const std::vector<int> threads = benchThreadList({1, 2, 4, 8, 16, 0}); // 0 == "all" (project convention)
+
+    std::printf("\n# r_array_to_d_array (gradient)  |  KENREF_DARRAY_BLOCK = %s  |  buffers = %s\n",
+                blkStr.c_str(), reuse ? "REUSED (_into)" : "fresh-alloc");
+    std::printf("# %-7s %-8s %-8s %-12s %-9s\n", "models", "pairs", "threads", "ms/call", "vs 1-thread");
+
+    for (const auto& cfg : cfgs) {
+        std::mt19937 gen(20260617u);
+        std::uniform_real_distribution<R> d(0.15e-9, 0.6e-9); // internuclear vectors, ~Å in meters
+        std::vector<CoordsMatrixType<R>> models(cfg.M);
+        for (int m = 0; m < cfg.M; ++m)
+            models[m] = CoordsMatrixType<R>::NullaryExpr(cfg.N, 3, [&]() { return d(gen); });
+
+        // persistent buffers for the reuse path (allocated once here, refilled in place each call)
+        std::vector<Eigen::Matrix<R, Eigen::Dynamic, 5>> ret1;
+        std::vector<Eigen::Matrix<R, Eigen::Dynamic, 15>> ret2;
+
+        double baseMs = 0.0;
+        for (int t : threads) {
+            volatile R sink = 0;
+            { // warm-up (allocation / first-touch not timed)
+                if (reuse) KEnRef<R>::r_array_to_d_array_into(models, false, true, false, t, ret1, ret2);
+                else { auto w = KEnRef<R>::r_array_to_d_array(models, false, true, false, t); ret1 = std::move(std::get<0>(w)); ret2 = std::move(std::get<1>(w)); }
+                sink += ret1[0](0, 0);
+            }
+            const auto t0 = std::chrono::steady_clock::now();
+            for (int it = 0; it < cfg.iters; ++it) {
+                if (reuse) {
+                    KEnRef<R>::r_array_to_d_array_into(models, false, true, false, t, ret1, ret2);
+                    sink += ret1[0](0, 0) + ret2[0](0, 0);
+                } else {
+                    auto r = KEnRef<R>::r_array_to_d_array(models, false, true, false, t);
+                    sink += std::get<0>(r)[0](0, 0) + std::get<1>(r)[0](0, 0); // defeat DCE
+                }
+            }
+            const auto t1 = std::chrono::steady_clock::now();
+            const double ms = std::chrono::duration<double, std::milli>(t1 - t0).count() / cfg.iters;
+            if (t == 1) baseMs = ms;
+            const std::string tlabel = (t == 0) ? "all" : std::to_string(t);
+            std::printf("  %-7d %-8ld %-8s %-12.3f %-9.2f\n",
+                        cfg.M, cfg.N, tlabel.c_str(), ms, baseMs / ms);
+            (void) sink;
+        }
+    }
+    SUCCEED();
+}
+
+// ---------------------------------------------------------------------------
+// End-to-end benchmark of the relax-energy pathway (gradient), DISABLED by
+// default. Unlike testCoordArrayToRelaxEnergy, all fixtures (PDB atom mapping,
+// spec_den_relax_data, coordinates) are loaded ONCE up front so the one-time
+// std::regex name-normalization / file parsing does NOT pollute the timing or a
+// perf profile of this test. The timed loop averages many compute-only calls and
+// sweeps OpenMP thread counts (incl. 16). Run with:
+//   ./Google_tests_kenref_core_exe --gtest_also_run_disabled_tests \
+//     --gtest_filter='*RelaxEnergyThreadSweep*'
+// (must run from a build's google_tests/ dir so RELAX_DIR resolves).
+// ---------------------------------------------------------------------------
+TEST(KEnRefBench, DISABLED_RelaxEnergyThreadSweep) {
+    using R = double;
+    constexpr R k = 1, n = 1;
+    constexpr const char* RELAX_DIR = "../../res/google_tests/relax/";
+
+    // ---- load all data ONCE (untimed) ----
+    const NamedRowVector<R> rates = Table(
+        {{"5.0e+08", "1.0e+12", "1.0e+04", "2.5e+08", "2.5e+08", "2.5e+08"}},
+        {{"kens", "kmethyl", "karo", "Dx", "Dy", "Dz"}}
+    ).toNamedRowVector<R>();
+    const auto atomNameMapping_to1 = IoUtils::getAtomMappingFromPdb<std::string, int>(
+        GB3_PROTON_FILENAME, IoUtils::fill_atomId_to_index_Map);
+    const bool handleNames = IoUtils::should_handleNames(atomNameMapping_to1);
+    const auto atomNameMapping = get_atomNameMapping<R>(atomNameMapping_to1, handleNames);
+    auto relax_data_list = IoUtils::load_spec_den_relax_data(RELAX_DIR, handleNames);
+    ASSERT_EQ(relax_data_list.size(), 6u);
+    // Prime the atom-id-pairs cache ONCE, exactly as coord_array_to_sigma_energy relies on (the GMX
+    // force provider does this for the SIGMA model, KEnRefForceProvider.cpp ~691). Relax is not wired
+    // into the force provider yet, so we prime it here; otherwise coord_array_to_relax_energy re-resolves
+    // atom names via std::map on every call (the ~22% hotspot seen when the cache is empty). When relax
+    // is wired into the force provider, populate the cache there in a relax branch like the sigma one.
+    for (auto& rd : relax_data_list)
+        rd.set_atomIdPairs_to_sub0Atom_id_pairs_cache(
+            {KEnRef<R>::atomNamePairs_2_atomIdPairs(rd.get_atom_pairs(), atomNameMapping)});
+    const auto coord_master = getAllModels_allAtomCoordsMatrix<R>(GB3_PROTON_FILENAME, {0, 2, 4});
+
+    const std::vector<int> threads = benchThreadList({1, 2, 4, 8, 16, 0}); // 0 == "all"
+    const int iters = 300;
+
+    std::printf("\n# coord_array_to_relax_energy (gradient)  |  data loaded once, %d-iter average\n", iters);
+    std::printf("# %-8s %-12s %-11s\n", "threads", "ms/call", "vs 1-thread");
+
+    double baseMs = 0.0;
+    for (int t : threads) {
+        // coord_array_to_relax_energy scales coords in place (Å->m), so each call needs a fresh
+        // Å copy; the copy is a few hundred atoms x 3 models (~tens of KB) and is included in the
+        // timing (it is part of feeding the kernel, not parsing).
+        { auto cc = coord_master; // warm-up (not timed)
+          volatile R s = std::get<0>(KEnRef<R>::coord_array_to_relax_energy(
+              cc, rates, relax_data_list, k, n, atomNameMapping, true, t)); (void) s; }
+
+        volatile R sink = 0;
+        const auto t0 = std::chrono::steady_clock::now();
+        for (int it = 0; it < iters; ++it) {
+            auto cc = coord_master;
+            auto res = KEnRef<R>::coord_array_to_relax_energy(
+                cc, rates, relax_data_list, k, n, atomNameMapping, true, t);
+            sink += std::get<0>(res);
+        }
+        const auto t1 = std::chrono::steady_clock::now();
+        const double ms = std::chrono::duration<double, std::milli>(t1 - t0).count() / iters;
+        if (t == 1) baseMs = ms;
+        const std::string tlabel = (t == 0) ? "all" : std::to_string(t);
+        std::printf("  %-8s %-12.4f %-11.2f\n", tlabel.c_str(), ms, baseMs / ms);
+        (void) sink;
+    }
+    SUCCEED();
 }
