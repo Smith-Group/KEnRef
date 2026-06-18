@@ -128,8 +128,13 @@ public:
     //                                                      x1d3,x2d3,x3d3,
     //                                                      x1d4,x2d4,x3d4,
     //                                                      x1d5,x2d5,x3d5>)
+	// Computes the d_array (+ optional gradient) for a contiguous row-range [startRow, startRow+numRows)
+	// of Nxyz. Defaults (startRow=0, numRows=-1) cover the whole matrix (original behavior); a sub-range
+	// processes just that batch of pair-rows (bit-for-bit identical — every op is per-row). Returned
+	// matrices have `numRows` (resolved block length) rows. The vector overload uses this for row-blocks.
 	static std::tuple<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15> >
-	r_array_to_d_array(const CoordsMatrixType<KEnRef_Real> &Nxyz, bool gradient = false, bool addEpsilon = false, int numOmpThreads = 0);
+	r_array_to_d_array(const CoordsMatrixType<KEnRef_Real> &Nxyz, bool gradient = false, bool addEpsilon = false, int numOmpThreads = 0,
+	                   Eigen::Index startRow = 0, Eigen::Index numRows = -1);
 
     //return tuple where item0 is dipole-dipole interaction tensors (model<pairs, 5_tensor_elements>)
     //item1 is derivatives (It is a vector of 2D Matrix (models<pairId, (5_tensor_elements * XYZ)>).
@@ -138,6 +143,16 @@ public:
         const std::vector<CoordsMatrixType<KEnRef_Real> > &models_Nxyz, //model<pairID, XYZ>
         bool gradient = false, bool addEpsilon = false, int numOmpThreads = 0
 			);
+
+    // Buffer-reuse variant: fills caller-provided ret1/ret2 (resized in place) instead of returning fresh
+    // vectors. A caller that keeps them alive across calls (same model+pair counts) avoids re-allocating /
+    // re-faulting the [N×5] and [N×15] results every call. ret2 is filled only when `gradient`.
+    static void
+    r_array_to_d_array_into(
+        const std::vector<CoordsMatrixType<KEnRef_Real> > &models_Nxyz,
+        bool gradient, bool addEpsilon, int numOmpThreads,
+        std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > &ret1,
+        std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15> > &ret2);
 
 
     /** Calculate group norm squared from dipole-dipole interaction tensors, and optionally their gradients in the 5 tensor dimensions.
