@@ -8,6 +8,8 @@
 // #include <omp.h>
 #include <limits>
 #include <memory>
+#include <cstdlib>
+#include <algorithm>
 // #include <Eigen/Dense>
 #include "core/KEnRef.h"
 //#include <iostream>//for testing only
@@ -16,6 +18,37 @@
 
 #include "core/IoUtils.h"
 //#include <utility>
+
+namespace {
+// Minimum number of rows below which the row-blocked kernels stay serial (thread-spawn cost would
+// dominate). Env-configurable via KENREF_RELAX_PARALLEL_THRESHOLD (default 256), read once.
+Eigen::Index relax_parallel_threshold() {
+    static const Eigen::Index threshold = []() -> Eigen::Index {
+        if (const char *env = std::getenv("KENREF_RELAX_PARALLEL_THRESHOLD")) {
+            char *end = nullptr;
+            const long v = std::strtol(env, &end, 10);
+            if (end != env && *end == '\0' && v >= 0) return static_cast<Eigen::Index>(v);
+        }
+        return 256;
+    }();
+    return threshold;
+}
+
+// Pair-row block size for the vector r_array_to_d_array's collapse(2) parallelization. Env-tunable via
+// KENREF_DARRAY_BLOCK (default 256) so profiling can sweep it; a block >= N gives one block per model
+// (i.e. model-axis-only parallelism), a clean A/B against per-pair blocking. Read once.
+Eigen::Index darray_block_size() {
+    static const Eigen::Index block = []() -> Eigen::Index {
+        if (const char *env = std::getenv("KENREF_DARRAY_BLOCK")) {
+            char *end = nullptr;
+            const long v = std::strtol(env, &end, 10);
+            if (end != env && *end == '\0' && v > 0) return static_cast<Eigen::Index>(v);
+        }
+        return 256;
+    }();
+    return block;
+}
+} // namespace
 
 template<typename KEnRef_Real>
 KEnRef_Real SpecDenData<KEnRef_Real>::getSigma(const std::tuple<std::string, std::string>& atomPairs) const {
@@ -84,13 +117,17 @@ KEnRef<KEnRef_Real>::array_shift(const std::vector<Eigen::Matrix<KEnRef_Real, Ei
 template<typename KEnRef_Real>
 std::tuple<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5>, Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15> >
 KEnRef<KEnRef_Real>::r_array_to_d_array(const CoordsMatrixType<KEnRef_Real> &Nxyz, bool gradient, bool addEpsilon,
-                                        int numOmpThreads) {
+                                        int /*numOmpThreads*/, Eigen::Index startRow, Eigen::Index numRows) {
     //	std::cout << "r_array_to_d_array(Nxyz) called" << std::endl;
-    const auto N = Nxyz.rows();
+    // Process the contiguous row-range [startRow, startRow+N). Default (startRow=0, numRows<0) => whole
+    // matrix, identical to the original. Restricting to a sub-batch is bit-for-bit identical because every
+    // operation below is per-row; this is what lets the vector overload fill its result in row-blocks.
+    const Eigen::Index N = (numRows < 0) ? (Nxyz.rows() - startRow) : numRows;
+    assert(startRow >= 0 && N >= 0 && startRow + N <= Nxyz.rows());
 
-    const auto& x = Nxyz.col(0).array();
-    const auto& y = Nxyz.col(1).array();
-    const auto& z = Nxyz.col(2).array();
+    const auto x = Nxyz.col(0).segment(startRow, N).array();
+    const auto y = Nxyz.col(1).segment(startRow, N).array();
+    const auto z = Nxyz.col(2).segment(startRow, N).array();
     constexpr auto half = static_cast<KEnRef_Real>(0.5);
     constexpr auto two = static_cast<KEnRef_Real>(2.0);
     constexpr auto five = static_cast<KEnRef_Real>(5.0);
@@ -183,16 +220,60 @@ std::tuple<std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> >, std::vec
 KEnRef<KEnRef_Real>::r_array_to_d_array(const std::vector<CoordsMatrixType<KEnRef_Real> > &models_Nxyz, bool gradient,
                                         bool addEpsilon, int numOmpThreads) {
     //	std::cout << "r_array_to_d_array(models_Nxyz) called" << std::endl;
+    // Fresh-allocation convenience wrapper: delegates to the buffer-reuse overload below. For a hot
+    // per-step caller (e.g. MD refinement), prefer r_array_to_d_array_into() with persistent buffers to
+    // avoid re-allocating (and re-faulting) the [N×5]/[N×15] results every call.
     std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > ret1;
     std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15> > ret2;
-    ret1.reserve(models_Nxyz.size());
-    ret2.reserve(models_Nxyz.size());
-    for (const auto &Nxyz: models_Nxyz) {
-        auto [arr1, arr2] = r_array_to_d_array(Nxyz, gradient, addEpsilon, numOmpThreads);
-        ret1.emplace_back(arr1);
-        ret2.emplace_back(arr2);
+    r_array_to_d_array_into(models_Nxyz, gradient, addEpsilon, numOmpThreads, ret1, ret2);
+    return {std::move(ret1), std::move(ret2)};
+}
+
+template<typename KEnRef_Real>
+void
+KEnRef<KEnRef_Real>::r_array_to_d_array_into(const std::vector<CoordsMatrixType<KEnRef_Real> > &models_Nxyz,
+                                             bool gradient, bool addEpsilon, int numOmpThreads,
+                                             std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> > &ret1,
+                                             std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 15> > &ret2) {
+    const long M = static_cast<long>(models_Nxyz.size());
+    // Buffer reuse: resize the caller's vectors/matrices to the needed shape. Eigen's resize() is a no-op
+    // when the size is unchanged, so a caller that reuses the same ret1/ret2 across calls (same M, N) does
+    // NOT re-allocate or re-fault those pages after the first call — eliminating the per-call result
+    // allocation / first-touch cost. A fresh (empty) ret1/ret2 simply allocates once here, as before.
+    ret1.resize(M);
+    ret2.resize(M);
+    if (M == 0) return;
+
+    // All models share the same pair count (same atom_id_pairs), so N is taken once and the (model,
+    // pair-block) grid is rectangular — required for collapse(2).
+    const Eigen::Index N = models_Nxyz[0].rows();
+    for (long m = 0; m < M; ++m) {
+        assert(models_Nxyz[m].rows() == N);
+        ret1[m].resize(N, 5);
+        ret2[m].resize(gradient ? N : Eigen::Index(0), 15);
     }
-    return {ret1, ret2};
+
+    // The single-model kernel is pure (unthreaded) Eigen, so this wrapper is the only place its work gets
+    // multi-threaded. Both the model axis AND the pair axis are free (no reduction), so collapse(2) over
+    // (model, pair-block) exposes M*nBlocks independent units in one flat parallel region — this lifts the
+    // ceiling of model-only parallelism for the common few-models/many-pairs case. Each unit fills disjoint
+    // middleRows of its own model's ret1/ret2, so it is race-free and order-preserving => bitwise-identical
+    // to serial. Block size is env-tunable (KENREF_DARRAY_BLOCK, default 256); a block >= N gives one block
+    // per model, i.e. model-axis-only parallelism (a clean profiling A/B). Size-gated on N.
+    const Eigen::Index BLOCK = darray_block_size();
+    const Eigen::Index PARALLEL_THRESHOLD = relax_parallel_threshold();
+    const long nBlocks = static_cast<long>((N + BLOCK - 1) / BLOCK);
+#pragma omp parallel for collapse(2) num_threads(numOmpThreads) \
+    if((M * nBlocks) > 1 && N >= PARALLEL_THRESHOLD) schedule(static)
+    for (long m = 0; m < M; ++m) {
+        for (long b = 0; b < nBlocks; ++b) {
+            const Eigen::Index r0 = static_cast<Eigen::Index>(b) * BLOCK;
+            const Eigen::Index len = std::min<Eigen::Index>(BLOCK, N - r0);
+            auto arrs = r_array_to_d_array(models_Nxyz[m], gradient, addEpsilon, numOmpThreads, r0, len);
+            ret1[m].middleRows(r0, len) = std::move(std::get<0>(arrs));
+            if (gradient) ret2[m].middleRows(r0, len) = std::move(std::get<1>(arrs));
+        }
+    }
 }
 
 template<typename KEnRef_Real>
@@ -970,23 +1051,12 @@ KEnRef<KEnRef_Real>::g_matrix_to_a_matrix_backprop(
     const Eigen::MatrixX<KEnRef_Real> &d_energy_d_a_matrix,
     int numOmpThreads) {
 
-    const int num_pairs = d_energy_d_a_matrix.rows();      // Number of atom pairs
-    const int num_groupings = a_coef.rows();               // Number of groupings //TODO not sure about the name
-    // const int num_eigenvalues = d_energy_d_a_matrix.cols(); // Number of eigenvalues
-
-    // Initialize output matrix with zeros
-    Eigen::MatrixX<KEnRef_Real> d_energy_d_g_matrix = Eigen::MatrixX<KEnRef_Real>::Zero(num_pairs, num_groupings);
-
-    // Backpropagation: d_energy/d_g = sum_j (d_energy/d_a_j * da_j/d_g)
-    for (int i = 0; i < num_groupings; ++i) {          // Loop over groupings (rows of a_coef)
-        for (int j = 0; j < a_coef.cols(); ++j) {      // Loop over eigenvalues (columns of a_coef)
-            const auto a_coef_i_j = a_coef(i, j);
-            if (a_coef_i_j != KEnRef_Real(0)) {      // Only for non-zero coefficients
-                d_energy_d_g_matrix.col(i) += d_energy_d_a_matrix.col(j) * a_coef_i_j;
-            }
-        }
-    }
-    return d_energy_d_g_matrix;
+    // Backpropagation: d_energy/d_g(:,i) = sum_j d_energy/d_a(:,j) * a_coef(i,j) == d_energy_d_a_matrix * a_coef^T.
+    // This is the transpose-GEMM mirror of the forward g_matrix_to_a_matrix (a_matrix = g_matrix * a_coef):
+    // Eigen runs it parallel for large operands, SIMD-vectorized and deterministically, replacing the manual
+    // per-column accumulation. The old `if (a_coef(i,j) != 0)` sparsity guard is unnecessary — exact-zero
+    // coefficients contribute exactly zero to the product, so the result is unchanged.
+    return d_energy_d_a_matrix * a_coef.transpose();
 }
 
 template<typename KEnRef_Real>
