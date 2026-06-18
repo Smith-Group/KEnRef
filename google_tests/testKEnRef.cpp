@@ -2,16 +2,32 @@
 #include <Eigen/Core>
 #include <Eigen/src/Core/Matrix.h>
 #include <Eigen/src/Core/util/Constants.h>
+#include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <numeric>
+#include <random>
 #include <set>
+#include <sstream>
+#include <string>
 #include <vector>
 
 #include "core/KEnRef.h"
 #include "core/IoUtils.h"
 #include "testHelper.h"
+
+// Benchmark helper: OpenMP thread counts to sweep, overridable via KENREF_BENCH_THREADS
+// (comma-separated, e.g. "1" to pin a clean single-thread perf profile, or "1,8,0").
+static std::vector<int> benchThreadList(const std::vector<int>& dflt) {
+    if (const char* e = std::getenv("KENREF_BENCH_THREADS")) {
+        std::vector<int> v; std::stringstream ss(e); std::string tok;
+        while (std::getline(ss, tok, ',')) if (!tok.empty()) v.push_back(std::stoi(tok));
+        if (!v.empty()) return v;
+    }
+    return dflt;
+}
 
 Eigen::IOFormat fullPrecisionFmt(Eigen::FullPrecision);
 
@@ -1040,4 +1056,66 @@ TEST(KEnRefTestSuite, TestCoordArrayToSigmaEnergyFD) {
 
     std::cout << "Overall Max|anal|=" << overall_max_analytical
               << "  Max|diff|=" << overall_max_diff << "\n";
+}
+
+// ---------------------------------------------------------------------------
+// Benchmark of the vector r_array_to_d_array (gradient path), DISABLED by default.
+// Sweeps OpenMP thread counts (overridable via KENREF_BENCH_THREADS) and reports
+// ms/call + speedup. Block size via KENREF_DARRAY_BLOCK (sweep across processes;
+// a block >= N == model-axis-only parallelism). KENREF_DARRAY_REUSE=1 uses the
+// buffer-reuse overload (r_array_to_d_array_into) instead of fresh allocation.
+//   ./Google_tests_kenref_core_exe --gtest_also_run_disabled_tests \
+//     --gtest_filter='*RArrayToDArrayBlockThreadSweep*'
+// ---------------------------------------------------------------------------
+TEST(KEnRefBench, DISABLED_RArrayToDArrayBlockThreadSweep) {
+    using R = double;
+    const char* blkEnv = std::getenv("KENREF_DARRAY_BLOCK");
+    const std::string blkStr = blkEnv ? blkEnv : "256 (default)";
+    const bool reuse = std::getenv("KENREF_DARRAY_REUSE") != nullptr;
+
+    struct Cfg { int M; long N; int iters; };
+    const std::vector<Cfg> cfgs = {{3, 2000, 200}, {3, 50000, 50}, {8, 50000, 30}, {3, 300000, 20}};
+    const std::vector<int> threads = benchThreadList({1, 2, 4, 8, 16, 0}); // 0 == "all"
+
+    std::printf("\n# r_array_to_d_array (gradient)  |  KENREF_DARRAY_BLOCK = %s  |  buffers = %s\n",
+                blkStr.c_str(), reuse ? "REUSED (_into)" : "fresh-alloc");
+    std::printf("# %-7s %-8s %-8s %-12s %-9s\n", "models", "pairs", "threads", "ms/call", "vs 1-thread");
+
+    for (const auto& cfg : cfgs) {
+        std::mt19937 gen(20260617u);
+        std::uniform_real_distribution<R> d(0.15e-9, 0.6e-9); // internuclear vectors, ~A in meters
+        std::vector<CoordsMatrixType<R>> models(cfg.M);
+        for (int m = 0; m < cfg.M; ++m)
+            models[m] = CoordsMatrixType<R>::NullaryExpr(cfg.N, 3, [&]() { return d(gen); });
+
+        std::vector<Eigen::Matrix<R, Eigen::Dynamic, 5>> ret1;
+        std::vector<Eigen::Matrix<R, Eigen::Dynamic, 15>> ret2;
+
+        double baseMs = 0.0;
+        for (int t : threads) {
+            volatile R sink = 0;
+            {
+                if (reuse) KEnRef<R>::r_array_to_d_array_into(models, true, false, t, ret1, ret2);
+                else { auto w = KEnRef<R>::r_array_to_d_array(models, true, false, t); ret1 = std::move(std::get<0>(w)); ret2 = std::move(std::get<1>(w)); }
+                sink += ret1[0](0, 0);
+            }
+            const auto t0 = std::chrono::steady_clock::now();
+            for (int it = 0; it < cfg.iters; ++it) {
+                if (reuse) {
+                    KEnRef<R>::r_array_to_d_array_into(models, true, false, t, ret1, ret2);
+                    sink += ret1[0](0, 0) + ret2[0](0, 0);
+                } else {
+                    auto r = KEnRef<R>::r_array_to_d_array(models, true, false, t);
+                    sink += std::get<0>(r)[0](0, 0) + std::get<1>(r)[0](0, 0);
+                }
+            }
+            const auto t1 = std::chrono::steady_clock::now();
+            const double ms = std::chrono::duration<double, std::milli>(t1 - t0).count() / cfg.iters;
+            if (t == 1) baseMs = ms;
+            const std::string tlabel = (t == 0) ? "all" : std::to_string(t);
+            std::printf("  %-7d %-8ld %-8s %-12.3f %-9.2f\n", cfg.M, cfg.N, tlabel.c_str(), ms, baseMs / ms);
+            (void) sink;
+        }
+    }
+    SUCCEED();
 }
