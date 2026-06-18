@@ -31,24 +31,29 @@ using CoordsMapType = Eigen::Map<CoordsMatrixType<KEnRef_Real> >;
 template<typename KEnRef_Real>
 using CoordsMapTypeConst = Eigen::Map<const CoordsMatrixType<KEnRef_Real>>; // a read-only map
 
+/**
+ * Shared base for the spectral-density data variants. It holds the parts that are
+ * common to both the sigma-based data (see read_spec_den_data() in ke.R) and the
+ * relaxation-based data (see read_spec_den_relax_data() in ke.R): the atom pairs,
+ * the multiple groupings, and the `a`/`lambda` coefficient matrices, together with
+ * the atom-pair-name -> index lookup and the cached atom-id pairs.
+ */
 template<typename KEnRef_Real>
-class SpecDenData {
+class SpecDenDataBase {
+protected:
     std::vector<std::tuple<std::string, std::string> > atom_pairs{};
-    std::optional<NamedVector<KEnRef_Real>> sigma = std::nullopt;
     std::vector<std::vector<std::vector<int> > > multiple_grouping{};
     NamedMatrix<KEnRef_Real> a_coef;
     NamedMatrix<KEnRef_Real> lambda_coef;
     std::map<std::tuple<std::string, std::string>, size_t> atomNamePairs_to_atomPairIndex;
     std::optional<std::vector<std::tuple<int, int> > > atomIdPairs_to_sub0Atom_id_pairs_cache_ = std::nullopt;
-    KEnRef_Real getSigma(size_t atomPairId) const;
 
 public:
-    SpecDenData(const std::vector<std::tuple<std::string, std::string> > &atom_pairs,
-                const std::optional<NamedVector<KEnRef_Real> > &sigma,
-                const std::vector<std::vector<std::vector<int> > > &multiple_grouping,
-                const NamedMatrix<KEnRef_Real> &a_coef,
-                const NamedMatrix<KEnRef_Real> &lambda_coef)
-        : atom_pairs(atom_pairs), sigma(sigma), multiple_grouping(multiple_grouping), a_coef(a_coef),
+    SpecDenDataBase(const std::vector<std::tuple<std::string, std::string> > &atom_pairs,
+                    const std::vector<std::vector<std::vector<int> > > &multiple_grouping,
+                    const NamedMatrix<KEnRef_Real> &a_coef,
+                    const NamedMatrix<KEnRef_Real> &lambda_coef)
+        : atom_pairs(atom_pairs), multiple_grouping(multiple_grouping), a_coef(a_coef),
         lambda_coef(std::move(lambda_coef)) {
 
         for (int i = 0; i < atom_pairs.size(); ++i) {
@@ -56,11 +61,8 @@ public:
             atomNamePairs_to_atomPairIndex[atomPair] = i;
         }
     }
-    const NamedVector<KEnRef_Real>& sigmas() const {return *this->sigma;}
-    KEnRef_Real getSigma(const std::tuple<std::string, std::string>& atomPairs) const;
-    void set_sigmas(const NamedVector<KEnRef_Real>& sigmas) {
-        this->sigma = sigmas;
-    }
+    virtual ~SpecDenDataBase() = default;
+
     void setAtomPairs(std::vector<std::tuple<std::string, std::string>> &atomPairs);
 
     [[nodiscard]] const std::vector<std::tuple<std::string, std::string>> & get_atom_pairs() const { return atom_pairs; }
@@ -72,6 +74,30 @@ public:
     }
     void set_atomIdPairs_to_sub0Atom_id_pairs_cache(const std::optional<std::vector<std::tuple<int, int>>> &atomIdPairs_to_sub0Atom_id_pairs_cache) {
         this->atomIdPairs_to_sub0Atom_id_pairs_cache_ = atomIdPairs_to_sub0Atom_id_pairs_cache;
+    }
+};
+
+/**
+ * Sigma-based spectral-density data. Mirrors read_spec_den_data() in ke.R: it
+ * augments the shared data with the per-atom-pair `sigma` target vector.
+ */
+template<typename KEnRef_Real>
+class SpecDenData : public SpecDenDataBase<KEnRef_Real> {
+    std::optional<NamedVector<KEnRef_Real>> sigma = std::nullopt;
+    KEnRef_Real getSigma(size_t atomPairId) const;
+
+public:
+    SpecDenData(const std::vector<std::tuple<std::string, std::string> > &atom_pairs,
+                const std::optional<NamedVector<KEnRef_Real> > &sigma,
+                const std::vector<std::vector<std::vector<int> > > &multiple_grouping,
+                const NamedMatrix<KEnRef_Real> &a_coef,
+                const NamedMatrix<KEnRef_Real> &lambda_coef)
+        : SpecDenDataBase<KEnRef_Real>(atom_pairs, multiple_grouping, a_coef, lambda_coef), sigma(sigma) {}
+
+    const NamedVector<KEnRef_Real>& sigmas() const {return *this->sigma;}
+    KEnRef_Real getSigma(const std::tuple<std::string, std::string>& atomPairs) const;
+    void set_sigmas(const NamedVector<KEnRef_Real>& sigmas) {
+        this->sigma = sigmas;
     }
 };
 
