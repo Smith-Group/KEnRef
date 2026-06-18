@@ -101,6 +101,36 @@ public:
     }
 };
 
+/**
+ * Relaxation-based spectral-density data. Mirrors read_spec_den_relax_data() in
+ * ke.R. The shared `a_coef`/`lambda_coef` correspond to `a_int_coef`/`lambda_int_coef`
+ * there.
+ *
+ * `unit` flags whether the first interaction is encoded by unit-vector identifiers
+ * rather than atom identifiers (the first two `*_atom_relax.csv` columns ending in
+ * `_unit`); when true the atom-pair names must NOT be normalized as atom names.
+ *
+ * Skeleton only for now: the `relax_data_list` (per rate: optional target `value`,
+ * optional weight `k`, and the spectral-density term array of coef/freq pairs) is
+ * still to be added, modeled with NamedMatrix/NamedVector/NamedRowVector plus
+ * column-name -> index mapping helpers.
+ */
+template<typename KEnRef_Real>
+class SpecDenRelaxData : public SpecDenDataBase<KEnRef_Real> {
+    bool unit_ = false;
+    // TODO(relax): add relax_data_list — named per-rate blocks {value?, k?, spec_den_term_array[pairs x terms x 2]}.
+
+public:
+    SpecDenRelaxData(const std::vector<std::tuple<std::string, std::string> > &atom_pairs,
+                     const bool unit,
+                     const std::vector<std::vector<std::vector<int> > > &multiple_grouping,
+                     const NamedMatrix<KEnRef_Real> &a_int_coef,
+                     const NamedMatrix<KEnRef_Real> &lambda_int_coef)
+        : SpecDenDataBase<KEnRef_Real>(atom_pairs, multiple_grouping, a_int_coef, lambda_int_coef), unit_(unit) {}
+
+    [[nodiscard]] bool is_unit() const { return unit_; }
+};
+
 
 template<typename KEnRef_Real>
 class KEnRef final {
