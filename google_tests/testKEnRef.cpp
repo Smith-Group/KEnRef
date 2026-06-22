@@ -16,7 +16,33 @@
 
 #include "core/KEnRef.h"
 #include "core/IoUtils.h"
+#include "core/EnergyModel.h"
+#include "core/EngineAdapter.h"
+#include "core/ModelRegistry.h"
 #include "testHelper.h"
+
+// Minimal EngineAdapter for driving an EnergyModel's init in unit tests: only getRawParam() is
+// exercised (during buildCache); the per-step methods are unused here and assert if called.
+class TestEngineAdapter : public kenref::EngineAdapter<KEnRef_Real_t> {
+public:
+    explicit TestEngineAdapter(std::map<std::string, std::string> params) : params_(std::move(params)) {}
+    [[nodiscard]] std::optional<std::string> getRawParam(const std::string& key) const override {
+        const auto it = params_.find(key);
+        return it == params_.end() ? std::nullopt : std::optional<std::string>(it->second);
+    }
+    [[nodiscard]] int numModelsInThisProcess() const override { return 0; }
+    void getLocalModelX(int, CoordsMatrixType<KEnRef_Real_t>&, CoordsMatrixType<KEnRef_Real_t>&,
+                        Eigen::Matrix<KEnRef_Real_t, 3, 3>&) const override { ADD_FAILURE(); }
+    void addLocalModelDerivatives(int, const CoordsMatrixType<KEnRef_Real_t>&) override { ADD_FAILURE(); }
+    [[nodiscard]] int numModelsTotal() const override { return 0; }
+    [[nodiscard]] int simulationIndex() const override { return 0; }
+    void gatherFittedSubAtomsX(const std::vector<CoordsMatrixType<KEnRef_Real_t>>&,
+                               std::vector<CoordsMatrixType<KEnRef_Real_t>>&) const override { ADD_FAILURE(); }
+    void scatterModelDerivatives(const std::vector<CoordsMatrixType<KEnRef_Real_t>>&,
+                                 std::vector<CoordsMatrixType<KEnRef_Real_t>>&) const override { ADD_FAILURE(); }
+private:
+    std::map<std::string, std::string> params_;
+};
 
 // Benchmark helper: OpenMP thread counts to sweep, overridable via KENREF_BENCH_THREADS
 // (comma-separated, e.g. "1" to pin a clean single-thread perf profile, or "1,8,0").
@@ -913,6 +939,100 @@ TEST(KEnRefTestSuite, testCoordArrayToSigmaEnergy) {
                 EXPECT_NEAR(expected, actual, 1e-9);
             }
     }
+}
+
+// Drive the SIGMA model through the registry (buildCache -> finalizeIndexing -> compute) and confirm
+// it reproduces the direct-kernel energy 124.8785 from testCoordArrayToSigmaEnergy. The model is a
+// thin wrapper over coord_array_to_sigma_energy; here coord_array is the full-atom set and the
+// name->id map doubles as the (identity) sub-indexing, so the wrapped call matches the direct one.
+TEST(KEnRefTestSuite, testSigmaModelViaRegistry) {
+    kenref::bootstrapModels();
+    auto model = kenref::ModelRegistry<KEnRef_Real_t>::create("SIGMA");
+    ASSERT_NE(model, nullptr);
+
+    auto s = makeGB3SigmaEnergySetup();
+
+    TestEngineAdapter adapter({
+        {"EXP_DATA_FOLDER", GB3_SPEC_DEN_DIR},
+        {"PROTON_MHZ", std::to_string(GB3_PROTON_MHZ)},
+    });
+    // Empty schema is fine: the adapter supplies every param the model reads, so no defaults needed.
+    kenref::ParamSchema emptySchema;
+    kenref::InitContext<KEnRef_Real_t> initCtx{adapter, emptySchema, s.atomNameMapping, s.handleNames, 3};
+    model->buildCache(initCtx);
+
+    kenref::IndexingContext<KEnRef_Real_t> indexCtx{s.atomNameMapping};
+    model->finalizeIndexing(indexCtx);
+
+    auto coord_array = s.coord_array;  // copy: the kernel scales in place
+    kenref::StepContext<KEnRef_Real_t> stepCtx{coord_array, /*k*/ 1.0, /*n*/ 1.0, /*gradient*/ true, 0};
+    auto [energy, grad] = model->compute(stepCtx);
+    EXPECT_NEAR(energy, 124.8785, 1e-4);
+    EXPECT_TRUE(grad.has_value());
+    EXPECT_EQ(model->forceUnitScale(), 10.0);
+}
+
+// Drive the PLATEAUS model through the registry and confirm it forwards correctly to
+// coord_array_to_g_energy. We build a small EXP_DATA_FILE from real atom-name pairs (valid keys of
+// the 2lum mapping) with synthetic g1/g2, then compare model->compute() against a direct kernel call
+// using the model's own atomIdPairs() + the same g0/grouping. (The kernel is R-validated elsewhere;
+// here we test the wrapper: data-file reading, grouping, g0, and dispatch.)
+TEST(KEnRefTestSuite, testPlateausModelViaRegistry) {
+    kenref::bootstrapModels();
+    auto model = kenref::ModelRegistry<KEnRef_Real_t>::create("PLATEAUS");
+    ASSERT_NE(model, nullptr);
+
+    auto s = makeGB3SigmaEnergySetup();  // atomNameMapping + coord_array (3 models) + handleNames
+
+    // Gather up to 30 real atom-name pairs (already valid keys of s.atomNameMapping) and synthetic g.
+    std::vector<std::tuple<std::string, std::string>> namePairs;
+    std::vector<std::pair<double, double>> gvals;
+    for (const auto& d : s.spec_den_data_list) {
+        for (const auto& ap : d.get_atom_pairs()) {
+            const int i = static_cast<int>(namePairs.size());
+            namePairs.push_back(ap);
+            gvals.emplace_back(0.01 + 0.001 * i, 0.02 + 0.001 * i);
+            if (namePairs.size() >= 30) break;
+        }
+        if (namePairs.size() >= 30) break;
+    }
+    ASSERT_FALSE(namePairs.empty());
+
+    const std::string path = "/tmp/kenref_plateaus_test.csv";
+    {
+        std::ofstream o(path);
+        o << "\"\",\"atom1\",\"atom2\",\"g1\",\"g2\"\n";
+        for (size_t i = 0; i < namePairs.size(); ++i)
+            o << '"' << i << "\",\"" << std::get<0>(namePairs[i]) << "\",\"" << std::get<1>(namePairs[i])
+              << "\"," << gvals[i].first << ',' << gvals[i].second << '\n';
+    }
+
+    TestEngineAdapter adapter({{"EXP_DATA_FILE", path}});
+    kenref::ParamSchema emptySchema;
+    kenref::InitContext<KEnRef_Real_t> initCtx{adapter, emptySchema, s.atomNameMapping, s.handleNames, 3};
+    model->buildCache(initCtx);
+    kenref::IndexingContext<KEnRef_Real_t> indexCtx{s.atomNameMapping};
+    model->finalizeIndexing(indexCtx);
+
+    // Reconstruct g0 + grouping the same way the model did, for the direct comparison.
+    Eigen::MatrixX<double> g0(namePairs.size(), 2);
+    for (int i = 0; i < (int)namePairs.size(); ++i) { g0(i, 0) = gvals[i].first; g0(i, 1) = gvals[i].second; }
+    const std::vector<std::vector<std::vector<int>>> grouping{{{0, 1, 2}}, {{0}, {1}, {2}}};
+
+    auto coords_model = s.coord_array;   // copies (g_energy does not scale in place, but keep parallel)
+    auto coords_direct = s.coord_array;
+    kenref::StepContext<KEnRef_Real_t> stepCtx{coords_model, /*k*/ 5e8, /*n*/ 0.25, /*gradient*/ true, 0};
+    auto [energy_model, grad_model] = model->compute(stepCtx);
+
+    auto [energy_direct, grad_direct] = KEnRef<double>::coord_array_to_g_energy(
+        coords_direct, model->atomIdPairs(), grouping, g0, 5e8, 0.25, true, 0);
+
+    EXPECT_NEAR(energy_model, energy_direct, 1e-9);
+    EXPECT_EQ(model->forceUnitScale(), 1.0);
+    ASSERT_TRUE(grad_model.has_value());
+    ASSERT_TRUE(grad_direct.has_value());
+    for (size_t m = 0; m < grad_model->size(); ++m)
+        TestHelper<double>::EXPECT_MATRIX_NEAR((*grad_model)[m], (*grad_direct)[m], 1e-9);
 }
 
 // Relaxation-rate restraint energy + gradient end-to-end check against R's

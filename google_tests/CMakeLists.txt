@@ -32,7 +32,7 @@ message(STATUS "gtest_SOURCE_DIR is: ${gtest_SOURCE_DIR}")
 include(GoogleTest)
 
 # Now simply link against gtest or gtest_main as needed. Eg
-add_executable(Google_tests_kenref_core_exe testKabsch.cpp testKEnRef.cpp testIoUtils.cpp)
+add_executable(Google_tests_kenref_core_exe testKabsch.cpp testKEnRef.cpp testIoUtils.cpp testRestoreNoJump.cpp)
 # Use namespace target for compatibility with both build and installed versions
 if(TARGET KENREF::CORE)
 	target_link_libraries(Google_tests_kenref_core_exe gtest gtest_main KENREF::CORE)

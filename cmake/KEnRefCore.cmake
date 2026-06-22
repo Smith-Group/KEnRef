@@ -7,9 +7,12 @@ message(STATUS "Configuring KENREF CORE...")
 
 # SEPARATE CORE SOURCES (Permissive license)
 FILE(GLOB core_sources "${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.cpp")  # Only pure math/algorithms
+# Public headers — listed on the targets purely so IDEs (CLion/clangd) treat them as project files
+# with the target's include flags (CMake does not compile .h). Keeps new headers recognised.
+FILE(GLOB core_headers "${CMAKE_CURRENT_SOURCE_DIR}/include_core/core/*.h")
 
 # Create separate targets with clear boundaries (libraries with simple names)
-add_library(kenref_core STATIC ${core_sources})           # Lowercase, no namespace
+add_library(kenref_core STATIC ${core_sources} ${core_headers})  # Lowercase, no namespace
 
 # Create namespace aliases
 add_library(KENREF::CORE ALIAS kenref_core)
@@ -21,7 +24,7 @@ add_library(KENREF::CORE ALIAS kenref_core)
 message(STATUS "Preparing kenref_and_eigen3 library...")
 
 # Create a target that includes Eigen headers
-add_library(kenref_and_eigen3 STATIC ${core_sources})
+add_library(kenref_and_eigen3 STATIC ${core_sources} ${core_headers})
 
 # Copy Eigen headers to our source tree for distribution
 set(EIGEN_HEADERS_DEST "${CMAKE_CURRENT_BINARY_DIR}/eigen_headers")
@@ -89,6 +92,20 @@ target_include_directories(kenref_core PUBLIC
     $<INSTALL_INTERFACE:include/core>
     ${EIGEN3_INCLUDE_DIR} # TODO check its license
 )
+
+# ============================================================================
+# PER-MODEL ENABLE DEFINITIONS (Style-2 registration; options in top CMakeLists.txt)
+# ============================================================================
+# bootstrapModels() guards each register*Model() with #if KENREF_ENABLE_<MODEL>; drive those from the
+# CMake options so a model can be dropped at compile time. Applied to both core targets (PUBLIC so
+# consumers that include the headers see the same switches).
+foreach(kenref_lib kenref_core kenref_and_eigen3)
+    target_compile_definitions(${kenref_lib} PUBLIC
+        KENREF_ENABLE_SIGMA=$<BOOL:${KENREF_ENABLE_SIGMA}>
+        KENREF_ENABLE_PLATEAUS=$<BOOL:${KENREF_ENABLE_PLATEAUS}>
+        KENREF_ENABLE_RELAX=$<BOOL:${KENREF_ENABLE_RELAX}>
+    )
+endforeach()
 
 # ============================================================================
 # PKG-CONFIG GENERATION FOR PLUMED INTEGRATION
