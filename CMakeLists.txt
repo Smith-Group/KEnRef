@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.24)
 project(KEnRef)
 set(CMAKE_CXX_STANDARD 17)
 
+# Emit compile_commands.json so clangd / IDEs resolve includes for every translation unit (including
+# newly added core/model files). FORCE so it wins over a stale cache value. Harmless for the build.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Export compile_commands.json for clangd/IDEs" FORCE)
+
 string(TOLOWER ${CMAKE_BUILD_TYPE} build_type)
 message(STATUS "the build type is: ${build_type}")
 
@@ -10,6 +14,13 @@ message(STATUS "the build type is: ${build_type}")
 # ============================================================================
 option(BUILD_KENREF_CORE "Build KENREF_CORE library" ON)
 option(BUILD_KENREF_GMX "Build KENREF GMX interface" ON)
+
+# Per-model compile-time enable switches (Style-2 registration). Default ON; turning one OFF drops that
+# model's registration from bootstrapModels() so it is unavailable at runtime. Passed to the core
+# targets as KENREF_ENABLE_<MODEL> compile definitions (see cmake/KEnRefCore.cmake).
+option(KENREF_ENABLE_SIGMA    "Enable the SIGMA energy model"    ON)
+option(KENREF_ENABLE_PLATEAUS "Enable the PLATEAUS energy model" ON)
+option(KENREF_ENABLE_RELAX    "Enable the RELAX energy model"    ON)
 
 ### comment the next line to make it float. Uncomment to make it double.
 add_compile_options(-DKENREF_DOUBLE)
