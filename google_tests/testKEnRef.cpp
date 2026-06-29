@@ -1147,6 +1147,39 @@ TEST(KEnRefTestSuite, testCoordArrayToRelaxEnergy) {
     }
 }
 
+// Drive the RELAX model through the registry and confirm it reproduces the R-validated energy
+// (1840.2342988885609) of testCoordArrayToRelaxEnergy. Same data + the model's DEFAULT rates (which
+// must equal the R reference's kens/kmethyl/karo/Dx/Dy/Dz set). Exercises the wrapper end-to-end:
+// buildCache (load_spec_den_relax_data + default rates), finalizeIndexing (cache priming), dispatch.
+TEST(KEnRefTestSuite, testRelaxModelViaRegistry) {
+    constexpr const char* RELAX_DIR = "../../res/google_tests/relax/";
+
+    kenref::bootstrapModels();
+    auto model = kenref::ModelRegistry<KEnRef_Real_t>::create("RELAX");
+    ASSERT_NE(model, nullptr);
+
+    const auto atomNameMapping_to1 = IoUtils::getAtomMappingFromPdb<std::string, int>(
+        GB3_PROTON_FILENAME, IoUtils::fill_atomId_to_index_Map);
+    const bool handleNames = IoUtils::should_handleNames(atomNameMapping_to1);
+    const auto atomNameMapping = get_atomNameMapping<double>(atomNameMapping_to1, handleNames);
+
+    TestEngineAdapter adapter({{"EXP_DATA_FOLDER", RELAX_DIR}}); // no RATES_FILE => default rates
+    kenref::ParamSchema emptySchema;
+    kenref::InitContext<KEnRef_Real_t> initCtx{adapter, emptySchema, atomNameMapping, handleNames, 3};
+    model->buildCache(initCtx);
+
+    kenref::IndexingContext<KEnRef_Real_t> indexCtx{atomNameMapping};
+    model->finalizeIndexing(indexCtx);
+
+    auto coord_array = getAllModels_allAtomCoordsMatrix<double>(GB3_PROTON_FILENAME, {0, 2, 4});
+    kenref::StepContext<KEnRef_Real_t> stepCtx{coord_array, /*k*/ 1.0, /*n*/ 1.0, /*gradient*/ true, 0};
+    auto [energy, grad] = model->compute(stepCtx);
+
+    EXPECT_NEAR(energy, 1840.2342988885609, 1e-2);
+    EXPECT_TRUE(grad.has_value());
+    EXPECT_EQ(model->forceUnitScale(), 10.0);
+}
+
 // coord_array_to_relax(): predicted per-pair relaxation rates vs R reference
 // (relax_pred.csv). Compared as a sorted multiset so the test is independent of
 // substructure-discovery order.

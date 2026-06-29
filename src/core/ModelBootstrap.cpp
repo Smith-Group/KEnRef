@@ -30,6 +30,9 @@
 #ifndef KENREF_ENABLE_PLATEAUS
 #define KENREF_ENABLE_PLATEAUS 1
 #endif
+#ifndef KENREF_ENABLE_RELAX
+#define KENREF_ENABLE_RELAX 1
+#endif
 
 namespace kenref {
 
@@ -39,6 +42,9 @@ void registerSigmaModel();
 #if KENREF_ENABLE_PLATEAUS
 void registerPlateausModel();
 #endif
+#if KENREF_ENABLE_RELAX
+void registerRelaxModel();
+#endif
 
 void bootstrapModels() {
 #if KENREF_ENABLE_SIGMA
@@ -47,7 +53,9 @@ void bootstrapModels() {
 #if KENREF_ENABLE_PLATEAUS
     registerPlateausModel();
 #endif
-    // RelaxModel lands in Phase F (KENREF_ENABLE_RELAX).
+#if KENREF_ENABLE_RELAX
+    registerRelaxModel();
+#endif
 }
 
 } // namespace kenref
