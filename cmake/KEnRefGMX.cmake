@@ -10,7 +10,8 @@ if(NOT TARGET KENREF::CORE)
     message(FATAL_ERROR "KENREF GMX Interface requires KENREF CORE. Either build with BUILD_KENREF_CORE=ON or ensure KENREF CORE is installed.")
 endif()
 
-FILE(GLOB gmxinterface_sources "${CMAKE_CURRENT_SOURCE_DIR}/src/gmxinterface/*.cpp")
+# CONFIGURE_DEPENDS: re-glob at build time so new files are auto-detected without a manual reconfigure.
+FILE(GLOB gmxinterface_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/gmxinterface/*.cpp")
 
 add_library(kenref_gmxinterface STATIC ${gmxinterface_sources})
 

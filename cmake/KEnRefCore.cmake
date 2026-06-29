@@ -6,10 +6,12 @@
 message(STATUS "Configuring KENREF CORE...")
 
 # SEPARATE CORE SOURCES (Permissive license)
-FILE(GLOB core_sources "${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.cpp")  # Only pure math/algorithms
+# CONFIGURE_DEPENDS: re-glob at build time so newly added files are auto-detected (and registered with
+# the targets / IDE) without a manual cmake reconfigure. Plain GLOB is evaluated only at configure time.
+FILE(GLOB core_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.cpp")  # Only pure math/algorithms
 # Public headers — listed on the targets purely so IDEs (CLion/clangd) treat them as project files
 # with the target's include flags (CMake does not compile .h). Keeps new headers recognised.
-FILE(GLOB core_headers "${CMAKE_CURRENT_SOURCE_DIR}/include_core/core/*.h")
+FILE(GLOB core_headers CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/include_core/core/*.h")
 
 # Create separate targets with clear boundaries (libraries with simple names)
 add_library(kenref_core STATIC ${core_sources} ${core_headers})  # Lowercase, no namespace
