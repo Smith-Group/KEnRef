@@ -1,6 +1,10 @@
 /*
  * EnergyModel.h
  *
+ *  ROLE: the abstraction for ONE energy model. A concrete EnergyModel encapsulates that model's
+ *  inputs, parameter specification, and between-step caches together with its per-step compute();
+ *  adding a new energy model to KEnRef means writing one EnergyModel subclass and nothing else.
+ *
  *  The per-model abstraction at the heart of the restructure. A concrete EnergyModel (SigmaModel,
  *  PlateausModel, RelaxModel, …) is ONE self-contained unit declaring the three things that vary
  *  between models — and nothing else:
@@ -24,7 +28,6 @@
 #define KENREF_ENERGYMODEL_H_
 
 #include <map>
-#include <memory>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -57,13 +60,22 @@ struct InitContext {
         return std::nullopt;
     }
     [[nodiscard]] std::string getString(const std::string& key, const std::string& fallback = "") const {
-        auto v = raw(key); return v ? *v : fallback;
+        auto v = raw(key);
+        return v ? *v : fallback;
     }
     [[nodiscard]] Real getReal(const std::string& key, Real fallback = Real(0)) const {
-        auto v = raw(key); if (!v) return fallback; std::istringstream is(*v); Real r; is >> r; return r;
+        auto v = raw(key);
+        if (!v)
+            return fallback;
+        std::istringstream is(*v); Real r;
+        is >> r; return r;
     }
     [[nodiscard]] int getInt(const std::string& key, int fallback = 0) const {
-        auto v = raw(key); if (!v) return fallback; std::istringstream is(*v); int r; is >> r; return r;
+        auto v = raw(key);
+        if (!v)
+            return fallback;
+        std::istringstream is(*v); int r; is >> r;
+        return r;
     }
     [[nodiscard]] bool getFlag(const std::string& key, bool fallback = false) const {
         auto v = raw(key); if (!v) return fallback;
@@ -79,14 +91,34 @@ struct InitContext {
 template<typename Real>
 struct IndexingContext {
     const std::map<std::string, int>& atomNameToSub0Id; // normalised name -> 0-based compact id
+    int numOmpThreads = 0;  // forwarded to name->id mapping (0 = all available); set from the adapter
 };
 
 /**
- * Per-step inputs to compute(). `coord_array` is the assembled, already-fitted coordinates of ALL
- * models (one [nSub x 3] per model), valid on the master only. It is NON-const because some kernels
- * (SIGMA, RELAX) scale it in place (Å→m); the driver passes a fresh per-step buffer so that is safe.
- * `k`/`n` are the general force-constant / power params (framework-owned). Return matches the
- * existing kernels: (energy, optional per-model derivatives [nSub x 3]).
+ * Per-step inputs to compute(). This struct carries ONLY the general, framework-owned quantities
+ * that mean the same thing for every model; it is deliberately NOT a place for model-specific data.
+ * The three things that vary between models — (1) inputs, (2) param spec, (3) cached values — live
+ * as members of the concrete EnergyModel (set in buildCache()/finalizeIndexing()) and are read from
+ * `this` inside compute(), so adding a model never touches StepContext. A model that needs more
+ * STATIC/cached data adds a member (zero framework edit); a model that doesn't need a field here
+ * just ignores it. The only change that would force editing StepContext is a brand-new per-step
+ * DYNAMIC quantity the framework must supply (e.g. step index, time, temperature, velocities) —
+ * rare, additive, and unneeded by SIGMA/PLATEAUS/RELAX, which need only coord_array + k + n + their
+ * own cached data.
+ *
+ * `coord_array` is the assembled, already-fitted coordinates of ALL models (one [nSub x 3] per
+ * model), valid on the master only. It is NON-const because some kernels (SIGMA, RELAX) scale it in
+ * place (Å→m); the driver passes a fresh per-step buffer so that is safe.
+ *
+ * `k`/`n` are the general force-constant / power params (framework-owned). NOTE: they are actually
+ * stable for the whole run, not truly per-step — the driver already holds them as k_/n_ and copies
+ * them in each step. They are included here ON PURPOSE so that everything compute() needs arrives in
+ * ONE self-contained struct (the call has a single argument and no hidden dependencies). If a future
+ * change prefers the stricter definition "StepContext = only things that genuinely change per step",
+ * k/n would instead move to construction-time model/driver state — a deliberate ergonomics trade-off,
+ * not an oversight.
+ *
+ * Return matches the existing kernels: (energy, optional per-model derivatives [nSub x 3]).
  */
 template<typename Real>
 struct StepContext {

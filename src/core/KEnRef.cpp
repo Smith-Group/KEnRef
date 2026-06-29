@@ -646,23 +646,6 @@ KEnRef<KEnRef_Real>::coord_array_to_r_array_backprop(
     return gradients;
 }
 
-//TODO this method is a duplicate of IoUtils::atomNamePairs_2_atomIdPairs(). Delete one of them
-template<typename KEnRef_Real>
-std::vector<std::tuple<int, int> >
-KEnRef<KEnRef_Real>::atomNamePairs_2_atomIdPairs(
-    const std::vector<std::tuple<std::string, std::string> > &atomName_pairs,
-    const std::map<std::string, int> &atomNames_2_atomIds, int numOmpThreads) {
-    auto atomId_pairs = std::vector<std::tuple<int, int> >(atomName_pairs.size());
-    // Fill the vector using atomNames_2_atomIds
-#pragma omp parallel for num_threads(numOmpThreads)
-    for (int i = 0; i < atomName_pairs.size(); ++i) {
-        auto [left, right] = atomName_pairs.at(i);
-        // I use at() instead of operator[] to force an exception to be thrown
-        atomId_pairs.at(i) = std::move(std::tuple{atomNames_2_atomIds.at(left), atomNames_2_atomIds.at(right)});
-    }
-    return atomId_pairs;
-}
-
 template<typename KEnRef_Real>
 std::tuple<KEnRef_Real, std::optional<std::vector<CoordsMatrixType<KEnRef_Real> > > >
 KEnRef<KEnRef_Real>::coord_array_to_g_energy(
@@ -676,7 +659,7 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy(
     const std::map<std::string, int> &atomNames_2_atomIds,
     KEnRef_Real k, KEnRef_Real n, const bool gradient, const int numOmpThreads) {
     //	std::cout << "coord_array_to_energy(atomName_pairs_) called" << std::endl;
-    const auto &atomId_pairs = atomNamePairs_2_atomIdPairs(atomName_pairs, atomNames_2_atomIds);
+    const auto &atomId_pairs = IoUtils::atomNamePairs_2_atomIdPairs(atomName_pairs, atomNames_2_atomIds, numOmpThreads);
     return KEnRef::coord_array_to_g_energy(coord_array, atomId_pairs, grouping_list, g0, k, n, gradient, numOmpThreads);
 }
 
@@ -834,7 +817,7 @@ KEnRef<KEnRef_Real>::coord_array_to_g_energy_refactored(
     KEnRef_Real k, KEnRef_Real n, const bool gradient, const int numOmpThreads) {
 
     //	std::cout << "coord_array_to_energy(atomName_pairs_) called" << std::endl;
-    const auto &atomId_pairs = atomNamePairs_2_atomIdPairs(atomName_pairs, atomNames_2_atomIds);
+    const auto &atomId_pairs = IoUtils::atomNamePairs_2_atomIdPairs(atomName_pairs, atomNames_2_atomIds, numOmpThreads);
     return KEnRef::coord_array_to_g_energy_refactored(coord_array, atomId_pairs, grouping_list, g0, k, n, gradient, numOmpThreads);
 }
 
@@ -997,7 +980,7 @@ KEnRef<KEnRef_Real>::coord_array_to_sigma(
         auto &currentSpecDenData = spec_den_data_list[i];
         const auto& cache = currentSpecDenData.get_atomIdPairs_to_sub0Atom_id_pairs_cache();
         const std::vector<std::tuple<int, int>> &atom_id_pairs =
-            cache.has_value() ? cache.value() : atomNamePairs_2_atomIdPairs(currentSpecDenData.get_atom_pairs(), atomNames_2_atomIds);
+            cache.has_value() ? cache.value() : IoUtils::atomNamePairs_2_atomIdPairs(currentSpecDenData.get_atom_pairs(), atomNames_2_atomIds, numOmpThreads);
 
         // calculate inter nuclear vectors
         const auto &r_arrays = coord_array_to_r_array( coord_array_meter, atom_id_pairs, numOmpThreads);
@@ -1097,7 +1080,7 @@ KEnRef<KEnRef_Real>::coord_array_to_sigma_energy(
         //Cache AtomIdPairs not's calculate them every time
         const auto& cache = currentSpecDenData.get_atomIdPairs_to_sub0Atom_id_pairs_cache();
         const std::vector<std::tuple<int, int>> &atom_id_pairs =
-            cache.has_value() ? cache.value() : atomNamePairs_2_atomIdPairs(currentSpecDenData.get_atom_pairs(), atomNames_2_atomIds);
+            cache.has_value() ? cache.value() : IoUtils::atomNamePairs_2_atomIdPairs(currentSpecDenData.get_atom_pairs(), atomNames_2_atomIds, numOmpThreads);
         // calculate inter nuclear vectors
         const auto &r_arrays =
             coord_array_to_r_array(coord_array, atom_id_pairs, numOmpThreads);
@@ -1235,7 +1218,7 @@ KEnRef<KEnRef_Real>::coord_array_to_sigma_energy(
 
             const auto& cache = currentSpecDenData.get_atomIdPairs_to_sub0Atom_id_pairs_cache();
             const std::vector<std::tuple<int, int>> &atom_id_pairs =
-                cache.has_value() ? cache.value() : atomNamePairs_2_atomIdPairs(currentSpecDenData.get_atom_pairs(), atomNames_2_atomIds);
+                cache.has_value() ? cache.value() : IoUtils::atomNamePairs_2_atomIdPairs(currentSpecDenData.get_atom_pairs(), atomNames_2_atomIds, numOmpThreads);
             // accumulate back-propagated derivatives from r array into coord array gradient
             const auto & gradients =
                 coord_array_to_r_array_backprop(coord_array, atom_id_pairs, d_energy_d_r_array,0);
@@ -1775,7 +1758,7 @@ KEnRef<KEnRef_Real>::coord_array_to_relax(
         const auto &cache = relaxData.get_atomIdPairs_to_sub0Atom_id_pairs_cache();
         const std::vector<std::tuple<int, int> > &atom_id_pairs =
             cache.has_value() ? cache.value()
-                              : atomNamePairs_2_atomIdPairs(relaxData.get_atom_pairs(), atomNames_2_atomIds);
+                              : IoUtils::atomNamePairs_2_atomIdPairs(relaxData.get_atom_pairs(), atomNames_2_atomIds, numOmpThreads);
 
         // internuclear vectors
         const auto &r_arrays = coord_array_to_r_array(coord_array_meter, atom_id_pairs, numOmpThreads);
@@ -1892,7 +1875,7 @@ KEnRef<KEnRef_Real>::coord_array_to_relax_energy(
         const auto &cache = relaxData.get_atomIdPairs_to_sub0Atom_id_pairs_cache();
         const std::vector<std::tuple<int, int> > &atom_id_pairs =
             cache.has_value() ? cache.value()
-                              : atomNamePairs_2_atomIdPairs(relaxData.get_atom_pairs(), atomNames_2_atomIds);
+                              : IoUtils::atomNamePairs_2_atomIdPairs(relaxData.get_atom_pairs(), atomNames_2_atomIds, numOmpThreads);
 
         const auto &r_arrays = coord_array_to_r_array(coord_array, atom_id_pairs, numOmpThreads);
 
@@ -2001,7 +1984,7 @@ KEnRef<KEnRef_Real>::coord_array_to_relax_energy(
             const auto &cache = relaxData.get_atomIdPairs_to_sub0Atom_id_pairs_cache();
             const std::vector<std::tuple<int, int> > &atom_id_pairs =
                 cache.has_value() ? cache.value()
-                                  : atomNamePairs_2_atomIdPairs(relaxData.get_atom_pairs(), atomNames_2_atomIds);
+                                  : IoUtils::atomNamePairs_2_atomIdPairs(relaxData.get_atom_pairs(), atomNames_2_atomIds, numOmpThreads);
             const auto &gradients = coord_array_to_r_array_backprop(coord_array, atom_id_pairs, d_energy_d_r_array, 0);
             for (int m = 0; m < numModels; ++m)
                 d_energy_d_coord_array->at(m) += gradients.at(m);

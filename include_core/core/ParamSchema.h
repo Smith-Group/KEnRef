@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 #include <optional>
+#include <stdexcept>
 
 namespace kenref {
 
@@ -60,13 +61,45 @@ public:
 
     [[nodiscard]] const std::vector<ParamSpec>& specs() const { return specs_; }
 
-    // Convenience: append every spec of another schema (used to merge General + Model tiers).
+    // Is a spec with this key already present?
+    [[nodiscard]] bool has(const std::string& key) const { return findSpec(key) != nullptr; }
+
+    // Append every spec of `other`, with strict conflict detection (used to build the General + Model
+    // tier per model, and the union of all models' Model-tier specs for keyword registration):
+    //   - key not present            -> add it
+    //   - key present, SAME spec     -> skip (idempotent dedup; never produces a duplicate keyword,
+    //                                    which e.g. PLUMED registerKeywords would reject)
+    //   - key present, DIFFERENT spec -> throw std::invalid_argument (model-tier keyword names must be
+    //                                    globally unique, so this is a caller bug, not a silent merge)
+    // "Same spec" compares type/tier/required/default; the doc/help text is ignored as benign.
+    // (Schemas are tiny, so the O(n*m) scan is irrelevant.)
     ParamSchema& merge(const ParamSchema& other) {
-        for (const auto& s : other.specs_) specs_.push_back(s);
+        for (const auto& s : other.specs_) {
+            const ParamSpec* existing = findSpec(s.key);
+            if (existing == nullptr) {
+                specs_.push_back(s);
+            } else if (!sameDeclaration(*existing, s)) {
+                throw std::invalid_argument("ParamSchema::merge: conflicting declarations for key '" + s.key + "'");
+            }
+            // else: identical declaration already present -> dedup (skip)
+        }
         return *this;
     }
 
 private:
+    [[nodiscard]] const ParamSpec* findSpec(const std::string& key) const {
+        for (const auto& s : specs_) if (s.key == key) return &s;
+        return nullptr;
+    }
+
+    // Two specs for the same key are "the same declaration" iff their semantically meaningful fields
+    // match. doc (help text) is intentionally excluded — differing help text for the same parameter is
+    // benign and should not be treated as a conflict.
+    static bool sameDeclaration(const ParamSpec& a, const ParamSpec& b) {
+        return a.type == b.type && a.tier == b.tier && a.required == b.required
+               && a.defaultValue == b.defaultValue;
+    }
+
     std::vector<ParamSpec> specs_;
 };
 

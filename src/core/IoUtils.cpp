@@ -25,10 +25,11 @@ std::vector<std::vector<T> > IoUtils::read_uniform_table_of(std::istream &ins) {
 
 std::vector<std::tuple<int, int>> IoUtils::atomNamePairs_2_atomIdPairs(
     const std::vector<std::tuple<std::string, std::string>> &atomName_pairs,
-    const std::map<std::string, int> &atomNames_2_atomIds){
+    const std::map<std::string, int> &atomNames_2_atomIds, int numOmpThreads){
 
     auto atomId_pairs = std::vector<std::tuple<int, int>>(atomName_pairs.size());
-    // Fill the vector using atomNames_2_atomIds
+    // Fill the vector using atomNames_2_atomIds (map lookups are read-only => safe to parallelize)
+#pragma omp parallel for num_threads(numOmpThreads)
     for (int i = 0; i < atomName_pairs.size(); ++i) {
         auto [left, right] = atomName_pairs.at(i);
         // I use at() instead of operator[] to force an exception to be thrown
@@ -566,6 +567,19 @@ bool IoUtils::should_handleNames(const std::map<std::string, int> &atomNameMappi
             return true;
         }
     return false;
+}
+
+bool IoUtils::should_handleNames(const Table &table) {
+    bool handleUnpreparedAtomNames = false;
+    for (int row = 0; row < table.rowCount(); row++) {
+        if (IoUtils::isNotPrepared(table(row, "atom1")) || IoUtils::isNotPrepared(table(row, "atom2"))) {
+            std::cerr << "WARNING: It seems that your data is from an unprepared file. We will try "
+                    "to handle it, but we can not guarantee the results." << std::endl;
+            handleUnpreparedAtomNames = true;
+            break;
+        }
+    }
+    return handleUnpreparedAtomNames;
 }
 
 /**

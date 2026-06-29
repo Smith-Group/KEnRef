@@ -37,15 +37,7 @@ public:
         const Table table = IoUtils::readTable(exp_data_file, true, false, "\\s*,\\s*", -1);
 
         // Mirror the consumers: confirm whether we must handle unprepared atom names (per-table).
-        bool handleUnpreparedAtomNames = false;
-        for (int row = 0; row < table.rowCount(); row++) {
-            if (IoUtils::isNotPrepared(table(row, "atom1")) || IoUtils::isNotPrepared(table(row, "atom2"))) {
-                std::cerr << "WARNING: It seems that your data is from an unprepared file. We will try "
-                             "to handle it, but we can not guarantee the results." << std::endl;
-                handleUnpreparedAtomNames = true;
-                break;
-            }
-        }
+        bool handleUnpreparedAtomNames = IoUtils::should_handleNames(table);
 
         atomName_pairs_.clear();
         for (int row = 0; row < table.rowCount(); row++) {
@@ -71,7 +63,7 @@ public:
     }
 
     void finalizeIndexing(const IndexingContext<KEnRef_Real_t>& ctx) override {
-        atomId_pairs_ = KEnRef<KEnRef_Real_t>::atomNamePairs_2_atomIdPairs(atomName_pairs_, ctx.atomNameToSub0Id);
+        atomId_pairs_ = IoUtils::atomNamePairs_2_atomIdPairs(atomName_pairs_, ctx.atomNameToSub0Id, ctx.numOmpThreads);
     }
 
     [[nodiscard]] const std::vector<std::tuple<int, int>>& atomIdPairs() const override {
@@ -86,6 +78,7 @@ public:
 
     [[nodiscard]] KEnRef_Real_t forceUnitScale() const override {
         // PLATEAUS keeps scale 1 (manuscript back-compat; the consumers' "*= 10 unless PLATEAUS").
+        // TODO Consider changing it to 10.0 in next releases
         return KEnRef_Real_t(1.0);
     }
 

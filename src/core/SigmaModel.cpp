@@ -66,12 +66,12 @@ public:
 
     void finalizeIndexing(const IndexingContext<KEnRef_Real_t>& ctx) override {
         atomNames_2_atomIds_ = ctx.atomNameToSub0Id; // the kernel maps SpecDenData name pairs through this
-        atomId_pairs_ = KEnRef<KEnRef_Real_t>::atomNamePairs_2_atomIdPairs(atomName_pairs_, atomNames_2_atomIds_);
+        atomId_pairs_ = IoUtils::atomNamePairs_2_atomIdPairs(atomName_pairs_, atomNames_2_atomIds_, ctx.numOmpThreads);
 
         // Prime each SpecDenData's atomId-pair cache (the SIGMA-only init the consumers did by hand).
         for (auto& sdd : spec_den_data_list_)
             sdd.set_atomIdPairs_to_sub0Atom_id_pairs_cache(
-                KEnRef<KEnRef_Real_t>::atomNamePairs_2_atomIdPairs(sdd.get_atom_pairs(), atomNames_2_atomIds_));
+                IoUtils::atomNamePairs_2_atomIdPairs(sdd.get_atom_pairs(), atomNames_2_atomIds_, ctx.numOmpThreads));
     }
 
     [[nodiscard]] const std::vector<std::tuple<int, int>>& atomIdPairs() const override {
@@ -85,10 +85,10 @@ public:
             ctx.k, ctx.n, atomNames_2_atomIds_, ctx.gradient, ctx.numOmpThreads);
     }
 
-    [[nodiscard]] KEnRef_Real_t forceUnitScale() const override { return KEnRef_Real_t(10.0); }
+    [[nodiscard]] KEnRef_Real_t forceUnitScale() const override { return static_cast<KEnRef_Real_t>(10.0); }
 
 private:
-    KEnRef_Real_t proton_mhz_ = KEnRef_Real_t(700.0);
+    KEnRef_Real_t proton_mhz_ = static_cast<KEnRef_Real_t>(700.0);
     std::string   exp_data_folder_;
     NamedRowVector<KEnRef_Real_t> rates_;
     std::vector<SpecDenData<KEnRef_Real_t>> spec_den_data_list_;
