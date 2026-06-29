@@ -14,8 +14,8 @@
 namespace kenref {
 
 template<typename Real>
-void restoreNoJump(Eigen::Matrix<Real, Eigen::Dynamic, 3, Eigen::RowMajor>& atoms,
-                   const Eigen::Matrix<Real, Eigen::Dynamic, 3, Eigen::RowMajor>& reference,
+void restoreNoJump(CoordsMatrixType<Real>& atoms,
+                   const CoordsMatrixType<Real>& reference,
                    const Eigen::Matrix<Real, 3, 3>& box_raw,
                    const bool toAngstrom, int numOmpThreads, const bool printStatistics) {
     // Scale the box to the working units (Angstrom) exactly as the original msmul(box_, 10, box).
@@ -86,11 +86,9 @@ void restoreNoJump(Eigen::Matrix<Real, Eigen::Dynamic, 3, Eigen::RowMajor>& atom
 
 // Explicit instantiations (the build fixes the scalar via KENREF_DOUBLE, but provide both like the
 // rest of the core, e.g. Table.cpp).
-template void restoreNoJump<double>(Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>&,
-                                    const Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>&,
+template void restoreNoJump<double>(CoordsMatrixType<double>&, const CoordsMatrixType<double>&,
                                     const Eigen::Matrix<double, 3, 3>&, bool, int, bool);
-template void restoreNoJump<float>(Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>&,
-                                   const Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>&,
+template void restoreNoJump<float>(CoordsMatrixType<float>&, const CoordsMatrixType<float>&,
                                    const Eigen::Matrix<float, 3, 3>&, bool, int, bool);
 
 } // namespace kenref

@@ -16,6 +16,8 @@
 
 #include <Eigen/Dense>
 
+#include "KEnRef.h" // CoordsMatrixType<>
+
 namespace kenref {
 
 /**
@@ -28,8 +30,8 @@ namespace kenref {
  * flag for the log line; it does not affect coordinates.
  */
 template<typename Real>
-void restoreNoJump(Eigen::Matrix<Real, Eigen::Dynamic, 3, Eigen::RowMajor>& atoms,
-                   const Eigen::Matrix<Real, Eigen::Dynamic, 3, Eigen::RowMajor>& reference,
+void restoreNoJump(CoordsMatrixType<Real>& atoms,
+                   const CoordsMatrixType<Real>& reference,
                    const Eigen::Matrix<Real, 3, 3>& box_raw,
                    bool toAngstrom,
                    int numOmpThreads = 0,

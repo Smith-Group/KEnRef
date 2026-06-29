@@ -2,6 +2,12 @@
  * KEnRefForceProvider.h
  *
  *      Author: amr
+ *
+ *  GROMACS consumer of kenref_core. After the model-abstraction restructure this is a thin
+ *  EngineAdapter: it provides the per-step GROMACS I/O (atom coords, force application, the box, MPI
+ *  gather/scatter, and parameter lookup from Settings) and delegates the whole per-step refinement
+ *  pipeline to a kenref::KEnRefDriver that holds the user-selected EnergyModel. There is no per-model
+ *  switch here any more — adding a model touches only kenref_core.
  */
 
 #ifndef KENREFFORCEPROVIDER_H_
@@ -9,6 +15,8 @@
 
 #include <map>
 #include <memory>
+#include <optional>
+#include <string>
 #include <gromacs/mdtypes/iforceprovider.h>
 #include <gromacs/mdrun/simulationcontext.h>
 #include <gromacs/selection/selection.h>
@@ -16,57 +24,54 @@
 
 #include "gmxwrapper.h"
 #include "core/KEnRef.h"
+#include "core/EngineAdapter.h"
+#include "core/KEnRefDriver.h"
 
 
-class KEnRefForceProvider final : public gmx::IForceProvider {
+class KEnRefForceProvider final : public gmx::IForceProvider,
+                                  public kenref::EngineAdapter<KEnRef_Real_t> {
 
 private:
 	//force the user to select one value
 	KEnRef<KEnRef_Real_t>::energyModel selectedEnergyModel = KEnRef<KEnRef_Real_t>::energyModel::UNKNOWN; //SIGMA; // PLATEAUS;
 
 	gmx::SimulationContext *simulationContext_ = nullptr;
-	KEnRef_Real_t maxForceSquared_ = std::pow(Settings::max_force, 2.f);
-	KEnRef_Real_t k_ = 1.0;
-	KEnRef_Real_t n_ = 0.25;
 	bool paramsInitialized = false; // We use it instead of (step == 0), because the simulation may be continuing after 0
 	std::shared_ptr<std::vector<int> const> guideAtom0Indices_; //ZERO indexed
 	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t> const> guideAtomsReferenceCoords_; //ZERO indexed
 	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t> const> guideAtomsReferenceCoordsCentered_; //ZERO indexed. Cashed for faster Kabsch Algorithm
 	std::shared_ptr<std::map<std::string, int> const> atomName_to_atomGlobalId_map_; //TODO later you may remove this and keep atomName_to_atomSubId_map_, or update it and delete atomName_to_atomSubId_map_
 	std::shared_ptr<std::map<std::string, int> > atomName_to_atomSub0Id_map_; //atomName is normalized string. SubId is a small subset and is ZERO based
-	std::shared_ptr<Table> experimentalData_table_ = nullptr; //TODO remove this pointer when it is no longer needed
-	std::vector<std::tuple<std::string, std::string> > *atomName_pairs_ = nullptr;
-	Eigen::Matrix<KEnRef_Real_t, Eigen::Dynamic, Eigen::Dynamic> *g0_ = nullptr;
-	std::shared_ptr<std::vector<std::tuple<int, int> > > atomId_pairs_;
-	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t> > subAtomsX_;
-    std::shared_ptr<std::vector<std::vector<std::vector<int> > > > simulated_grouping_list_;
-	std::shared_ptr<std::vector<bool> > globalAtomIdFlags_; //ONE based
+	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t> > subAtomsX_; //per-step scratch for this replica's restrained atoms
 	std::shared_ptr<std::vector<int> > sub0Id_to_global1Id_; //Global ID is ONE based, subId is a small subset and is ZERO based
 	std::shared_ptr<std::vector<int> > global1Id_to_sub0Id_; //Global ID is ONE based, subId is a small subset and is ZERO based
-	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t> > allSimulationsSubAtomsX_; //allocated once, used every step
+	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t> > allSimulationsSubAtomsX_; //allocated once, used every step (MPI gather buffer)
 	std::shared_ptr<KEnRef_Real_t[]> allDerivatives_buffer_;
 	std::shared_ptr<KEnRef_Real_t[]> derivatives_buffer_;
 	long long calculateForces_time = 0;
-    std::shared_ptr<CoordsMatrixType<KEnRef_Real_t>> lastFrameSubAtomsX_; //Used only for proper NoJump algorithm
-    std::shared_ptr<CoordsMatrixType<KEnRef_Real_t>> lastFrameGuideAtomsX_ZEROIndexed_; //Used only for proper NoJump algorithm
-	KEnRef_Real_t proton_mhz_ = 700.0;
-	std::shared_ptr<std::vector<SpecDenData<KEnRef_Real_t>>> SpecDenData_;
-	const NamedRowVector<KEnRef_Real_t> rates_ = Table(		//TODO provide a way to change it
-	{{"5.0e+08", "2.5e+08", "1.0e+12", "1.0e+04"}},
-	{{"kens", "kc", "kmethyl", "karo"}}
-	).toNamedRowVector<KEnRef_Real_t>();
 
+	// The shared per-step pipeline + the selected energy model live here now.
+	std::unique_ptr<kenref::KEnRefDriver<KEnRef_Real_t> > driver_;
+
+	// ---- per-step state, stashed at the top of calculateForces so the EngineAdapter callbacks
+	//      (invoked by driver_->step(*this)) can reach the current GROMACS input/output + MPI info ----
+	const gmx::ForceProviderInput *currentInput_ = nullptr;
+	gmx::ForceProviderOutput *currentOutput_ = nullptr;
+	bool isMultiSimulation_ = false;
+	int numSimulations_ = 1;
+	int simulationIndex_ = 0;
+	MPI_Comm mainRanksComm_ = MPI_COMM_NULL;
 
 public:
 	EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
 	KEnRefForceProvider();
 
-	virtual ~KEnRefForceProvider();
+	~KEnRefForceProvider() override;
 
-    [[maybe_unused]] [[maybe_unused]] KEnRefForceProvider(const KEnRefForceProvider &other);
+    [[maybe_unused]] [[maybe_unused]] KEnRefForceProvider(const KEnRefForceProvider &other) = delete;
 
-    [[maybe_unused]] [[maybe_unused]] KEnRefForceProvider(KEnRefForceProvider &&other) noexcept;
+    [[maybe_unused]] [[maybe_unused]] KEnRefForceProvider(KEnRefForceProvider &&other) noexcept = delete;
 
 	KEnRefForceProvider &operator=(const KEnRefForceProvider &other) = delete;
 
@@ -82,17 +87,6 @@ public:
 	void setGuideAtomsReferenceCoords(
 		std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> &guideAtomsReferenceCoords);
 
-    /** Ported from Gromacs Trjconv code.
-     * nojump checks if atoms jump across the box and then puts them back. This has the effect that all molecules will
-     * remain whole (provided they were whole in the initial conformation). Note that this ensures a continuous
-     * trajectory but molecules may diffuse out of the box. The starting configuration for this procedure is taken from
-     * the structure file, if one is supplied, otherwise it is the first frame.
-     * **N.B.** You must call restoreNoJump() BEFORE calling applyTransform().
-     */
-    static void restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
-                       const CoordsMatrixType<KEnRef_Real_t> &reference,
-                       const matrix &box_, bool toAngstrom, int numOmpThreads, bool printStatistics);
-
     void fillParamsStep0(size_t homenr, int numSimulations, const gmx::ForceProviderInput &forceProviderInput);
 
 	static CoordsMatrixType<KEnRef_Real_t>
@@ -105,6 +99,22 @@ public:
 	void set_selected_energy_model(const KEnRef<KEnRef_Real_t>::energyModel selected_energy_model) {
 		selectedEnergyModel = selected_energy_model;
 	}
+
+	// ----------------------------------------------------------------------------------------------
+	//  EngineAdapter implementation (GROMACS, live MD: exactly one model in this process/replica)
+	// ----------------------------------------------------------------------------------------------
+	[[nodiscard]] std::optional<std::string> getRawParam(const std::string &key) const override;
+	[[nodiscard]] int numOmpThreads() const override;
+	[[nodiscard]] int numModelsInThisProcess() const override { return 1; }
+	void getLocalModelX(int localModel, CoordsMatrixType<KEnRef_Real_t> &guideX,
+	                    CoordsMatrixType<KEnRef_Real_t> &subX, Eigen::Matrix<KEnRef_Real_t, 3, 3> &box) const override;
+	void addLocalModelDerivatives(int localModel, const CoordsMatrixType<KEnRef_Real_t> &derivs) override;
+	[[nodiscard]] int numModelsTotal() const override { return numSimulations_; }
+	[[nodiscard]] int simulationIndex() const override { return simulationIndex_; }
+	void gatherFittedSubAtomsX(const std::vector<CoordsMatrixType<KEnRef_Real_t>> &localFitted,
+	                           std::vector<CoordsMatrixType<KEnRef_Real_t>> &all) const override;
+	void scatterModelDerivatives(const std::vector<CoordsMatrixType<KEnRef_Real_t>> &allPerModel,
+	                             std::vector<CoordsMatrixType<KEnRef_Real_t>> &localPerModel) const override;
 };
 
 #endif /* KENREFFORCEPROVIDER_H_ */

@@ -111,6 +111,7 @@ public:
     static bool isNotPrepared(const std::string &atomName);
 
     static bool should_handleNames(const std::map<std::string, int> &atomNameMapping);
+    static bool should_handleNames(const Table &table);
 
     inline const static auto HB2_MET = std::regex("HB2.MET");
     inline const static auto HB3_MET = std::regex("HB3.MET");
@@ -179,7 +180,7 @@ public:
 
     static std::vector<std::tuple<int, int> > atomNamePairs_2_atomIdPairs(
         const std::vector<std::tuple<std::string, std::string>> &atomName_pairs,
-        const std::map<std::string, int> &atomNames_2_atomIds);
+        const std::map<std::string, int> &atomNames_2_atomIds, int numOmpThreads = 0);
 
     static std::vector<std::string> find_matching_files(const std::string& folder_path, const std::string& pattern_string);
     static std::vector<std::string> find_spec_den_data_prefixes(const std::string& folder_path);

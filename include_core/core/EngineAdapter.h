@@ -1,6 +1,10 @@
 /*
  * EngineAdapter.h
  *
+ *  ROLE: the ONE abstract interface that every MD engine (GROMACS, PLUMED, the offline tools)
+ *  implements so that kenref_core can run its per-step refinement without any engine-specific code.
+ *  It is the single core<->engine boundary: the driver reaches the engine only through this.
+ *
  *  The single core<->engine boundary for the KEnRef restructure. KEnRefDriver (in kenref_core)
  *  owns the whole per-step pipeline; it calls back through this abstract interface for the handful
  *  of operations that are genuinely engine-specific. Each consumer implements EngineAdapter ONCE,
@@ -12,8 +16,10 @@
  *  No engine types appear in these signatures (only Eigen / std), so kenref_core stays free of
  *  GROMACS and PLUMED headers and keeps building/validating standalone.
  *
- *  Multi-model assembly. KEnRef computes one energy over the coordinates of ALL models. A "model"
- *  is one replica (live MD) or one input trajectory (offline). Each process owns some LOCAL models
+ *  Multi-model assembly. KEnRef computes one energy over the coordinates of ALL models. Here a "model"
+ *  (as in numModelsInThisProcess/numModelsTotal) is a SYSTEM COPY — one MD replica (live) or one input
+ *  trajectory (offline) — NOT an EnergyModel (the restraint type SIGMA/PLATEAUS/RELAX); the restraint
+ *  couples all the system-copy models. Each process owns some LOCAL models
  *  (live: exactly 1; offline: all N); the master (simulationIndex()==0) assembles every model's
  *  fitted coordinates, computes, then the per-model derivatives are distributed back. The driver
  *  performs the engine-agnostic math (no-jump correction, Kabsch fit, inverse-fit, unit scale,
@@ -43,6 +49,12 @@ public:
     // Raw string the user supplied for `key`, or nullopt if unset. The driver/model converts to
     // the declared ParamType. PLUMED implements this with parse(); GROMACS with CLI11/Settings.
     [[nodiscard]] virtual std::optional<std::string> getRawParam(const std::string& key) const = 0;
+
+    // Number of OpenMP threads to use for THIS step's kernels. Queried by the driver once per step
+    // because the engine may change it at runtime (e.g. GROMACS gmx_omp_nthreads_get per step). The
+    // KEnRef convention is that 0 means "use all available"; an engine may instead return its own
+    // managed thread count.
+    [[nodiscard]] virtual int numOmpThreads() const = 0;
 
     // ---- Per-step, per model held by THIS process (engine-native, Angstrom) ---------
     // Live MD: exactly one model in this process (this replica). Offline tools: one per input

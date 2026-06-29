@@ -19,6 +19,7 @@
 #include "core/EnergyModel.h"
 #include "core/EngineAdapter.h"
 #include "core/ModelRegistry.h"
+#include "core/KEnRefDriver.h"
 #include "testHelper.h"
 
 // Minimal EngineAdapter for driving an EnergyModel's init in unit tests: only getRawParam() is
@@ -30,6 +31,7 @@ public:
         const auto it = params_.find(key);
         return it == params_.end() ? std::nullopt : std::optional<std::string>(it->second);
     }
+    [[nodiscard]] int numOmpThreads() const override { return 0; }
     [[nodiscard]] int numModelsInThisProcess() const override { return 0; }
     void getLocalModelX(int, CoordsMatrixType<KEnRef_Real_t>&, CoordsMatrixType<KEnRef_Real_t>&,
                         Eigen::Matrix<KEnRef_Real_t, 3, 3>&) const override { ADD_FAILURE(); }
@@ -42,6 +44,34 @@ public:
                                  std::vector<CoordsMatrixType<KEnRef_Real_t>>&) const override { ADD_FAILURE(); }
 private:
     std::map<std::string, std::string> params_;
+};
+
+// Single-process EngineAdapter for testing KEnRefDriver end-to-end: getLocalModelX returns the same
+// guide atoms for every model (so the Kabsch fit is identity when refCentered == that guide), the box
+// is identity (no-jump is skipped on the first step anyway), and gather/scatter are the trivial moves.
+class DriverTestAdapter : public kenref::EngineAdapter<KEnRef_Real_t> {
+public:
+    DriverTestAdapter(CoordsMatrixType<KEnRef_Real_t> guide,
+                      std::vector<CoordsMatrixType<KEnRef_Real_t>> subs)
+        : guide_(std::move(guide)), subs_(std::move(subs)) { derivs_.resize(subs_.size()); }
+    [[nodiscard]] std::optional<std::string> getRawParam(const std::string&) const override { return std::nullopt; }
+    [[nodiscard]] int numOmpThreads() const override { return 0; }
+    [[nodiscard]] int numModelsInThisProcess() const override { return static_cast<int>(subs_.size()); }
+    void getLocalModelX(int i, CoordsMatrixType<KEnRef_Real_t>& g, CoordsMatrixType<KEnRef_Real_t>& s,
+                        Eigen::Matrix<KEnRef_Real_t, 3, 3>& box) const override {
+        g = guide_; s = subs_[i]; box = Eigen::Matrix<KEnRef_Real_t, 3, 3>::Identity();
+    }
+    void addLocalModelDerivatives(int i, const CoordsMatrixType<KEnRef_Real_t>& d) override { derivs_[i] = d; }
+    [[nodiscard]] int numModelsTotal() const override { return static_cast<int>(subs_.size()); }
+    [[nodiscard]] int simulationIndex() const override { return 0; }
+    void gatherFittedSubAtomsX(const std::vector<CoordsMatrixType<KEnRef_Real_t>>& local,
+                               std::vector<CoordsMatrixType<KEnRef_Real_t>>& all) const override { all = local; }
+    void scatterModelDerivatives(const std::vector<CoordsMatrixType<KEnRef_Real_t>>& all,
+                                 std::vector<CoordsMatrixType<KEnRef_Real_t>>& local) const override { local = all; }
+    std::vector<CoordsMatrixType<KEnRef_Real_t>> derivs_;  // captured per-model derivatives
+private:
+    CoordsMatrixType<KEnRef_Real_t> guide_;
+    std::vector<CoordsMatrixType<KEnRef_Real_t>> subs_;
 };
 
 // Benchmark helper: OpenMP thread counts to sweep, overridable via KENREF_BENCH_THREADS
@@ -675,7 +705,7 @@ TEST(KEnRefTestSuite, testEROS3) {
         {" HA  MET A   1 ", " HG2 MET A   1 ",},
         {" HA  MET A   1 ", " HG3 MET A   1 ",},
     };
-    auto eros3_sub_atom_idPairs = KEnRef<float>::atomNamePairs_2_atomIdPairs(atomNamePairs, atomNameMapping0);
+    auto eros3_sub_atom_idPairs = IoUtils::atomNamePairs_2_atomIdPairs(atomNamePairs, atomNameMapping0);
     std::vector<std::tuple<int, int> > expectedEros3_sub_atom_idPairs{{0, 1}, {0, 2}, {0, 3}, {0, 4}};
 
     for (int i = 0; i < eros3_sub_atom_idPairs.size(); i++) {
@@ -1033,6 +1063,41 @@ TEST(KEnRefTestSuite, testPlateausModelViaRegistry) {
     ASSERT_TRUE(grad_direct.has_value());
     for (size_t m = 0; m < grad_model->size(); ++m)
         TestHelper<double>::EXPECT_MATRIX_NEAR((*grad_model)[m], (*grad_direct)[m], 1e-9);
+}
+
+// Drive the SIGMA model through KEnRefDriver end-to-end. With the guide atoms equal to the centered
+// reference, the Kabsch fit is identity, so the gathered coords equal s.coord_array and the driver's
+// energy must match the direct-kernel ground truth 124.8785. Also confirms derivatives are applied
+// to every model.
+TEST(KEnRefTestSuite, testKEnRefDriverSigma) {
+    kenref::bootstrapModels();
+    auto model = kenref::ModelRegistry<KEnRef_Real_t>::create("SIGMA");
+    ASSERT_NE(model, nullptr);
+
+    auto s = makeGB3SigmaEnergySetup();
+    TestEngineAdapter initAdapter({
+        {"EXP_DATA_FOLDER", GB3_SPEC_DEN_DIR},
+        {"PROTON_MHZ", std::to_string(GB3_PROTON_MHZ)},
+    });
+    kenref::ParamSchema emptySchema;
+    kenref::InitContext<KEnRef_Real_t> initCtx{initAdapter, emptySchema, s.atomNameMapping, s.handleNames, 3};
+    model->buildCache(initCtx);
+    kenref::IndexingContext<KEnRef_Real_t> idxCtx{s.atomNameMapping};
+    model->finalizeIndexing(idxCtx);
+
+    // Guide == reference => identity fit. (Guide atoms only set the alignment transform, not the energy.)
+    const CoordsMatrixType<KEnRef_Real_t> guide = s.coord_array[0].topRows(10);
+    constexpr KEnRef_Real_t bigMaxForceSq = 1e30;
+    kenref::KEnRefDriver<KEnRef_Real_t> driver(std::move(model), /*k*/ 1.0, /*n*/ 1.0, bigMaxForceSq, guide);
+
+    DriverTestAdapter adapter(guide, s.coord_array);
+    const KEnRef_Real_t energy = driver.step(adapter);
+    EXPECT_NEAR(energy, 124.8785, 1e-4);
+    ASSERT_EQ(adapter.derivs_.size(), 3u);
+    for (const auto& d : adapter.derivs_) {
+        ASSERT_GT(d.rows(), 0);
+        EXPECT_TRUE(d.allFinite());
+    }
 }
 
 // Relaxation-rate restraint energy + gradient end-to-end check against R's
@@ -1400,7 +1465,7 @@ TEST(KEnRefBench, DISABLED_RelaxEnergyThreadSweep) {
     // is wired into the force provider, populate the cache there in a relax branch like the sigma one.
     for (auto& rd : relax_data_list)
         rd.set_atomIdPairs_to_sub0Atom_id_pairs_cache(
-            {KEnRef<R>::atomNamePairs_2_atomIdPairs(rd.get_atom_pairs(), atomNameMapping)});
+            {IoUtils::atomNamePairs_2_atomIdPairs(rd.get_atom_pairs(), atomNameMapping)});
     const auto coord_master = getAllModels_allAtomCoordsMatrix<R>(GB3_PROTON_FILENAME, {0, 2, 4});
 
     const std::vector<int> threads = benchThreadList({1, 2, 4, 8, 16, 0}); // 0 == "all"
