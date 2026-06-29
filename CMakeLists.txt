@@ -14,6 +14,9 @@ message(STATUS "the build type is: ${build_type}")
 # ============================================================================
 option(BUILD_KENREF_CORE "Build KENREF_CORE library" ON)
 option(BUILD_KENREF_GMX "Build KENREF GMX interface" ON)
+# OFF by default: needs PLUMED headers (-DPLUMED_SRC_DIR=...). In production the PLUMED fork compiles
+# src/plumedinterface itself (Option A); this target is for offline compile-validation only.
+option(BUILD_KENREF_PLUMED "Build KENREF PLUMED interface (compile-validation lib)" OFF)
 
 # Per-model compile-time enable switches (Style-2 registration). Default ON; turning one OFF drops that
 # model's registration from bootstrapModels() so it is unavailable at runtime. Passed to the core
@@ -194,6 +197,14 @@ if(BUILD_KENREF_GMX)
 	endif()
 
 	include(cmake/KEnRefGMX.cmake)
+endif()
+
+if(BUILD_KENREF_PLUMED)
+	# Needs KENREF::CORE (build it here, or it must be found as above for the GMX path).
+	if(NOT TARGET KENREF::CORE)
+		message(FATAL_ERROR "BUILD_KENREF_PLUMED requires KENREF::CORE (build with -DBUILD_KENREF_CORE=ON).")
+	endif()
+	include(cmake/KEnRefPlumed.cmake)
 endif()
 
 # ============================================================================
