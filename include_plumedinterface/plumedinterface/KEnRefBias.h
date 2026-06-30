@@ -23,7 +23,7 @@
 #include <vector>
 
 #include "core/KEnRef.h"          // CoordsMatrixType<>, KEnRef_Real_t
-#include "core/EngineAdapter.h"
+#include "core/DefaultEngineAdapter.h"
 #include "core/KEnRefDriver.h"
 
 // Narrowing/static-cast helper used for PLUMED(double) <-> KEnRef_Real_t conversions.
@@ -34,7 +34,7 @@ namespace PLMD::kenref {
 
     class KEnRefBias final : public bias::Bias,
                             public ActionAtomistic,
-                            public ::kenref::EngineAdapter<KEnRef_Real_t> {
+                            public ::kenref::DefaultEngineAdapter<KEnRef_Real_t> {
         // ---- general (framework) parameters ----
         KEnRef_Real_t k_ = 1.0;
         KEnRef_Real_t n_ = 0.25;
@@ -94,7 +94,7 @@ namespace PLMD::kenref {
         // ---- kenref::EngineAdapter -------------------------------------------------------------
         [[nodiscard]] std::optional<std::string> getRawParam(const std::string& key) const override;
         [[nodiscard]] int numOmpThreads() const override;
-        [[nodiscard]] int numModelsInThisProcess() const override { return 1; } // one replica per process
+        // numModelsInThisProcess() == 1 (one replica per process) comes from DefaultEngineAdapter.
         void getLocalModelX(int localModel, CoordsMatrixType<KEnRef_Real_t>& guideX,
                             CoordsMatrixType<KEnRef_Real_t>& subX,
                             Eigen::Matrix<KEnRef_Real_t, 3, 3>& box) const override;

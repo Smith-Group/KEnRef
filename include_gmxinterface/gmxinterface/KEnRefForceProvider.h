@@ -24,12 +24,12 @@
 
 #include "gmxwrapper.h"
 #include "core/KEnRef.h"
-#include "core/EngineAdapter.h"
+#include "core/DefaultEngineAdapter.h"
 #include "core/KEnRefDriver.h"
 
 
 class KEnRefForceProvider final : public gmx::IForceProvider,
-                                  public kenref::EngineAdapter<KEnRef_Real_t> {
+                                  public kenref::DefaultEngineAdapter<KEnRef_Real_t> {
 
 private:
 	//force the user to select one value
@@ -105,7 +105,7 @@ public:
 	// ----------------------------------------------------------------------------------------------
 	[[nodiscard]] std::optional<std::string> getRawParam(const std::string &key) const override;
 	[[nodiscard]] int numOmpThreads() const override;
-	[[nodiscard]] int numModelsInThisProcess() const override { return 1; }
+	// numModelsInThisProcess() == 1 (one replica per process) comes from DefaultEngineAdapter.
 	void getLocalModelX(int localModel, CoordsMatrixType<KEnRef_Real_t> &guideX,
 	                    CoordsMatrixType<KEnRef_Real_t> &subX, Eigen::Matrix<KEnRef_Real_t, 3, 3> &box) const override;
 	void addLocalModelDerivatives(int localModel, const CoordsMatrixType<KEnRef_Real_t> &derivs) override;
