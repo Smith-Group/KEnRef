@@ -25,6 +25,7 @@
 #include "core/kabsch.h"
 #include "core/IoUtils.h"
 #include "core/ModelRegistry.h"
+#include "core/buildModelIndexing.h"
 #include "gmxinterface/KEnRefForceProvider.h"
 
 #include <gromacs/mdrunutility/mdmodulesnotifiers.h>
@@ -319,64 +320,15 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
 
     std::cout << "KEnRef_Real_t type is: " << typeid(KEnRef_Real_t).name() << '\n';
 
-    // ---- create the selected model from the registry and let it load its inputs (replaces the
-    //      per-model SIGMA/PLATEAUS switch). The model reads its params via this adapter's
-    //      getRawParam (backed by Settings) and exposes its atom-name pairs. ----
-    kenref::bootstrapModels();
-    auto model = kenref::ModelRegistry<KEnRef_Real_t>::create(energyModelName(selectedEnergyModel));
-    GMX_ASSERT(model != nullptr,
+    // ---- shared model + sub-atom indexing (registry create + buildCache + sub0Id indexing +
+    //      finalizeIndexing), replacing the per-model SIGMA/PLATEAUS switch AND the hand-rolled
+    //      sub-indexing. The 1-based global serials we pass in come back as 1-based subAtomGlobalIds. ----
+    const std::string modelName = energyModelName(selectedEnergyModel);
+    GMX_ASSERT(kenref::ModelRegistry<KEnRef_Real_t>::has(modelName),
                "Unknown energy model. please set \"--model\" to a registered model (e.g. SIGMA or PLATEAUS).");
-    {
-        kenref::ParamSchema schema; // empty: the adapter supplies every param the model reads
-        kenref::InitContext<KEnRef_Real_t> initCtx{*this, schema, atomName_to_atomGlobalId_map, handleNames,
-                                                   numSimulations};
-        model->buildCache(initCtx);
-    }
-
-    // ---- derive the sub-atom indexing from the model's atom-name pairs ----
-    const auto &atomName_pairs = model->atomNamePairs();
-    int maxAtomIdOfInterest = -1; // If you want to use size_t, then you can NOT use -1 as an initial value
-    std::vector<bool> globalAtomIdFlags(homenr, false); //ONE based
-    //scan the atom pairs to (1) find the highest globalAtomId of interest and (2) fill the subAtoms filter
-    int tempI;
-    for (const auto &[a1, a2]: atomName_pairs) {
-        //In the next lines I use .at() instead of [] deliberately; to throw an exception if unexpected name found
-        if ((tempI = atomName_to_atomGlobalId_map.at(a1)) > maxAtomIdOfInterest) maxAtomIdOfInterest = tempI;
-        globalAtomIdFlags[tempI] = true; // Here I use [] instead of at(), because I am sure about the boundaries.
-        if ((tempI = atomName_to_atomGlobalId_map.at(a2)) > maxAtomIdOfInterest) maxAtomIdOfInterest = tempI;
-        globalAtomIdFlags[tempI] = true; // Here I use [] instead of at(), because I am sure about the boundaries.
-    }
-    globalAtomIdFlags.resize(maxAtomIdOfInterest + 1);
-
-    auto global1Id_to_sub0Id = std::vector<int>(globalAtomIdFlags.size(), -1);
-    auto sub0Id_to_global1Id = std::vector<int>(globalAtomIdFlags.size(), -1);
-
-    int localId = 0;
-    for (int i = 0; i < static_cast<int>(globalAtomIdFlags.size()); i++) {
-        if (globalAtomIdFlags[i]) {
-            global1Id_to_sub0Id[i] = localId;
-            sub0Id_to_global1Id[localId] = i;
-            localId++;
-        }
-    }
-    sub0Id_to_global1Id.resize(localId);
-
-    this->global1Id_to_sub0Id_ = std::make_shared<std::vector<int> >(std::move(global1Id_to_sub0Id));
-    this->sub0Id_to_global1Id_ = std::make_shared<std::vector<int> >(std::move(sub0Id_to_global1Id));
-
-    this->atomName_to_atomSub0Id_map_ = std::make_shared<std::map<std::string, int> >();
-    auto &atomName_to_atomSub0Id_map = *this->atomName_to_atomSub0Id_map_;
-    for (const auto &[name, globalId]: atomName_to_atomGlobalId_map) {
-        if (globalId > maxAtomIdOfInterest)
-            continue;
-        atomName_to_atomSub0Id_map[name] = global1Id_to_sub0Id_->at(globalId);
-    }
-
-    // ---- finalize the model's indexing (name->sub0Id pairs + primed per-data caches) ----
-    {
-        kenref::IndexingContext<KEnRef_Real_t> idxCtx{atomName_to_atomSub0Id_map, numOmpThreads()};
-        model->finalizeIndexing(idxCtx);
-    }
+    auto mi = kenref::buildModelIndexing<KEnRef_Real_t>(
+        modelName, *this, atomName_to_atomGlobalId_map, handleNames, numSimulations, numOmpThreads());
+    this->sub0Id_to_global1Id_ = std::make_shared<std::vector<int> >(std::move(mi.subAtomGlobalIds));
 
     // ---- per-step buffers (allocated once, reused every step) ----
     this->subAtomsX_ = std::make_shared<CoordsMatrixType<KEnRef_Real_t> >(this->sub0Id_to_global1Id_->size(), 3); //contains needed atoms only
@@ -393,7 +345,7 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
 
     // ---- construct the driver that owns the model + the shared per-step pipeline ----
     this->driver_ = std::make_unique<kenref::KEnRefDriver<KEnRef_Real_t> >(
-        std::move(model), k, n, maxForceSquared, *this->guideAtomsReferenceCoordsCentered_);
+        std::move(mi.model), k, n, maxForceSquared, *this->guideAtomsReferenceCoordsCentered_);
 
     auto end = std::chrono::high_resolution_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin);
