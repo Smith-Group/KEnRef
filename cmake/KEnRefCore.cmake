@@ -96,12 +96,34 @@ target_include_directories(kenref_core PUBLIC
 )
 
 # ============================================================================
+# SHARED VARIANT OF THE CORE (Phase E)
+# ============================================================================
+# Build kenref_core also as a SHARED library so distributors / PLUMED can link it dynamically. This is
+# ADDITIVE: the static kenref_core above is untouched, so every existing consumer keeps linking the .a.
+# Same sources + usage requirements; OUTPUT_NAME kenref_core => libkenref_core.so beside libkenref_core.a.
+add_library(kenref_core_shared SHARED ${core_sources} ${core_headers})
+add_library(KENREF::CORE_SHARED ALIAS kenref_core_shared)
+target_link_libraries(kenref_core_shared PUBLIC MPI::MPI_CXX Eigen3::Eigen)
+if(TARGET OpenMP::OpenMP_CXX)
+    target_link_libraries(kenref_core_shared PUBLIC OpenMP::OpenMP_CXX)
+endif()
+target_include_directories(kenref_core_shared PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include_core>
+    $<INSTALL_INTERFACE:include/core>
+    ${EIGEN3_INCLUDE_DIR}
+)
+set_target_properties(kenref_core_shared PROPERTIES
+    OUTPUT_NAME kenref_core
+    POSITION_INDEPENDENT_CODE ON
+)
+
+# ============================================================================
 # PER-MODEL ENABLE DEFINITIONS (Style-2 registration; options in top CMakeLists.txt)
 # ============================================================================
 # bootstrapModels() guards each register*Model() with #if KENREF_ENABLE_<MODEL>; drive those from the
-# CMake options so a model can be dropped at compile time. Applied to both core targets (PUBLIC so
+# CMake options so a model can be dropped at compile time. Applied to all core targets (PUBLIC so
 # consumers that include the headers see the same switches).
-foreach(kenref_lib kenref_core kenref_and_eigen3)
+foreach(kenref_lib kenref_core kenref_core_shared kenref_and_eigen3)
     target_compile_definitions(${kenref_lib} PUBLIC
         KENREF_ENABLE_SIGMA=$<BOOL:${KENREF_ENABLE_SIGMA}>
         KENREF_ENABLE_PLATEAUS=$<BOOL:${KENREF_ENABLE_PLATEAUS}>
@@ -127,12 +149,21 @@ configure_file(
     @ONLY
 )
 
+# Create pkg-config file for the PLUMED interface (Option A: exposes the repo's plumedinterface header
+# + source include paths so the PLUMED fork's frozen frame compiles src/plumedinterface within PLUMED's
+# build without hardcoding a checkout path). Installed/headers+source below.
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/kenref_plumed.pc.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/kenref_plumed.pc"
+    @ONLY
+)
+
 # ============================================================================
 # INSTALLATION
 # ============================================================================
 
 # Install libraries
-install(TARGETS kenref_core kenref_and_eigen3
+install(TARGETS kenref_core kenref_core_shared kenref_and_eigen3
 		EXPORT KEnRefCoreTargets
 		DESTINATION lib
 		INCLUDES DESTINATION include
@@ -142,6 +173,19 @@ install(TARGETS kenref_core kenref_and_eigen3
 install(DIRECTORY include_core/
 		DESTINATION include/core
 		FILES_MATCHING PATTERN "*.h"
+)
+
+# Install the PLUMED interface headers + SOURCE (Option A: the fork compiles src/plumedinterface in its
+# own build). Headers -> include/plumedinterface/plumedinterface/*.h ; source -> src/plumedinterface/*.
+# kenref_plumed.pc's Cflags (-I include/plumedinterface, -I src) make the frame's #include forwarders
+# resolve. Installed by `build-kenref.sh core` so the PLUMED build only needs the kenref install prefix.
+install(DIRECTORY include_plumedinterface/
+		DESTINATION include/plumedinterface
+		FILES_MATCHING PATTERN "*.h"
+)
+install(DIRECTORY src/plumedinterface
+		DESTINATION src
+		FILES_MATCHING PATTERN "*.cpp"
 )
 
 # For self-contained version, install Eigen headers
@@ -161,6 +205,7 @@ endif()
 install(FILES
 		"${CMAKE_CURRENT_BINARY_DIR}/kenref_core.pc"
     "${CMAKE_CURRENT_BINARY_DIR}/kenref_and_eigen3.pc"
+    "${CMAKE_CURRENT_BINARY_DIR}/kenref_plumed.pc"
 		DESTINATION lib/pkgconfig
 )
 
@@ -168,6 +213,7 @@ install(FILES
 install(FILES
     "${CMAKE_CURRENT_BINARY_DIR}/kenref_core.pc"
     "${CMAKE_CURRENT_BINARY_DIR}/kenref_and_eigen3.pc"
+    "${CMAKE_CURRENT_BINARY_DIR}/kenref_plumed.pc"
     DESTINATION share/pkgconfig
 )
 
@@ -187,7 +233,7 @@ install(FILES LICENSE_CLI11.txt DESTINATION share/licenses/cli11)
 # ============================================================================
 
 # Set VERSION and SOVERSION properties for shared libraries (if any)
-set_target_properties(kenref_core kenref_and_eigen3
+set_target_properties(kenref_core kenref_core_shared kenref_and_eigen3
     PROPERTIES
     VERSION 1.0.0
     SOVERSION 1
