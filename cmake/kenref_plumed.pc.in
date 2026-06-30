@@ -1,0 +1,10 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+includedir=${prefix}/include
+plumedsrcdir=${prefix}/src
+
+Name: KEnRef PLUMED interface
+Description: KEnRef PLUMED EngineAdapter source. Option A (model-abstraction restructure): KEnRefBias is compiled WITHIN PLUMED's own build by the fork's frozen frame, not linked as a prebuilt library. This pkg-config only exposes the KEnRef header + source include paths so the frame stays machine-neutral.
+Version: 1.0.0
+# No Libs: the action is compiled in-tree by PLUMED (it links the engine itself).
+Cflags: -I${includedir}/core -I${includedir}/plumedinterface -I${plumedsrcdir}
+Requires: eigen3 >= 3.4.0
