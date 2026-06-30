@@ -13,9 +13,6 @@
  *  src/kenref/ "frozen frame" merely compiles it (within PLUMED's build) and registers the action.
  */
 
-#include "core/ActionAtomistic.h"
-#include "bias/Bias.h"
-
 #include <map>
 #include <memory>
 #include <optional>
@@ -25,6 +22,9 @@
 #include "core/KEnRef.h"          // CoordsMatrixType<>, KEnRef_Real_t
 #include "core/DefaultEngineAdapter.h"
 #include "core/KEnRefDriver.h"
+
+#include "core/ActionAtomistic.h"
+#include "bias/Bias.h"
 
 // Narrowing/static-cast helper used for PLUMED(double) <-> KEnRef_Real_t conversions.
 template<typename To, typename From>
