@@ -28,10 +28,10 @@
 #include "gromacs/fileio/xtcio.h"
 #include "gromacs/fileio/trrio.h"
 
-#include "core/EngineAdapter.h"
+#include "core/DefaultEngineAdapter.h"
 #include "core/KEnRef.h"   // CoordsMatrixType<>, KEnRef_Real_t
 
-class TrajectoryEngineAdapter final : public kenref::EngineAdapter<KEnRef_Real_t> {
+class TrajectoryEngineAdapter final : public kenref::DefaultEngineAdapter<KEnRef_Real_t> {
 public:
     enum class InputFileType { xtc, trr, UNKNOWN };
 
@@ -69,15 +69,9 @@ public:
         // energy/metric-only: the offline tools never apply forces.
     }
     [[nodiscard]] int numModelsTotal()  const override { return static_cast<int>(models_.size()); }
-    [[nodiscard]] int simulationIndex() const override { return 0; } // single process == master
-    void gatherFittedSubAtomsX(const std::vector<CoordsMatrixType<KEnRef_Real_t>>& localFitted,
-                               std::vector<CoordsMatrixType<KEnRef_Real_t>>& all) const override {
-        all = localFitted; // single process owns every model
-    }
-    void scatterModelDerivatives(const std::vector<CoordsMatrixType<KEnRef_Real_t>>& allPerModel,
-                                 std::vector<CoordsMatrixType<KEnRef_Real_t>>& localPerModel) const override {
-        localPerModel = allPerModel;
-    }
+    // simulationIndex() (=0), gatherFittedSubAtomsX / scatterModelDerivatives (trivial moves) and the
+    // numModelsInThisProcess/Total split: this single offline process owns the whole ensemble, so the
+    // DefaultEngineAdapter defaults apply (numModelsInThisProcess/Total are overridden above to N).
 
 private:
     // Per-trajectory open file + current frame (the old AbstractCalculator::t_file_state, owned here).

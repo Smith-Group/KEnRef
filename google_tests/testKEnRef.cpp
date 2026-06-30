@@ -17,31 +17,25 @@
 #include "core/KEnRef.h"
 #include "core/IoUtils.h"
 #include "core/EnergyModel.h"
-#include "core/EngineAdapter.h"
+#include "core/DefaultEngineAdapter.h"
 #include "core/ModelRegistry.h"
 #include "core/KEnRefDriver.h"
 #include "testHelper.h"
 
 // Minimal EngineAdapter for driving an EnergyModel's init in unit tests: only getRawParam() is
 // exercised (during buildCache); the per-step methods are unused here and assert if called.
-class TestEngineAdapter : public kenref::EngineAdapter<KEnRef_Real_t> {
+class TestEngineAdapter : public kenref::DefaultEngineAdapter<KEnRef_Real_t> {
 public:
     explicit TestEngineAdapter(std::map<std::string, std::string> params) : params_(std::move(params)) {}
     [[nodiscard]] std::optional<std::string> getRawParam(const std::string& key) const override {
         const auto it = params_.find(key);
         return it == params_.end() ? std::nullopt : std::optional<std::string>(it->second);
     }
-    [[nodiscard]] int numOmpThreads() const override { return 0; }
-    [[nodiscard]] int numModelsInThisProcess() const override { return 0; }
+    // The per-step methods are unused during init; override the I/O ones (pure) to assert if called.
+    // (numModels*/simulationIndex/gather/scatter + numOmpThreads come from DefaultEngineAdapter.)
     void getLocalModelX(int, CoordsMatrixType<KEnRef_Real_t>&, CoordsMatrixType<KEnRef_Real_t>&,
                         Eigen::Matrix<KEnRef_Real_t, 3, 3>&) const override { ADD_FAILURE(); }
     void addLocalModelDerivatives(int, const CoordsMatrixType<KEnRef_Real_t>&) override { ADD_FAILURE(); }
-    [[nodiscard]] int numModelsTotal() const override { return 0; }
-    [[nodiscard]] int simulationIndex() const override { return 0; }
-    void gatherFittedSubAtomsX(const std::vector<CoordsMatrixType<KEnRef_Real_t>>&,
-                               std::vector<CoordsMatrixType<KEnRef_Real_t>>&) const override { ADD_FAILURE(); }
-    void scatterModelDerivatives(const std::vector<CoordsMatrixType<KEnRef_Real_t>>&,
-                                 std::vector<CoordsMatrixType<KEnRef_Real_t>>&) const override { ADD_FAILURE(); }
 private:
     std::map<std::string, std::string> params_;
 };
@@ -49,25 +43,21 @@ private:
 // Single-process EngineAdapter for testing KEnRefDriver end-to-end: getLocalModelX returns the same
 // guide atoms for every model (so the Kabsch fit is identity when refCentered == that guide), the box
 // is identity (no-jump is skipped on the first step anyway), and gather/scatter are the trivial moves.
-class DriverTestAdapter : public kenref::EngineAdapter<KEnRef_Real_t> {
+class DriverTestAdapter : public kenref::DefaultEngineAdapter<KEnRef_Real_t> {
 public:
     DriverTestAdapter(CoordsMatrixType<KEnRef_Real_t> guide,
                       std::vector<CoordsMatrixType<KEnRef_Real_t>> subs)
         : guide_(std::move(guide)), subs_(std::move(subs)) { derivs_.resize(subs_.size()); }
     [[nodiscard]] std::optional<std::string> getRawParam(const std::string&) const override { return std::nullopt; }
-    [[nodiscard]] int numOmpThreads() const override { return 0; }
+    // N models in this one process (like the offline tools); simulationIndex/gather/scatter + numOmpThreads
+    // come from DefaultEngineAdapter (single-process trivial moves).
     [[nodiscard]] int numModelsInThisProcess() const override { return static_cast<int>(subs_.size()); }
+    [[nodiscard]] int numModelsTotal() const override { return static_cast<int>(subs_.size()); }
     void getLocalModelX(int i, CoordsMatrixType<KEnRef_Real_t>& g, CoordsMatrixType<KEnRef_Real_t>& s,
                         Eigen::Matrix<KEnRef_Real_t, 3, 3>& box) const override {
         g = guide_; s = subs_[i]; box = Eigen::Matrix<KEnRef_Real_t, 3, 3>::Identity();
     }
     void addLocalModelDerivatives(int i, const CoordsMatrixType<KEnRef_Real_t>& d) override { derivs_[i] = d; }
-    [[nodiscard]] int numModelsTotal() const override { return static_cast<int>(subs_.size()); }
-    [[nodiscard]] int simulationIndex() const override { return 0; }
-    void gatherFittedSubAtomsX(const std::vector<CoordsMatrixType<KEnRef_Real_t>>& local,
-                               std::vector<CoordsMatrixType<KEnRef_Real_t>>& all) const override { all = local; }
-    void scatterModelDerivatives(const std::vector<CoordsMatrixType<KEnRef_Real_t>>& all,
-                                 std::vector<CoordsMatrixType<KEnRef_Real_t>>& local) const override { local = all; }
     std::vector<CoordsMatrixType<KEnRef_Real_t>> derivs_;  // captured per-model derivatives
 private:
     CoordsMatrixType<KEnRef_Real_t> guide_;

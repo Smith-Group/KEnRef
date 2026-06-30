@@ -72,6 +72,10 @@ public:
     // Add this local model's derivatives ([nSub x 3], already inverse-fitted, unit-scaled and
     // saturated by the driver) to the engine's forces. Offline tools that only report energy may
     // leave this a no-op.
+    //
+    // DELIBERATELY pure (no default): unlike the single-process/no-MPI methods, this is intentionally
+    // NOT given a no-op default in DefaultAdapter — a force-applying engine must not be able to
+    // silently forget to apply forces. Energy/metric-only consumers opt into the no-op explicitly.
     virtual void addLocalModelDerivatives(int localModel,
                                           const CoordsMatrixType<Real>& derivs) = 0;
 
