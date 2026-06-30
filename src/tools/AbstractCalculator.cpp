@@ -1,5 +1,6 @@
 #include "tools/AbstractCalculator.h"
 #include "gmxinterface/gmxkenrefinitializer.h"
+#include "core/buildModelIndexing.h"
 
 int AbstractCalculator::calc(int argc, char **argv) {
     CLI::App app{toolName};
@@ -41,61 +42,20 @@ int AbstractCalculator::calc(int argc, char **argv) {
     addModelParams(params); // tool-specific (energycalc: PROTON_MHZ / RATES_FILE)
     adapter = std::make_unique<TrajectoryEngineAdapter>(inputFiles, guideAtom0Indices, params, kernelNumOmpThreads());
 
-    // ---- 4. build the selected model from the registry and let it load its inputs ----
-    kenref::bootstrapModels();
-    auto model = kenref::ModelRegistry<KEnRef_Real_t>::create(modelName);
-    GMX_ASSERT(model != nullptr,
+    // ---- 4-6. shared model + sub-atom indexing (registry create + buildCache + sub0Id indexing +
+    //          finalizeIndexing), via kenref::buildModelIndexing — the SAME path the GROMACS and PLUMED
+    //          engines use. We pass the 1-based PDB serials and convert the returned 1-based
+    //          subAtomGlobalIds to the 0-based indices the trajectory arrays use. ----
+    GMX_ASSERT(kenref::ModelRegistry<KEnRef_Real_t>::has(modelName),
                (toolParamPrefix + "_ENERGY_MODEL must name a registered model (e.g. SIGMA or PLATEAUS).").c_str());
-    {
-        kenref::ParamSchema schema; // empty: the adapter supplies every param the model reads
-        kenref::InitContext<KEnRef_Real_t> initCtx{*adapter, schema, atomName_to_atomGlobalId_map, handleNames,
-                                                   num_models};
-        model->buildCache(initCtx);
-    }
+    auto mi = kenref::buildModelIndexing<KEnRef_Real_t>(
+        modelName, *adapter, atomName_to_atomGlobalId_map, handleNames, num_models, kernelNumOmpThreads());
 
-    // ---- 5. derive the sub-atom indexing from the model's atom-name pairs (mirrors the GROMACS force
-    //         provider's fillParamsStep0). Everything here is 0-based to index the trajectory arrays. ----
-    const auto &atomName_pairs = model->atomNamePairs();
-    int maxAtomId0OfInterest = -1;
-    std::vector<bool> globalAtom0IdFlags(homenr, false);
-    int tmp;
-    for (const auto &[a1, a2]: atomName_pairs) {
-        //In the next lines I use .at() instead of [] deliberately; to throw an exception if unexpected name found
-        if ((tmp = atomName_to_atomGlobalId_map.at(a1) - 1) > maxAtomId0OfInterest) maxAtomId0OfInterest = tmp;
-        globalAtom0IdFlags[tmp] = true;
-        if ((tmp = atomName_to_atomGlobalId_map.at(a2) - 1) > maxAtomId0OfInterest) maxAtomId0OfInterest = tmp;
-        globalAtom0IdFlags[tmp] = true;
-    }
-    globalAtom0IdFlags.resize(maxAtomId0OfInterest + 1);
-
-    std::vector<int> global0Id_to_sub0Id(globalAtom0IdFlags.size(), -1);
-    std::vector<int> subAtoms0Ids;
-    {
-        int sub0Id = 0;
-        for (int i = 0; i < static_cast<int>(globalAtom0IdFlags.size()); ++i) {
-            if (globalAtom0IdFlags[i]) {
-                global0Id_to_sub0Id[i] = sub0Id++;
-                subAtoms0Ids.emplace_back(i);
-            }
-        }
-    }
-    adapter->setSubAtoms0Ids(subAtoms0Ids);
-
-    std::map<std::string, int> atomName_to_atomSub0Id_map;
-    for (const auto &[name, global1Id]: atomName_to_atomGlobalId_map) {
-        if (global1Id - 1 > maxAtomId0OfInterest)
-            continue;
-        const int sub = global0Id_to_sub0Id.at(global1Id - 1);
-        if (sub >= 0)
-            atomName_to_atomSub0Id_map[name] = sub;
-    }
-
-    // ---- 6. finalize the model's indexing and capture the compact sub-atom pairs ----
-    {
-        kenref::IndexingContext<KEnRef_Real_t> idxCtx{atomName_to_atomSub0Id_map, kernelNumOmpThreads()};
-        model->finalizeIndexing(idxCtx);
-    }
-    subAtomIdPairs = model->atomIdPairs();
+    std::vector<int> subAtoms0Ids(mi.subAtomGlobalIds.size());
+    for (size_t i = 0; i < subAtoms0Ids.size(); ++i)
+        subAtoms0Ids[i] = mi.subAtomGlobalIds[i] - 1; // 1-based PDB serial -> 0-based trajectory index
+    adapter->setSubAtoms0Ids(std::move(subAtoms0Ids));
+    subAtomIdPairs = mi.model->atomIdPairs();
 
     // ---- 7. centered guide-atom reference coords (Angstrom) for Kabsch fitting ----
     auto referenceStructureAllAtomCoordsMap = IoUtils::getAtomMappingFromPdb<int, Eigen::RowVector3<KEnRef_Real_t> >(
@@ -105,7 +65,7 @@ int AbstractCalculator::calc(int argc, char **argv) {
     guideAtomsReferenceCoordsCentered = Kabsch_Umeyama<KEnRef_Real_t>::translateCenterOfMassToOrigin(guideAtomsReferenceCoords);
 
     // ---- 8. let the concrete tool take the prepared model (build a driver, etc.) ----
-    prepareConsumer(std::move(model));
+    prepareConsumer(std::move(mi.model));
 
     // ---- 9. output file ----
     std::cout << metricToolCalculatesCapitalized+" output file path: " << outputPathName << std::endl;

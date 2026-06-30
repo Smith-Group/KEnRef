@@ -40,11 +40,11 @@ private:
 	std::shared_ptr<std::vector<int> const> guideAtom0Indices_; //ZERO indexed
 	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t> const> guideAtomsReferenceCoords_; //ZERO indexed
 	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t> const> guideAtomsReferenceCoordsCentered_; //ZERO indexed. Cashed for faster Kabsch Algorithm
-	std::shared_ptr<std::map<std::string, int> const> atomName_to_atomGlobalId_map_; //TODO later you may remove this and keep atomName_to_atomSubId_map_, or update it and delete atomName_to_atomSubId_map_
-	std::shared_ptr<std::map<std::string, int> > atomName_to_atomSub0Id_map_; //atomName is normalized string. SubId is a small subset and is ZERO based
+	std::shared_ptr<std::map<std::string, int> const> atomName_to_atomGlobalId_map_; //built from the mapping PDB, passed to buildModelIndexing
 	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t> > subAtomsX_; //per-step scratch for this replica's restrained atoms
-	std::shared_ptr<std::vector<int> > sub0Id_to_global1Id_; //Global ID is ONE based, subId is a small subset and is ZERO based
-	std::shared_ptr<std::vector<int> > global1Id_to_sub0Id_; //Global ID is ONE based, subId is a small subset and is ZERO based
+	std::shared_ptr<std::vector<int> > sub0Id_to_global1Id_; //Global ID is ONE based, subId is a small subset and is ZERO based (from buildModelIndexing)
+	// (atomName_to_atomSub0Id_map_ + global1Id_to_sub0Id_ removed: the sub-indexing now lives in
+	//  kenref::buildModelIndexing, and neither was used at step time.)
 	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t> > allSimulationsSubAtomsX_; //allocated once, used every step (MPI gather buffer)
 	std::shared_ptr<KEnRef_Real_t[]> allDerivatives_buffer_;
 	std::shared_ptr<KEnRef_Real_t[]> derivatives_buffer_;

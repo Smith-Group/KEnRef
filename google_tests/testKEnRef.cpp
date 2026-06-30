@@ -18,6 +18,7 @@
 #include "core/IoUtils.h"
 #include "core/EnergyModel.h"
 #include "core/DefaultEngineAdapter.h"
+#include "core/buildModelIndexing.h"
 #include "core/ModelRegistry.h"
 #include "core/KEnRefDriver.h"
 #include "testHelper.h"
@@ -958,6 +959,46 @@ TEST(KEnRefTestSuite, testCoordArrayToSigmaEnergy) {
                 const double actual   = sigma_energy_grad->at(m)(s.atomNameMapping.at(normName), j);
                 EXPECT_NEAR(expected, actual, 1e-9);
             }
+    }
+}
+
+// kenref::buildModelIndexing — the shared model + sub-atom indexing helper that de-duplicates the
+// per-consumer fillParamsStep0. Pins the sub-indexing invariants (sorted-unique global-ids; the
+// name->sub0Id map agrees with subAtomGlobalIds; the model's compact atomId pairs are valid sub0Ids),
+// so the de-dup is verified independent of any engine / MD run.
+TEST(KEnRefTestSuite, testBuildModelIndexing) {
+    auto s = makeGB3SigmaEnergySetup();
+    TestEngineAdapter adapter({
+        {"EXP_DATA_FOLDER", GB3_SPEC_DEN_DIR},
+        {"PROTON_MHZ", std::to_string(GB3_PROTON_MHZ)},
+    });
+    auto mi = kenref::buildModelIndexing<KEnRef_Real_t>("SIGMA", adapter, s.atomNameMapping,
+                                                        s.handleNames, /*numModelsTotal*/ 3, /*numOmpThreads*/ 0);
+    ASSERT_NE(mi.model, nullptr);
+
+    // 1) subAtomGlobalIds is strictly ascending (sorted + unique).
+    for (size_t i = 1; i < mi.subAtomGlobalIds.size(); ++i)
+        EXPECT_LT(mi.subAtomGlobalIds[i - 1], mi.subAtomGlobalIds[i]);
+
+    // 2) it is EXACTLY the set of global-ids appearing in the model's atom-name pairs.
+    std::set<int> expected;
+    for (const auto& [a, b] : mi.model->atomNamePairs()) {
+        expected.insert(s.atomNameMapping.at(a));
+        expected.insert(s.atomNameMapping.at(b));
+    }
+    EXPECT_EQ(std::vector<int>(expected.begin(), expected.end()), mi.subAtomGlobalIds);
+
+    // 3) atomName_to_sub0Id is consistent: a name's global-id == subAtomGlobalIds[its sub0Id].
+    for (const auto& [name, sub0] : mi.atomName_to_sub0Id) {
+        ASSERT_GE(sub0, 0);
+        ASSERT_LT(sub0, static_cast<int>(mi.subAtomGlobalIds.size()));
+        EXPECT_EQ(s.atomNameMapping.at(name), mi.subAtomGlobalIds[sub0]);
+    }
+
+    // 4) finalizeIndexing ran: the model's compact atomId pairs are all valid sub0Ids.
+    for (const auto& [i, j] : mi.model->atomIdPairs()) {
+        EXPECT_GE(i, 0); EXPECT_LT(i, static_cast<int>(mi.subAtomGlobalIds.size()));
+        EXPECT_GE(j, 0); EXPECT_LT(j, static_cast<int>(mi.subAtomGlobalIds.size()));
     }
 }
 
