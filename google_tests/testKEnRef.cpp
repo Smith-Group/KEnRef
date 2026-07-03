@@ -1033,6 +1033,39 @@ TEST(KEnRefTestSuite, testSigmaModelViaRegistry) {
     EXPECT_EQ(model->forceUnitScale(), 10.0);
 }
 
+// A num_models / exp-data mismatch must be rejected CLEANLY at buildCache (parameter validation) with a
+// helpful message, instead of the silent heap corruption it used to cause deep inside
+// coord_array_to_sigma_energy (grouping_matrix.cols() / numModels mis-sizes downstream buffers). The GB3
+// spec-den data is built for a 3-member ensemble, so any numModelsTotal != 3 must throw at setup.
+TEST(KEnRefTestSuite, testSigmaModelNumModelsMismatchThrowsCleanly) {
+    kenref::bootstrapModels();
+    auto s = makeGB3SigmaEnergySetup();
+    TestEngineAdapter adapter({
+        {"EXP_DATA_FOLDER", GB3_SPEC_DEN_DIR},
+        {"PROTON_MHZ", std::to_string(GB3_PROTON_MHZ)},
+    });
+    kenref::ParamSchema emptySchema;
+
+    // numModelsTotal = 2, but the GB3 exp-data encodes a 3-member ensemble -> reject during buildCache.
+    auto model = kenref::ModelRegistry<KEnRef_Real_t>::create("SIGMA");
+    ASSERT_NE(model, nullptr);
+    kenref::InitContext<KEnRef_Real_t> badCtx{adapter, emptySchema, s.atomNameMapping, s.handleNames, 2};
+    try {
+        model->buildCache(badCtx);
+        FAIL() << "buildCache should have thrown on a num_models (2) vs exp-data (3 members) mismatch";
+    } catch (const std::runtime_error& e) {
+        const std::string msg = e.what();
+        EXPECT_NE(msg.find("number of input models"), std::string::npos) << "message was: " << msg;
+        EXPECT_NE(msg.find("ensemble members"), std::string::npos)      << "message was: " << msg;
+    }
+
+    // Sanity: the matching count (3) builds without throwing.
+    auto good = kenref::ModelRegistry<KEnRef_Real_t>::create("SIGMA");
+    ASSERT_NE(good, nullptr);
+    kenref::InitContext<KEnRef_Real_t> goodCtx{adapter, emptySchema, s.atomNameMapping, s.handleNames, 3};
+    EXPECT_NO_THROW(good->buildCache(goodCtx));
+}
+
 // Drive the PLATEAUS model through the registry and confirm it forwards correctly to
 // coord_array_to_g_energy. We build a small EXP_DATA_FILE from real atom-name pairs (valid keys of
 // the 2lum mapping) with synthetic g1/g2, then compare model->compute() against a direct kernel call

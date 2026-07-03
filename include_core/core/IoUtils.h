@@ -63,6 +63,38 @@ public:
     static std::vector<std::string> splitCSVLine(const std::string &line, const std::string &delimiter_pattern,
                                                  char quote_char = '"');
 
+    // Width (number of columns) of the grouping matrix built by subset_idx_to_grouping_mat: the max over
+    // ensemble members of the total atom count in that member's groups. For SIGMA this equals
+    // (number of ensemble members) x (permutation factor of the pair type), so min over prefixes gives
+    // the number of members the exp-data was built for. Extracted so callers can validate num_models
+    // ONCE without building the full grouping matrix.
+    static int grouping_width(const std::vector<std::vector<std::vector<int> > > &multipleGroupings);
+
+    // One-time (parameter-validation) check that num_models matches what a file-based spectral-density
+    // model (SIGMA / RELAX) was built for. Each prefix's grouping width = (ensemble members) x
+    // (permutation factor >= 1), so the min over prefixes = the member count the exp-data encodes. A
+    // mismatch otherwise silently mis-sizes buffers inside the hot coord_array_to_{sigma,relax}_energy
+    // kernels (grouping_matrix.cols() / numModels) and corrupts the heap; fail cleanly here instead.
+    // Call from the model's buildCache() (num_models is InitContext::numModelsTotal). Templated over the
+    // spec-den element type (SpecDenData / SpecDenRelaxData) — both expose get_multiple_grouping().
+    template<typename SpecDenList>
+    static void assertEnsembleMemberCount(const SpecDenList &dataList, int numModels, const char *modelName) {
+        int expected = -1;
+        for (const auto &d : dataList) {
+            const int w = grouping_width(d.get_multiple_grouping());
+            if (expected < 0 || w < expected) expected = w;
+        }
+        if (expected < 0) return;  // no spectral-density data -> nothing to validate
+        if (numModels != expected) {
+            throw std::runtime_error(
+                std::string(modelName) + ": number of input models (" + std::to_string(numModels) +
+                ") does not match the number of ensemble members the exp-data folder was built for (" +
+                std::to_string(expected) + "). Supply exactly " + std::to_string(expected) +
+                " model(s)/replica(s), or use an exp-data folder generated for " + std::to_string(numModels) +
+                " member(s).");
+        }
+    }
+
     static Eigen::Matrix<int, Eigen::Dynamic, Eigen::Dynamic>
     subset_idx_to_grouping_mat(const std::vector<std::vector<std::vector<int> > > &multipleGroupings);
 

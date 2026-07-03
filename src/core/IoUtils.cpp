@@ -752,8 +752,7 @@ void IoUtils::fill_atomIndex1_to_coords_Map(std::map<int, Eigen::RowVector3<KEnR
     ret[atomIndex1] = std::move(Eigen::RowVector3<KEnRef_Real>(x, y, z));
 }
 
-Eigen::Matrix<int, Eigen::Dynamic, Eigen::Dynamic>
-IoUtils::subset_idx_to_grouping_mat(const std::vector<std::vector<std::vector<int>>>& multipleGroupings) {
+int IoUtils::grouping_width(const std::vector<std::vector<std::vector<int>>>& multipleGroupings) {
     int maxRowLength = -1;
     for (const auto& grouping : multipleGroupings) {
         int rowLenSum = 0;
@@ -764,6 +763,12 @@ IoUtils::subset_idx_to_grouping_mat(const std::vector<std::vector<std::vector<in
             maxRowLength = rowLenSum;
         }
     }
+    return maxRowLength;
+}
+
+Eigen::Matrix<int, Eigen::Dynamic, Eigen::Dynamic>
+IoUtils::subset_idx_to_grouping_mat(const std::vector<std::vector<std::vector<int>>>& multipleGroupings) {
+    const int maxRowLength = grouping_width(multipleGroupings);
     Eigen::Matrix<int, Eigen::Dynamic, Eigen::Dynamic> ret(multipleGroupings.size(), maxRowLength);
 
     for (int i = 0; i < multipleGroupings.size(); ++i) {

@@ -42,6 +42,12 @@ public:
         exp_data_folder_ = ctx.getString("EXP_DATA_FOLDER");
         relax_data_list_ = IoUtils::load_spec_den_relax_data(exp_data_folder_, ctx.handleNames);
 
+        // Parameter-validation: num_models must match the ensemble-member count the exp-data was built
+        // for. RELAX shares SIGMA's file-based grouping (grouping_matrix.cols() / numModels inside the hot
+        // coord_array_to_relax_energy kernel), so a mismatch would likewise corrupt the heap. Check once
+        // here at setup, not per-step. numModelsTotal is provided for this model-count-dependent setup.
+        IoUtils::assertEnsembleMemberCount(relax_data_list_, ctx.numModelsTotal, "RELAX");
+
         // Optionally override the default rates_ from a CSV file (header = rate names, one data row of
         // values) read as a 1-row table -> NamedRowVector; otherwise keep the built-in default. The
         // RELAX default carries the diffusion-tensor components Dx/Dy/Dz alongside kens/kmethyl/karo.
