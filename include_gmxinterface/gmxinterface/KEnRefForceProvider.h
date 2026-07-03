@@ -33,7 +33,7 @@ class KEnRefForceProvider final : public gmx::IForceProvider,
 
 private:
 	//force the user to select one value
-	KEnRef<KEnRef_Real_t>::energyModel selectedEnergyModel = KEnRef<KEnRef_Real_t>::energyModel::UNKNOWN; //SIGMA; // PLATEAUS;
+	std::string selectedEnergyModel; // registry model name (SIGMA / PLATEAUS / RELAX / ...)
 
 	gmx::SimulationContext *simulationContext_ = nullptr;
 	bool paramsInitialized = false; // We use it instead of (step == 0), because the simulation may be continuing after 0
@@ -96,8 +96,8 @@ public:
     static void fillSubAtomsX(CoordsMatrixType<KEnRef_Real_t> &subAtomsX, const std::vector<int> &sub0Id_to_global1Id,
                               const gmx::ForceProviderInput &forceProviderInput, bool toAngstrom);
 
-	void set_selected_energy_model(const KEnRef<KEnRef_Real_t>::energyModel selected_energy_model) {
-		selectedEnergyModel = selected_energy_model;
+	void set_selected_energy_model(std::string selected_energy_model) {
+		selectedEnergyModel = std::move(selected_energy_model);
 	}
 
 	// ----------------------------------------------------------------------------------------------

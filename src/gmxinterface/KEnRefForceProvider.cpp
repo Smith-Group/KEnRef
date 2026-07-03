@@ -40,13 +40,6 @@ static constexpr auto singleStr = "single";
 // MPI datatype matching KEnRef_Real_t (for the per-replica gather/scatter).
 static const MPI_Datatype KENREF_MPI_REAL = std::is_same_v<KEnRef_Real_t, float> ? MPI_FLOAT : MPI_DOUBLE;
 
-// Registry name ("SIGMA"/"PLATEAUS"/...) for the selected model enum (reverse of energyModelMap).
-static std::string energyModelName(KEnRef<KEnRef_Real_t>::energyModel m) {
-    for (const auto &[name, e]: KEnRef<KEnRef_Real_t>::energyModelMap)
-        if (e == m) return name;
-    return "UNKNOWN";
-}
-
 KEnRefForceProvider::KEnRefForceProvider() = default;
 
 KEnRefForceProvider::~KEnRefForceProvider() = default;
@@ -306,7 +299,7 @@ CoordsMatrixType<KEnRef_Real_t> KEnRefForceProvider::getGuideAtomsX(const std::v
 void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulations, const gmx::ForceProviderInput &forceProviderInput) {
     auto begin = std::chrono::high_resolution_clock::now();
     bool isMultiSimulation = this->simulationContext_->multiSimulation_ != nullptr;
-    std::cout << "Energy model: " << energyModelName(selectedEnergyModel) << std::endl;
+    std::cout << "Energy model: " << selectedEnergyModel << std::endl;
 
     this->atomName_to_atomGlobalId_map_ = std::make_shared<std::map<std::string, int> >(
         IoUtils::getAtomMappingFromPdb<std::string, int>(Settings::atomName_mapping_fileName, IoUtils::fill_atomId_to_index_Map));
@@ -323,9 +316,9 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
     // ---- shared model + sub-atom indexing (registry create + buildCache + sub0Id indexing +
     //      finalizeIndexing), replacing the per-model SIGMA/PLATEAUS switch AND the hand-rolled
     //      sub-indexing. The 1-based global serials we pass in come back as 1-based subAtomGlobalIds. ----
-    const std::string modelName = energyModelName(selectedEnergyModel);
+    const std::string& modelName = selectedEnergyModel;
     GMX_ASSERT(kenref::ModelRegistry<KEnRef_Real_t>::has(modelName),
-               "Unknown energy model. please set \"--model\" to a registered model (e.g. SIGMA or PLATEAUS).");
+               "Unknown energy model. please set \"--model\" to a registered model (e.g. SIGMA, PLATEAUS, RELAX).");
     auto mi = kenref::buildModelIndexing<KEnRef_Real_t>(
         modelName, *this, atomName_to_atomGlobalId_map, handleNames, numSimulations, numOmpThreads());
     this->sub0Id_to_global1Id_ = std::make_shared<std::vector<int> >(std::move(mi.subAtomGlobalIds));

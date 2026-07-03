@@ -14,6 +14,7 @@
 #include "gromacs/commandline/cmdlinemodulemanager.h"
 #include "gmxinterface/gmxwrapper.h"
 #include "core/KEnRef.h"
+#include "core/ModelRegistry.h"
 // Remember to put all local imports (especially those which reference Eigen) after
 // all Gromacs imports; to avoid compiler error "reference to 'real' is ambiguous"
 
@@ -58,6 +59,9 @@ ArgvPtr create_argv(int argc, char *original_argv[], const std::vector<std::stri
 
 int main(int argc, char *argv[]) {
     // This should be the main function that loads GMXWrapper (which should replace GROMACS main class)
+    // Register every compile-time-enabled energy model NOW so --model can be validated against the
+    // registry at CLI-parse time (buildModelIndexing bootstraps again later; the call is idempotent).
+    kenref::bootstrapModels();
     CLI::App app{"KEnRef"};
 
     app.add_flag("--debug", Settings::debug, "enable debugging (holds for debugging)")-> group("");
@@ -70,9 +74,12 @@ int main(int argc, char *argv[]) {
     app.add_option("-d,--index", Settings::indexFileName, "Index file name")->envname("KENREF_INDEX");
     app.add_option("-r,--ref", Settings::refFileName, "Reference file")->envname("KENREF_REF");
 
-    app.add_option("-m,--model", Settings::selected_energy_model, "energy model")
+    app.add_option("-m,--model", Settings::selected_energy_model, "energy model name (e.g. SIGMA, PLATEAUS, RELAX)")
             ->required() ->envname("KENREF_MODEL")
-            ->transform(CLI::CheckedTransformer(KEnRef<KEnRef_Real_t>::energyModelMap, CLI::ignore_case));
+            ->check([](const std::string &name) -> std::string {
+                return kenref::ModelRegistry<KEnRef_Real_t>::has(name)
+                    ? std::string{} : ("'" + name + "' is not a registered KEnRef energy model");
+            });
     app.add_option("-x,--exp-data-folder", Settings::experimentalDataFolder, "experimental data folder for sigma")
         ->envname("KENREF_EXP_DATA_FOLDER"); // ->check(CLI::ExistingDirectory);
     app.add_option("-X,--exp-data-file", Settings::experimentalDataFileName, "experimental data file for plateaus")
