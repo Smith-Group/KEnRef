@@ -38,7 +38,7 @@ public:
     inline static std::string experimentalDataFileName; // = "../../res/cleanstart/singleton_data_step0_model01.csv";
     inline static std::string experimentalDataFolder; // = "../../res/cleanstart/";
     inline static KEnRef_Real_t proton_mhz = 700.0;
-    inline static KEnRef<KEnRef_Real_t>::energyModel selected_energy_model = KEnRef<KEnRef_Real_t>::energyModel::UNKNOWN; // = SIGMA
+    inline static std::string selected_energy_model; // registry model name (SIGMA / PLATEAUS / RELAX / ...); validated against ModelRegistry
 };
 
 #endif /* GMXWRAPPER_H_ */

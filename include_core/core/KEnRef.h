@@ -241,8 +241,9 @@ public:
 //	KEnRef& operator=(KEnRef &&other);
 
     enum class lossFunction: int {POWER_SCALED_LOSS_FUNCTION, LOG_ABS_DIFFERENCE_OVER_OPTIMUM_LOSS_FUNCTION};
-    enum class energyModel: int {UNKNOWN, SIGMA, PLATEAUS};
-    const static inline std::map<std::string, energyModel> energyModelMap{{"UNKNOWN", energyModel::UNKNOWN}, {"SIGMA", energyModel::SIGMA}, {"PLATEAUS", energyModel::PLATEAUS}};
+    // NOTE: the old per-model `energyModel` enum + energyModelMap were removed in the model-abstraction
+    // restructure — model selection is now string-based via ModelRegistry in every consumer (tools, the
+    // GROMACS force provider, and PLUMED KEnRefBias), so adding a model needs no consumer edit.
     inline static const std::string KC = "kc";
 
     static std::vector<Eigen::Matrix<KEnRef_Real, Eigen::Dynamic, 5> >
