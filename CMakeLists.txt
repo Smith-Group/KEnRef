@@ -14,9 +14,21 @@ message(STATUS "the build type is: ${build_type}")
 # ============================================================================
 option(BUILD_KENREF_CORE "Build KENREF_CORE library" ON)
 option(BUILD_KENREF_GMX "Build KENREF GMX interface" ON)
-# OFF by default: needs PLUMED headers (-DPLUMED_SRC_DIR=...). In production the PLUMED fork compiles
-# src/plumedinterface itself (Option A); this target is for offline compile-validation only.
-option(BUILD_KENREF_PLUMED "Build KENREF PLUMED interface (compile-validation lib)" OFF)
+# In production the PLUMED fork compiles src/plumedinterface itself (Option A); this repo target is for
+# offline compile-validation AND so the IDE resolves PLUMED headers when editing src/plumedinterface/*.
+# Default: AUTO — ON when PLUMED headers are present at PLUMED_SRC_DIR (or the standard fork checkout),
+# OFF otherwise (so machines without PLUMED still configure). Override with -DBUILD_KENREF_PLUMED=ON/OFF.
+if(DEFINED PLUMED_SRC_DIR AND NOT PLUMED_SRC_DIR STREQUAL "")
+	set(_kenref_plumed_src "${PLUMED_SRC_DIR}")
+else()
+	set(_kenref_plumed_src "/home/amr/git/plumed2/src")
+endif()
+if(EXISTS "${_kenref_plumed_src}/bias/Bias.h" AND BUILD_KENREF_CORE)
+	set(_kenref_plumed_default ON)   # needs KENREF::CORE; stays OFF for gmx-only builds (CORE=OFF)
+else()
+	set(_kenref_plumed_default OFF)
+endif()
+option(BUILD_KENREF_PLUMED "Build KENREF PLUMED interface (compile-validation lib; also gives the IDE PLUMED includes)" ${_kenref_plumed_default})
 
 # Per-model compile-time enable switches (Style-2 registration). Default ON; turning one OFF drops that
 # model's registration from bootstrapModels() so it is unavailable at runtime. Passed to the core
