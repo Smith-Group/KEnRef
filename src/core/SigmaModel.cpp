@@ -42,6 +42,11 @@ public:
 
         spec_den_data_list_ = IoUtils::load_spec_den_data(exp_data_folder_, ctx.handleNames);
 
+        // Parameter-validation: num_models must match the ensemble-member count the exp-data was built
+        // for (InitContext::numModelsTotal is provided for exactly this model-count-dependent setup).
+        // Done once here, NOT per-step in the hot coord_array_to_sigma_energy kernel.
+        IoUtils::assertEnsembleMemberCount(spec_den_data_list_, ctx.numModelsTotal, "SIGMA");
+
         // Optionally override the default rates_ from a CSV file (header = rate names, one data row
         // of values) read as a 1-row table -> NamedRowVector; otherwise keep the built-in default.
         const std::string rates_file = ctx.getString("RATES_FILE");
