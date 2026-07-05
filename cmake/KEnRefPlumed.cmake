@@ -15,8 +15,12 @@
 
 message(STATUS "Configuring KENREF PLUMED interface (compile-validation lib)...")
 
+# No hardcoded PLUMED location: compile-validation needs a PLUMED source, but we never assume one is present
+# (an empty machine may have only the KEnRef repo). If -DPLUMED_SRC_DIR isn't given, just skip — the module is
+# compiled for real by PLUMED's own build (Option A), so validation here is purely optional.
 if(NOT DEFINED PLUMED_SRC_DIR OR PLUMED_SRC_DIR STREQUAL "")
-    set(PLUMED_SRC_DIR "/home/amr/git/plumed2/src" CACHE PATH "PLUMED source/include dir (for kenref_plumed)")
+    message(WARNING "BUILD_KENREF_PLUMED=ON but no -DPLUMED_SRC_DIR=<plumed>/src given -> skipping compile-validation.")
+    return()
 endif()
 
 if(NOT EXISTS "${PLUMED_SRC_DIR}/bias/Bias.h")

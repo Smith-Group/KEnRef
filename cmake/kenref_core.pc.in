@@ -5,7 +5,7 @@ includedir=${prefix}/include
 
 Name: KEnRef Core
 Description: Kinetic Ensemble Refinement Core Library (requires external Eigen3)
-Version: 1.0.0
+Version: @PROJECT_VERSION@
 Libs: -L${libdir} -lkenref_core @MPI_CXX_LIBRARIES_STR@
 Cflags: -I${includedir}/core
 # @MPI_CXX_COMPILE_OPTIONS_STR@ is harmful (containing ' >-pthread' instead of '> -pthread'
