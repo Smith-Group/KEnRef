@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.24)
-project(KEnRef)
+project(KEnRef VERSION 2.0.0)
+# Single source of truth for the KEnRef version. Flows to the pkg-config files (@PROJECT_VERSION@ in
+# cmake/*.pc.in) and, via those, to PLUMED's configure floor (KENREF_MIN_VERSION in plumed configure.ac,
+# checked as `kenref_core >= X`). Bump here when the public API / numerical contract changes; keep the
+# PLUMED floor in lockstep. v2.0.0 == the model-abstraction restructure (branch v2.0 and its subbranches).
 set(CMAKE_CXX_STANDARD 17)
 
 # Emit compile_commands.json so clangd / IDEs resolve includes for every translation unit (including
@@ -14,21 +18,28 @@ message(STATUS "the build type is: ${build_type}")
 # ============================================================================
 option(BUILD_KENREF_CORE "Build KENREF_CORE library" ON)
 option(BUILD_KENREF_GMX "Build KENREF GMX interface" ON)
-# In production the PLUMED fork compiles src/plumedinterface itself (Option A); this repo target is for
-# offline compile-validation AND so the IDE resolves PLUMED headers when editing src/plumedinterface/*.
-# Default: AUTO — ON when PLUMED headers are present at PLUMED_SRC_DIR (or the standard fork checkout),
-# OFF otherwise (so machines without PLUMED still configure). Override with -DBUILD_KENREF_PLUMED=ON/OFF.
-if(DEFINED PLUMED_SRC_DIR AND NOT PLUMED_SRC_DIR STREQUAL "")
-	set(_kenref_plumed_src "${PLUMED_SRC_DIR}")
-else()
-	set(_kenref_plumed_src "/home/amr/git/plumed2/src")
+# The PLUMED interface is entirely OPT-IN — a plain kenref_core build neither COMPILES nor EXPORTS it.
+# (In production the PLUMED fork compiles src/plumedinterface itself, Option A.)
+#   * BUILD_KENREF_PLUMED          — COMPILE-VALIDATE plumedinterface against PLUMED's headers (a static
+#                                    check lib; needs -DPLUMED_SRC_DIR). Default OFF: only when asked.
+#   * KENREF_EXPORT_PLUMEDINTERFACE— INSTALL the plumedinterface headers + src/plumedinterface/*.cpp +
+#                                    kenref_plumed.pc (the source a PLUMED build compiles in-tree, Option A).
+#                                    Default OFF; forced ON below when a PLUMED build here needs it.
+option(BUILD_KENREF_PLUMED "Compile-validate the KENREF PLUMED interface (needs -DPLUMED_SRC_DIR)" OFF)
+option(KENREF_EXPORT_PLUMEDINTERFACE "Install the plumedinterface headers/source + kenref_plumed.pc (for a PLUMED build)" OFF)
+
+# PLUMED: KEnRef does not REIMPLEMENT plumed's build; it DELEGATES to the plumed side (build-only.sh /
+# build-and-batch.sh), and CMake itself invokes that script (via install(CODE) — after kenref_core is
+# installed, so the plumed script reuses it). See cmake/InvokePlumed.cmake. build.sh just sets these:
+option(KENREF_WITH_PLUMED          "Also build PLUMED (kenref module), delegated to the plumed side at install time" OFF)
+option(KENREF_WITH_PLUMED_GROMACS  "Also build PLUMED + a batched GROMACS (delegates to build-and-batch.sh)"        OFF)
+if(KENREF_WITH_PLUMED_GROMACS)
+	set(KENREF_WITH_PLUMED ON CACHE BOOL "implied by KENREF_WITH_PLUMED_GROMACS" FORCE)
 endif()
-if(EXISTS "${_kenref_plumed_src}/bias/Bias.h" AND BUILD_KENREF_CORE)
-	set(_kenref_plumed_default ON)   # needs KENREF::CORE; stays OFF for gmx-only builds (CORE=OFF)
-else()
-	set(_kenref_plumed_default OFF)
+if(KENREF_WITH_PLUMED)
+	# the delegated plumed build compiles plumedinterface from the kenref install -> it must be exported.
+	set(KENREF_EXPORT_PLUMEDINTERFACE ON CACHE BOOL "required by KENREF_WITH_PLUMED" FORCE)
 endif()
-option(BUILD_KENREF_PLUMED "Build KENREF PLUMED interface (compile-validation lib; also gives the IDE PLUMED includes)" ${_kenref_plumed_default})
 
 # Per-model compile-time enable switches (Style-2 registration). Default ON; turning one OFF drops that
 # model's registration from bootstrapModels() so it is unavailable at runtime. Passed to the core
@@ -41,8 +52,21 @@ option(KENREF_ENABLE_RELAX    "Enable the RELAX energy model"    ON)
 add_compile_options(-DKENREF_DOUBLE)
 
 if (NOT DEFINED ACCEL)
-	set(ACCEL "AVX2_256")
-	message(STATUS "ACCEL variable not defined. Setting it to ${ACCEL}")
+	# Auto-detect this machine's SIMD (like GROMACS): pick the highest of AVX_512 / AVX2_256 / AVX_256.
+	# Override with -DACCEL=... for a fixed/portable build. Linux reads /proc/cpuinfo; elsewhere -> AVX2_256.
+	set(ACCEL "AVX2_256")   # portable fallback
+	if(EXISTS "/proc/cpuinfo")
+		file(READ "/proc/cpuinfo" _kn_cpuinfo LIMIT 16384)
+		if(_kn_cpuinfo MATCHES "avx512f")
+			set(ACCEL "AVX_512")
+		elseif(_kn_cpuinfo MATCHES "avx2")
+			set(ACCEL "AVX2_256")
+		elseif(_kn_cpuinfo MATCHES "[ \t]avx[ \t]")
+			set(ACCEL "AVX_256")
+		endif()
+		unset(_kn_cpuinfo)
+	endif()
+	message(STATUS "ACCEL not set -> auto-detected ${ACCEL} for this machine (override with -DACCEL=...)")
 else ()
 	message(STATUS "ACCEL variable is: ${ACCEL}")
 endif ()
@@ -82,7 +106,11 @@ if(BUILD_KENREF_GMX)
 		if(DEFINED ENV{GROMACS_INSTALL_DIR})
 			set(GROMACS_INSTALL_DIR $ENV{GROMACS_INSTALL_DIR})
 		else()
-			set(GROMACS_INSTALL_DIR "/smithlab/opt/gromacs-4-kenref/2025/2025.4/${build_type}/${ACCEL}")
+			# Standard default (no machine-specific path). The KEnRef GMX interface depends on a STOCK
+			# gromacs (its source + build + library) via KEnRef's own classes — not a fork. In practice
+			# set GROMACS_INSTALL_DIR/SRC_DIR/BUILD_DIR in your dev env (~/scripts, CLion) to your gromacs
+			# source+build (they already do).
+			set(GROMACS_INSTALL_DIR "/usr/local/gromacs")
 		endif()
 	endif()
 
@@ -96,78 +124,56 @@ set(GROMACS_DIR ${GROMACS_INSTALL_DIR}/share/cmake/gromacs${SUFFIX_MPI}) #where 
 # ============================================================================
 # INSTALLATION PATHS
 # ============================================================================
+# Default install prefix = <system folder>/kenref — flat, like GROMACS's /usr/local/gromacs (no build_type or
+# ACCEL in the path; build type defaults to Release, ACCEL is auto-detected above). KENREF_INSTALL_BASE is the
+# overridable system folder (default /usr/local); or pass -DCMAKE_INSTALL_PREFIX to set the full path directly.
+# Installing under /usr/local needs write permission (sudo) — build.sh handles that; for a no-sudo build pass
+# -DCMAKE_INSTALL_PREFIX=<somewhere-writable> or -DKENREF_INSTALL_BASE=$HOME/.local.
+set(KENREF_INSTALL_BASE "/usr/local" CACHE PATH "System folder for KEnRef's default install prefix")
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
-	if(BUILD_KENREF_CORE AND NOT BUILD_KENREF_GMX)
-		# Core only: /smithlab/opt/kenref/${build_type}/${ACCEL}
-		set(CMAKE_INSTALL_PREFIX "/smithlab/opt/kenref/${build_type}/${ACCEL}" CACHE PATH "root directory to install KEnRef CORE" FORCE)
-	elseif(BUILD_KENREF_GMX)
-		# GMX interface (with or without core): /smithlab/opt/kenref-gmx/${year}/${GROMACS_VERSION}/${build_type}/${ACCEL}
-		# Extract GROMACS year and version from GROMACS_INSTALL_DIR
-		# Expected format: /smithlab/opt/gromacs-*/2025/2025.x/${build_type}/${ACCEL}
-		string(REGEX MATCH "gromacs-4-kenref/([0-9]+)/([0-9.]+)" GROMACS_VERSION_MATCH "${GROMACS_INSTALL_DIR}")
-		if(CMAKE_MATCH_1 AND CMAKE_MATCH_2)
-			set(GROMACS_YEAR "${CMAKE_MATCH_1}")
-			set(GROMACS_VERSION "${CMAKE_MATCH_2}")
-		else()
-			# Fallback: try to get from GROMACS package if available
-			if(GROMACS_VERSION)
-				# Use existing GROMACS_VERSION variable
-				string(REGEX MATCH "^([0-9]+)" YEAR_MATCH "${GROMACS_VERSION}")
-				if(CMAKE_MATCH_1)
-					set(GROMACS_YEAR "${CMAKE_MATCH_1}")
-				else()
-					set(GROMACS_YEAR "unknown")
-				endif()
-			else()
-				message(WARNING "Could not extract GROMACS version from GROMACS_INSTALL_DIR: ${GROMACS_INSTALL_DIR}")
-				set(GROMACS_YEAR "unknown")
-				set(GROMACS_VERSION "unknown")
-			endif()
-		endif()
-		set(CMAKE_INSTALL_PREFIX "/smithlab/opt/kenref-gmx/${GROMACS_YEAR}/${GROMACS_VERSION}/${build_type}/${ACCEL}" CACHE PATH "root directory to install KEnRef GMX" FORCE)
+	if(BUILD_KENREF_GMX)
+		set(CMAKE_INSTALL_PREFIX "${KENREF_INSTALL_BASE}/kenref-gmx" CACHE PATH "root directory to install KEnRef GMX" FORCE)
+	else()
+		set(CMAKE_INSTALL_PREFIX "${KENREF_INSTALL_BASE}/kenref" CACHE PATH "root directory to install KEnRef CORE" FORCE)
 	endif()
 endif()
 
+# ONE set of core libraries: the kenref-gmx build must CONSUME an installed kenref_core, never install a
+# duplicate into the gmx prefix. Building CORE+GMX together puts both under a single prefix (CMake has one
+# CMAKE_INSTALL_PREFIX per build) -> the core libs would land in kenref-gmx too. Warn and point at the
+# two-phase flow (build.sh --with-gmx does it: core -> KENREF_INSTALL_BASE/kenref, executables -> .../kenref-gmx).
+if(BUILD_KENREF_CORE AND BUILD_KENREF_GMX)
+	message(WARNING
+		"Building CORE and GMX in ONE build installs BOTH under a single prefix (${CMAKE_INSTALL_PREFIX}), "
+		"duplicating libkenref_core there. For one canonical copy of the libraries, build in two phases: "
+		"(1) -DBUILD_KENREF_CORE=ON -DBUILD_KENREF_GMX=OFF  -> installs libs to ${KENREF_INSTALL_BASE}/kenref ; "
+		"(2) -DBUILD_KENREF_CORE=OFF -DBUILD_KENREF_GMX=ON  -> installs executables to ${KENREF_INSTALL_BASE}/kenref-gmx "
+		"(consuming the installed core). `build.sh --with-gmx` does this automatically.")
+endif()
+
 #set(CMAKE_MODULE_PATH /usr/local/gromacs-dev/share/gromacs/template/cmake:$CMAKE_MODULE_PATH)
-set(Eigen3_DIR /smithlab/opt/eigen/5.0.1/${build_type}/share/eigen3/cmake)
+
+# Dependency discovery (standard find -> fetch fallback; no hardcoded machine paths).
+# Pass hints via -DCMAKE_PREFIX_PATH=... / -DEigen3_DIR=... when a dep lives outside default locations.
+include(cmake/Dependencies.cmake)
 
 # ============================================================================
 # COMMON DEPENDENCIES
 # ============================================================================
-find_package(MPI REQUIRED)
+kenref_provide_mpi()   # MPI::MPI_CXX / MPI::MPI_C (required)
 
 if(BUILD_KENREF_CORE)
-	find_package (Eigen3 5.0 REQUIRED)
+	kenref_provide_eigen()   # find Eigen3 (or fetch it if missing); sets Eigen3::Eigen + EIGEN3_INCLUDE_DIR
 endif()
-if (Eigen3_FOUND)
-	message("Eigen3 FOUND")
-	# Get Eigen include directory for pkg-config
-	get_target_property(EIGEN3_INCLUDE_DIR Eigen3::Eigen INTERFACE_INCLUDE_DIRECTORIES)
-	if(NOT EIGEN3_INCLUDE_DIR)
-		set(EIGEN3_INCLUDE_DIR ${Eigen3_INCLUDE_DIRS})
-	endif()
-	message(STATUS "Eigen3 include directory: ${EIGEN3_INCLUDE_DIR}")
-	# Extract just the directory path without -I flag for pkg-config
-	string(REGEX REPLACE "^-I" "" EIGEN3_INCLUDE_DIR_CLEAN "${EIGEN3_INCLUDE_DIR}")
-	set(EIGEN3_INCLUDE_DIR "${EIGEN3_INCLUDE_DIR_CLEAN}")
-	message(STATUS "Eigen3 include directory (clean): ${EIGEN3_INCLUDE_DIR}")
-endif ()
 
 if(BUILD_KENREF_GMX)
 	message(STATUS "Searching for Gromacs in ${GROMACS_DIR}")
-	find_package(GROMACS NAMES gromacs_mpi gromacs REQUIRED)
-	if (GROMACS_FOUND)
-		message("GROMACS FOUND")
-		message(STATUS "GROMACS_DIR folder is: ${GROMACS_DIR}")
-		message(STATUS "GROMACS_CONFIG file is: ${GROMACS_CONFIG}")
-	endif ()
+	kenref_provide_fftw()      # detect system FFTW (informational; the gromacs sub-build can build its own)
+	kenref_provide_gromacs()   # find_package(GROMACS) honoring GROMACS_DIR; fetch scaffold if missing
 endif()
 
 if(BUILD_KENREF_CORE)
-	find_package(OpenMP)   # optional: if absent, the core still configures/builds (omp pragmas stay serial)
-	if(NOT OpenMP_CXX_FOUND)
-		message(STATUS "OpenMP not found - building KENREF CORE without OpenMP (pragmas compile to serial).")
-	endif()
+	kenref_provide_openmp()   # optional: OpenMP::OpenMP_CXX if present, else kernels compile to serial
 endif()
 
 # ============================================================================
@@ -182,16 +188,15 @@ if(BUILD_KENREF_GMX)
 	# If building GMX without CORE, need to find installed CORE
 	if(NOT BUILD_KENREF_CORE AND NOT TARGET KENREF::CORE)
 		message(STATUS "Searching for installed KENREF CORE...")
-		set(KENREF_CORE_CMAKE_PATH "/smithlab/opt/kenref/${build_type}/${ACCEL}/lib/cmake/KEnRef")
+		# Mirror the core install default (KENREF_INSTALL_BASE/kenref); override with
+		# -DKENREF_CORE_CMAKE_PATH=<prefix>/lib/cmake/KEnRef or -DCMAKE_PREFIX_PATH=<core-prefix>.
+		if(NOT DEFINED KENREF_CORE_CMAKE_PATH)
+			set(KENREF_CORE_CMAKE_PATH "${KENREF_INSTALL_BASE}/kenref/lib/cmake/KEnRef")
+		endif()
 		message(STATUS "  Looking in: ${KENREF_CORE_CMAKE_PATH}")
 
-		# KENREF CORE depends on Eigen3, so find it first
-		if(NOT TARGET Eigen3::Eigen)
-			find_package(Eigen3 3.4 REQUIRED)
-			if(Eigen3_FOUND)
-				message(STATUS "  Found Eigen3 for KENREF CORE")
-			endif()
-		endif()
+		# KENREF CORE depends on Eigen3, so provide it first (find or fetch).
+		kenref_provide_eigen()
 
 		if(EXISTS "${KENREF_CORE_CMAKE_PATH}/KEnRefCoreConfig.cmake")
 			message(STATUS "  Found KEnRefCoreConfig.cmake, including it...")
@@ -217,6 +222,19 @@ if(BUILD_KENREF_PLUMED)
 		message(FATAL_ERROR "BUILD_KENREF_PLUMED requires KENREF::CORE (build with -DBUILD_KENREF_CORE=ON).")
 	endif()
 	include(cmake/KEnRefPlumed.cmake)
+endif()
+
+# Post-install: env.sh + TCL modulefile (always) + a clear summary of where things went.
+if(BUILD_KENREF_CORE OR BUILD_KENREF_GMX)
+	include(cmake/PostInstall.cmake)
+endif()
+
+# PLUMED delegation, invoked by CMake at install time (AFTER PostInstall so env.sh is installed first).
+if(KENREF_WITH_PLUMED)
+	if(NOT BUILD_KENREF_CORE)
+		message(FATAL_ERROR "KENREF_WITH_PLUMED needs kenref_core (build with -DBUILD_KENREF_CORE=ON).")
+	endif()
+	include(cmake/InvokePlumed.cmake)
 endif()
 
 # ============================================================================

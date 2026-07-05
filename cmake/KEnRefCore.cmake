@@ -92,7 +92,9 @@ endif()
 target_include_directories(kenref_core PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include_core>
     $<INSTALL_INTERFACE:include/core>
-    ${EIGEN3_INCLUDE_DIR} # TODO check its license
+    # BUILD-only: keeps the (possibly in-build-tree, e.g. FetchContent) Eigen path out of the exported
+    # interface. Installed consumers resolve Eigen from the bundled kenref_and_eigen3 headers instead.
+    $<BUILD_INTERFACE:${EIGEN3_INCLUDE_DIR}>
 )
 
 # ============================================================================
@@ -110,7 +112,7 @@ endif()
 target_include_directories(kenref_core_shared PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include_core>
     $<INSTALL_INTERFACE:include/core>
-    ${EIGEN3_INCLUDE_DIR}
+    $<BUILD_INTERFACE:${EIGEN3_INCLUDE_DIR}>   # build-only; keeps a fetched (in-tree) Eigen out of the export
 )
 set_target_properties(kenref_core_shared PROPERTIES
     OUTPUT_NAME kenref_core
@@ -175,18 +177,21 @@ install(DIRECTORY include_core/
 		FILES_MATCHING PATTERN "*.h"
 )
 
-# Install the PLUMED interface headers + SOURCE (Option A: the fork compiles src/plumedinterface in its
-# own build). Headers -> include/plumedinterface/plumedinterface/*.h ; source -> src/plumedinterface/*.
-# kenref_plumed.pc's Cflags (-I include/plumedinterface, -I src) make the frame's #include forwarders
-# resolve. Installed by `build-kenref.sh core` so the PLUMED build only needs the kenref install prefix.
-install(DIRECTORY include_plumedinterface/
-		DESTINATION include/plumedinterface
-		FILES_MATCHING PATTERN "*.h"
-)
-install(DIRECTORY src/plumedinterface
-		DESTINATION src
-		FILES_MATCHING PATTERN "*.cpp"
-)
+# Install the PLUMED interface headers + SOURCE — ONLY when asked (KENREF_EXPORT_PLUMEDINTERFACE). Option A:
+# the fork compiles src/plumedinterface in its own build, so a PLUMED build needs these exported; a plain
+# core build does not, and should not carry them. Headers -> include/plumedinterface/plumedinterface/*.h ;
+# source -> src/plumedinterface/*. kenref_plumed.pc's Cflags (-I include/plumedinterface, -I src) make the
+# frame's #include forwarders resolve.
+if(KENREF_EXPORT_PLUMEDINTERFACE)
+	install(DIRECTORY include_plumedinterface/
+			DESTINATION include/plumedinterface
+			FILES_MATCHING PATTERN "*.h"
+	)
+	install(DIRECTORY src/plumedinterface
+			DESTINATION src
+			FILES_MATCHING PATTERN "*.cpp"
+	)
+endif()
 
 # For self-contained version, install Eigen headers
 install(DIRECTORY "${EIGEN_HEADERS_DEST}/Eigen"
@@ -201,21 +206,31 @@ if(EXISTS "${EIGEN_HEADERS_DEST}/unsupported")
     )
 endif()
 
-# Install pkg-config files in BOTH standard locations
+# Ship the KEnRef-BUILT Eigen (external flavor) INTO the kenref prefix, so the install is self-sufficient
+# (external kenref_core Requires: eigen3 -> resolves from the same prefix). Only when WE built it
+# (KENREF_EIGEN_FETCHED); an external/system Eigen is left where the user has it. Copies the staged Eigen
+# tree (include/eigen3 + share/{pkgconfig,eigen3}) into the kenref prefix at `cmake --install`.
+option(KENREF_INSTALL_EIGEN "Install the KEnRef-built Eigen into the kenref prefix (ships with the project)" ON)
+if(KENREF_EIGEN_FETCHED AND KENREF_INSTALL_EIGEN)
+    install(DIRECTORY "${KENREF_EIGEN_INSTALL_DIR}/" DESTINATION ".")
+endif()
+
+# Install pkg-config files in BOTH standard locations (core ones always; kenref_plumed.pc only when the
+# plumedinterface is exported — it points at plumedinterface paths that aren't installed otherwise).
 install(FILES
 		"${CMAKE_CURRENT_BINARY_DIR}/kenref_core.pc"
     "${CMAKE_CURRENT_BINARY_DIR}/kenref_and_eigen3.pc"
-    "${CMAKE_CURRENT_BINARY_DIR}/kenref_plumed.pc"
 		DESTINATION lib/pkgconfig
 )
-
-# Also install to share/pkgconfig for compatibility
 install(FILES
     "${CMAKE_CURRENT_BINARY_DIR}/kenref_core.pc"
     "${CMAKE_CURRENT_BINARY_DIR}/kenref_and_eigen3.pc"
-    "${CMAKE_CURRENT_BINARY_DIR}/kenref_plumed.pc"
     DESTINATION share/pkgconfig
 )
+if(KENREF_EXPORT_PLUMEDINTERFACE)
+	install(FILES "${CMAKE_CURRENT_BINARY_DIR}/kenref_plumed.pc" DESTINATION lib/pkgconfig)
+	install(FILES "${CMAKE_CURRENT_BINARY_DIR}/kenref_plumed.pc" DESTINATION share/pkgconfig)
+endif()
 
 # Install export configuration
 install(EXPORT KEnRefCoreTargets
@@ -232,12 +247,32 @@ install(FILES LICENSE_CLI11.txt DESTINATION share/licenses/cli11)
 # ADDITIONAL TARGET PROPERTIES
 # ============================================================================
 
-# Set VERSION and SOVERSION properties for shared libraries (if any)
+# Set VERSION / SOVERSION from the single source of truth (project(KEnRef VERSION ...) in CMakeLists.txt),
+# so the shared-library soname tracks the same version as the pkg-config files and the PLUMED floor.
 set_target_properties(kenref_core kenref_core_shared kenref_and_eigen3
     PROPERTIES
-    VERSION 1.0.0
-    SOVERSION 1
+    VERSION ${PROJECT_VERSION}
+    SOVERSION ${PROJECT_VERSION_MAJOR}
 )
+
+# ----------------------------------------------------------------------------
+# Version-consistency manifest — written by CMake at install time (single source of truth; replaces the
+# hand-rolled one build.sh used to emit). Records what this kenref_core actually is, so a downstream
+# PLUMED/GROMACS build (or a later run) can confirm it is pinned to the expected version/ISA.
+# ----------------------------------------------------------------------------
+execute_process(COMMAND git -C "${CMAKE_SOURCE_DIR}" rev-parse --short HEAD
+    OUTPUT_VARIABLE _kn_git_sha OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+if(NOT _kn_git_sha)
+    set(_kn_git_sha "n/a")
+endif()
+install(CODE "file(WRITE \"\${CMAKE_INSTALL_PREFIX}/kenref-build-manifest.txt\"
+\"# KEnRef build manifest (generated by CMake at install)
+kenref_version = ${PROJECT_VERSION}
+kenref_git     = ${_kn_git_sha}
+build_type     = ${CMAKE_BUILD_TYPE}
+accel          = ${ACCEL}
+cxx            = ${CMAKE_CXX_COMPILER}
+\")")
 
 # ============================================================================
 # TESTING
