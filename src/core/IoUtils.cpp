@@ -2,6 +2,7 @@
 #include <sstream>
 #include <iostream>
 #include <algorithm>
+#include <filesystem>   // std::filesystem (libstdc++ needs it explicitly; libc++ pulled it in transitively)
 #include "core/IoUtils.h"
 
 std::regex atomRecordTemplate{"^((ATOM  )|(HETATM))([0-9 ]{5}) (.{15})   ([0-9 .-]{8})([0-9 .-]{8})([0-9 .-]{8}).+$"};
