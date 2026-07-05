@@ -243,14 +243,20 @@ set(KENREF_GMX_GROMACS_FETCH_DIR "${CMAKE_BINARY_DIR}/gromacs-src"        CACHE 
 # gromacs logic lives HERE (build manager), not in build.sh; build.sh only sets -DBUILD_KENREF_GMX=ON.
 # Sets GROMACS_SRC_DIR / GROMACS_BUILD_DIR / GROMACS_INSTALL_DIR / GROMACS_DIR for KEnRefGMX.cmake.
 macro(kenref_provide_gromacs)
-    if(EXISTS "${GROMACS_SRC_DIR}/CMakeLists.txt" AND EXISTS "${GROMACS_BUILD_DIR}" AND EXISTS "${GROMACS_DIR}")
-        message(STATUS "GROMACS: using provided tree (src=${GROMACS_SRC_DIR}, build=${GROMACS_BUILD_DIR}, cmake=${GROMACS_DIR})")
+    # "provided" = the GROMACS install CMake package is FINDABLE (find_package succeeds). That is the signal
+    # to USE it — never fetch when a gromacs is already provided (a missing SRC/BUILD dir is a user setup
+    # error the gmx build reports clearly, NOT a reason to silently pull a different gromacs). Only fetch when
+    # no install is found at all. This keeps a CLion/dev reconfigure from ever triggering a 20-min fetch.
+    find_package(GROMACS NAMES gromacs_mpi gromacs QUIET)
+    if(GROMACS_FOUND)
+        message(STATUS "GROMACS: using provided ${GROMACS_VERSION} (${GROMACS_CONFIG}); src=${GROMACS_SRC_DIR} build=${GROMACS_BUILD_DIR}")
     elseif(KENREF_FETCH_MISSING)
         find_package(Git REQUIRED)
         set(GROMACS_SRC_DIR     "${KENREF_GMX_GROMACS_FETCH_DIR}")
         set(GROMACS_BUILD_DIR   "${CMAKE_BINARY_DIR}/gromacs-build")
         set(GROMACS_INSTALL_DIR "${CMAKE_BINARY_DIR}/gromacs-install")
-        set(GROMACS_DIR         "${GROMACS_INSTALL_DIR}/share/cmake/gromacs_mpi")
+        # FORCE the cache past the NOTFOUND the QUIET find above cached, so the final find_package succeeds.
+        set(GROMACS_DIR         "${CMAKE_BINARY_DIR}/gromacs-install/share/cmake/gromacs_mpi" CACHE PATH "KEnRef-built GROMACS" FORCE)
         if(NOT EXISTS "${GROMACS_SRC_DIR}/CMakeLists.txt")
             message(STATUS "GROMACS: fetching ${KENREF_GMX_GROMACS_GIT_TAG} -> ${GROMACS_SRC_DIR}")
             execute_process(COMMAND "${GIT_EXECUTABLE}" clone --depth 1 --branch "${KENREF_GMX_GROMACS_GIT_TAG}"
