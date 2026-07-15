@@ -2,6 +2,9 @@
 #include "gmxinterface/gmxkenrefinitializer.h"
 #include "core/buildModelIndexing.h"
 
+#include <filesystem>   // std::filesystem::{current_path,path,create_directories} — libc++ pulls this in
+                        // transitively, libstdc++ does NOT; include it explicitly so both toolchains build.
+
 int AbstractCalculator::calc(int argc, char **argv) {
     CLI::App app{toolName};
     argv = app.ensure_utf8(argv); // new argv memory is held by app
