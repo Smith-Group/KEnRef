@@ -290,9 +290,15 @@ macro(kenref_provide_gromacs)
             # build type matches KEnRef (${KENREF_DEP_BUILD_TYPE}), never hardcoded.
             # GMX_INSTALL_LEGACY_API=ON is REQUIRED: gromacs defaults it OFF and then does NOT install the
             # public headers kenref-gmx compiles against (gromacs/math/vectypes.h, gromacs/topology/index.h, …).
+            # Inherit THIS build's compiler AND flags. Without the flags the sub-build silently uses a
+            # different standard library than kenref-gmx (e.g. kenref with -stdlib=libc++ vs a default
+            # libstdc++ gromacs), and linking them fails on std::__1 vs std::__cxx11 symbols. Passing the
+            # toolchain through is what makes the fetched gromacs ABI-compatible with the rest of this build.
             execute_process(COMMAND "${CMAKE_COMMAND}" -S "${GROMACS_SRC_DIR}" -B "${GROMACS_BUILD_DIR}"
                             "-DCMAKE_BUILD_TYPE=${KENREF_DEP_BUILD_TYPE}" -DGMX_MPI=ON -DGMX_INSTALL_LEGACY_API=ON
                             ${_kg_simd} "-DCMAKE_INSTALL_PREFIX=${GROMACS_INSTALL_DIR}"
+                            "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}" "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}"
+                            "-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}" "-DCMAKE_C_FLAGS=${CMAKE_C_FLAGS}"
                             RESULT_VARIABLE _kg_c)
             if(_kg_c EQUAL 0)
                 execute_process(COMMAND "${CMAKE_COMMAND}" --build "${GROMACS_BUILD_DIR}" RESULT_VARIABLE _kg_b)
