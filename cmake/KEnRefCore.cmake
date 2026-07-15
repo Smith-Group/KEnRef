@@ -143,9 +143,14 @@ set(_kn_eigen_abi_hdr "${CMAKE_BINARY_DIR}/generated/core/KEnRefEigenAbi.h")
 if(NOT CMAKE_CROSSCOMPILING)
     add_executable(kenref_eigen_abi_gen "${CMAKE_CURRENT_SOURCE_DIR}/cmake/eigen_abi_gen.cpp")
     target_link_libraries(kenref_eigen_abi_gen PRIVATE Eigen3::Eigen)
+    # Run the generator through a wrapper that degrades gracefully: executing a just-built binary can fail in
+    # perfectly valid environments (e.g. -stdlib=libc++ with the toolchain's runtime libs not on
+    # LD_LIBRARY_PATH -> exec fails), and the compile-time guard is only a belt over the runtime check — it
+    # must never break the build. See cmake/RunEigenAbiGen.cmake.
     add_custom_command(OUTPUT "${_kn_eigen_abi_hdr}"
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_BINARY_DIR}/generated/core"
-        COMMAND "$<TARGET_FILE:kenref_eigen_abi_gen>" "${_kn_eigen_abi_hdr}"
+        COMMAND "${CMAKE_COMMAND}" "-DKN_GEN=$<TARGET_FILE:kenref_eigen_abi_gen>" "-DKN_OUT=${_kn_eigen_abi_hdr}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/RunEigenAbiGen.cmake"
         DEPENDS kenref_eigen_abi_gen
         COMMENT "Recording kenref_core's Eigen ABI (alignment/version) -> KEnRefEigenAbi.h"
         VERBATIM)
