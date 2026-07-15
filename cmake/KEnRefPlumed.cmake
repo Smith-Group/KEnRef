@@ -15,19 +15,21 @@
 
 message(STATUS "Configuring KENREF PLUMED interface (compile-validation lib)...")
 
-# No hardcoded PLUMED location: compile-validation needs a PLUMED source, but we never assume one is present
-# (an empty machine may have only the KEnRef repo). If -DPLUMED_SRC_DIR isn't given, just skip — the module is
-# compiled for real by PLUMED's own build (Option A), so validation here is purely optional.
+# No hardcoded PLUMED location: compile-validation needs a PLUMED source. This file is only included when
+# BUILD_KENREF_PLUMED RESOLVED to ON — and AUTO resolves to OFF when the headers are absent (see
+# cmake/Components.cmake). So reaching here without headers means the user FORCED =ON: fail firmly rather than
+# silently skipping what they explicitly asked for. (Use =AUTO for the graceful "build it only if possible".)
 if(NOT DEFINED PLUMED_SRC_DIR OR PLUMED_SRC_DIR STREQUAL "")
-    message(WARNING "BUILD_KENREF_PLUMED=ON but no -DPLUMED_SRC_DIR=<plumed>/src given -> skipping compile-validation.")
-    return()
+    message(FATAL_ERROR
+        "BUILD_KENREF_PLUMED=ON requires PLUMED headers, but no -DPLUMED_SRC_DIR=<plumed>/src was given.\n"
+        "  Provide them:  -DPLUMED_SRC_DIR=/path/to/plumed2/src\n"
+        "  OR use AUTO:   -DBUILD_KENREF_PLUMED=AUTO  (skips when PLUMED headers are absent)")
 endif()
 
 if(NOT EXISTS "${PLUMED_SRC_DIR}/bias/Bias.h")
-    message(WARNING
-        "BUILD_KENREF_PLUMED=ON but PLUMED headers were not found at PLUMED_SRC_DIR='${PLUMED_SRC_DIR}'. "
-        "Skipping kenref_plumed (set -DPLUMED_SRC_DIR=/path/to/plumed2/src to enable compile-validation).")
-    return()
+    message(FATAL_ERROR
+        "BUILD_KENREF_PLUMED=ON but PLUMED headers were not found at PLUMED_SRC_DIR='${PLUMED_SRC_DIR}' "
+        "(no bias/Bias.h).\n  Point it at <plumed>/src, or use -DBUILD_KENREF_PLUMED=AUTO to skip gracefully.")
 endif()
 
 file(GLOB plumedinterface_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/plumedinterface/*.cpp")

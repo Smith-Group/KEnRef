@@ -6,7 +6,8 @@ includedir=${prefix}/include
 Name: KEnRef Core
 Description: Kinetic Ensemble Refinement Core Library (requires external Eigen3)
 Version: @PROJECT_VERSION@
-Libs: -L${libdir} -lkenref_core @MPI_CXX_LIBRARIES_STR@
+Libs: -L${libdir} -lkenref_core
 Cflags: -I${includedir}/core
-# @MPI_CXX_COMPILE_OPTIONS_STR@ is harmful (containing ' >-pthread' instead of '> -pthread'
+# No MPI here: kenref_core contains no MPI code. Consumers that need MPI (the gmx interface/tools, or PLUMED)
+# link their own — see kenref_gmxinterface.pc.
 Requires: eigen3 >= 3.4.0

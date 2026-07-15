@@ -234,6 +234,10 @@ endmacro()
 # --with-gmx does the actual fetch+build; these are the defaults it uses.
 set(KENREF_GMX_GROMACS_GIT_URL   "https://gitlab.com/gromacs/gromacs.git" CACHE STRING
     "Upstream GROMACS git URL for the kenref-gmx force-provider fetch (stock gromacs)")
+# The tag to fetch. Pinned to a known-good release that KEnRef is developed/tested against rather than a moving
+# branch, so an auto-fetch is reproducible. (The force provider does not version-gate — override at will.)
+set(KENREF_GMX_GROMACS_GIT_TAG   "v2025.4"                                CACHE STRING
+    "GROMACS git tag/branch to fetch for the kenref-gmx force provider")
 # Fetch INTO the kenref build dir (tied to this build; no cross-version collision with a system gromacs).
 set(KENREF_GMX_GROMACS_FETCH_DIR "${CMAKE_BINARY_DIR}/gromacs-src"        CACHE PATH
     "Where to fetch GROMACS for the kenref-gmx force provider (inside the kenref build dir)")
@@ -250,21 +254,32 @@ macro(kenref_provide_gromacs)
     find_package(GROMACS NAMES gromacs_mpi gromacs QUIET)
     if(GROMACS_FOUND)
         message(STATUS "GROMACS: using provided ${GROMACS_VERSION} (${GROMACS_CONFIG}); src=${GROMACS_SRC_DIR} build=${GROMACS_BUILD_DIR}")
-    elseif(KENREF_FETCH_MISSING)
-        find_package(Git REQUIRED)
-        set(GROMACS_SRC_DIR     "${KENREF_GMX_GROMACS_FETCH_DIR}")
+    elseif(KENREF_FETCH_MISSING OR (DEFINED GROMACS_SRC_DIR AND EXISTS "${GROMACS_SRC_DIR}/CMakeLists.txt"))
+        # Build GROMACS ourselves. Two ways in:
+        #   * the user gave -DGROMACS_SRC_DIR=<their checkout>  -> build THAT (no download, honoured even when
+        #     KENREF_FETCH_MISSING=OFF: building a source you supplied is not a download).
+        #   * nothing given + downloads enabled                 -> clone a stock GROMACS first.
+        # (Previously this branch unconditionally overwrote GROMACS_SRC_DIR with the fetch dir, silently
+        #  discarding a user-provided checkout and cloning a different GROMACS.)
+        if(NOT (DEFINED GROMACS_SRC_DIR AND EXISTS "${GROMACS_SRC_DIR}/CMakeLists.txt"))
+            find_package(Git REQUIRED)
+            set(GROMACS_SRC_DIR "${KENREF_GMX_GROMACS_FETCH_DIR}")
+            if(NOT EXISTS "${GROMACS_SRC_DIR}/CMakeLists.txt")
+                message(STATUS "GROMACS: fetching ${KENREF_GMX_GROMACS_GIT_TAG} -> ${GROMACS_SRC_DIR}")
+                execute_process(COMMAND "${GIT_EXECUTABLE}" clone --depth 1 --branch "${KENREF_GMX_GROMACS_GIT_TAG}"
+                                "${KENREF_GMX_GROMACS_GIT_URL}" "${GROMACS_SRC_DIR}" RESULT_VARIABLE _kg_rc)
+                if(NOT _kg_rc EQUAL 0)
+                    message(FATAL_ERROR "GROMACS clone failed. Provide -DGROMACS_BUILD_DIR=<an existing gromacs "
+                                        "build dir> or -DGROMACS_SRC_DIR=<a gromacs source checkout>.")
+                endif()
+            endif()
+        else()
+            message(STATUS "GROMACS: building the PROVIDED source -> ${GROMACS_SRC_DIR} (no download)")
+        endif()
         set(GROMACS_BUILD_DIR   "${CMAKE_BINARY_DIR}/gromacs-build")
         set(GROMACS_INSTALL_DIR "${CMAKE_BINARY_DIR}/gromacs-install")
         # FORCE the cache past the NOTFOUND the QUIET find above cached, so the final find_package succeeds.
         set(GROMACS_DIR         "${CMAKE_BINARY_DIR}/gromacs-install/share/cmake/gromacs_mpi" CACHE PATH "KEnRef-built GROMACS" FORCE)
-        if(NOT EXISTS "${GROMACS_SRC_DIR}/CMakeLists.txt")
-            message(STATUS "GROMACS: fetching ${KENREF_GMX_GROMACS_GIT_TAG} -> ${GROMACS_SRC_DIR}")
-            execute_process(COMMAND "${GIT_EXECUTABLE}" clone --depth 1 --branch "${KENREF_GMX_GROMACS_GIT_TAG}"
-                            "${KENREF_GMX_GROMACS_GIT_URL}" "${GROMACS_SRC_DIR}" RESULT_VARIABLE _kg_rc)
-            if(NOT _kg_rc EQUAL 0)
-                message(FATAL_ERROR "GROMACS clone failed. Provide -DGROMACS_SRC_DIR / -DGROMACS_BUILD_DIR / -DGROMACS_INSTALL_DIR.")
-            endif()
-        endif()
         if(NOT EXISTS "${GROMACS_DIR}")   # not built+installed yet -> delegate the build to gromacs's own cmake
             set(_kg_simd "")
             if(DEFINED ACCEL AND NOT ACCEL STREQUAL "")
@@ -273,8 +288,11 @@ macro(kenref_provide_gromacs)
             message(STATUS "GROMACS: building via its own cmake -> ${GROMACS_INSTALL_DIR}  (one-time; can take 20+ min)")
             # no -G: gromacs builds with the default generator (or $CMAKE_GENERATOR); Make and Ninja both work.
             # build type matches KEnRef (${KENREF_DEP_BUILD_TYPE}), never hardcoded.
+            # GMX_INSTALL_LEGACY_API=ON is REQUIRED: gromacs defaults it OFF and then does NOT install the
+            # public headers kenref-gmx compiles against (gromacs/math/vectypes.h, gromacs/topology/index.h, …).
             execute_process(COMMAND "${CMAKE_COMMAND}" -S "${GROMACS_SRC_DIR}" -B "${GROMACS_BUILD_DIR}"
-                            "-DCMAKE_BUILD_TYPE=${KENREF_DEP_BUILD_TYPE}" -DGMX_MPI=ON ${_kg_simd} "-DCMAKE_INSTALL_PREFIX=${GROMACS_INSTALL_DIR}"
+                            "-DCMAKE_BUILD_TYPE=${KENREF_DEP_BUILD_TYPE}" -DGMX_MPI=ON -DGMX_INSTALL_LEGACY_API=ON
+                            ${_kg_simd} "-DCMAKE_INSTALL_PREFIX=${GROMACS_INSTALL_DIR}"
                             RESULT_VARIABLE _kg_c)
             if(_kg_c EQUAL 0)
                 execute_process(COMMAND "${CMAKE_COMMAND}" --build "${GROMACS_BUILD_DIR}" RESULT_VARIABLE _kg_b)
@@ -288,8 +306,12 @@ macro(kenref_provide_gromacs)
         endif()
     else()
         message(FATAL_ERROR
-            "GROMACS not found. Provide -DGROMACS_SRC_DIR / -DGROMACS_BUILD_DIR / -DGROMACS_INSTALL_DIR "
-            "(the force provider needs all three), or -DKENREF_FETCH_MISSING=ON to fetch+build it.")
+            "GROMACS not found, and downloads are disabled.\n"
+            "  Point KEnRef at an EXISTING gromacs build:  -DGROMACS_BUILD_DIR=<gromacs's cmake build dir>\n"
+            "    (the dir you ran `cmake -B` into for GROMACS — it has CMakeCache.txt and src/include/config.h;\n"
+            "     NOT the install prefix, NOT the source. Its source and install are derived from it.)\n"
+            "  OR have KEnRef build YOUR gromacs source:    -DGROMACS_SRC_DIR=<gromacs source checkout>\n"
+            "  OR allow a fetch+build of a stock gromacs:   -DKENREF_FETCH_MISSING=ON  (build.sh --download ON)")
     endif()
     find_package(GROMACS NAMES gromacs_mpi gromacs REQUIRED)
     message(STATUS "GROMACS: ${GROMACS_VERSION} (config ${GROMACS_CONFIG}); src=${GROMACS_SRC_DIR} build=${GROMACS_BUILD_DIR}")

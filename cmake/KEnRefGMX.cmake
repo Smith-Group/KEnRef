@@ -136,6 +136,25 @@ set_target_properties(kenref_gmxinterface
 )
 
 # ============================================================================
+# SIMD / EIGEN-ABI CONSUMER CHECK, FORCED AT INSTALL
+# ============================================================================
+# Compiled with the gmx build's flags and linked against KENREF::CORE (in-tree, or a pre-installed core for a
+# gmx-only build). This is the check that actually bites: if the linked core was built with a different ACCEL
+# than this gmx build, its baked alignment differs from this TU's -> non-zero -> install FATALs.
+add_executable(kenref_gmx_simd_check "${CMAKE_CURRENT_SOURCE_DIR}/cmake/simd_check_main.cpp")
+target_link_libraries(kenref_gmx_simd_check PRIVATE KENREF::CORE)
+target_include_directories(kenref_gmx_simd_check PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include_core")
+if(NOT CMAKE_CROSSCOMPILING)
+    install(CODE "
+        message(STATUS \"KEnRef: verifying kenref-gmx vs kenref_core SIMD/Eigen ABI ...\")
+        execute_process(COMMAND \"$<TARGET_FILE:kenref_gmx_simd_check>\" RESULT_VARIABLE _kn_gmx_simd_rc)
+        if(NOT _kn_gmx_simd_rc EQUAL 0)
+            message(FATAL_ERROR \"kenref-gmx / kenref_core SIMD/Eigen ABI mismatch (rc=\${_kn_gmx_simd_rc}) — rebuild both with the same ACCEL.\")
+        endif()
+    ")
+endif()
+
+# ============================================================================
 # TESTING
 # ============================================================================
 add_subdirectory(google_tests)

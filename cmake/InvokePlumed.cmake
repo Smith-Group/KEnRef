@@ -32,6 +32,14 @@ endif()
 if(KENREF_PLUMED_SRC_DIR)
     set(_kn_plumed_src "${KENREF_PLUMED_SRC_DIR}")
 else()
+    # No PLUMED source provided -> the delegated build would CLONE the fork. Honor the download switch: if
+    # fetching is disabled, fail now (at configure) with clear guidance instead of a surprise clone at install.
+    if(NOT KENREF_FETCH_MISSING)
+        message(FATAL_ERROR
+            "KENREF_WITH_PLUMED needs a PLUMED source but none was provided and downloads are OFF.\n"
+            "  Provide one:   -DKENREF_PLUMED_SRC_DIR=/path/to/plumed2\n"
+            "  OR allow fetch: -DKENREF_FETCH_MISSING=ON  (build.sh --download ON)")
+    endif()
     set(_kn_plumed_src "${CMAKE_BINARY_DIR}/plumed-src")
 endif()
 

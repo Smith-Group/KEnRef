@@ -2,66 +2,86 @@
 # =============================================================================
 # build.sh — KEnRef build orchestrator (Linux/macOS).
 #
-# KEnRef builds KEnRef; each MD engine builds itself. So this script builds
-# kenref_core (and, optionally, the kenref-gmx force provider) with KEnRef's own
-# CMake, and for anything PLUMED it DELEGATES to the plumed side — it never
-# reimplements plumed's or gromacs's build.
+# KEnRef builds KEnRef; each MD engine builds itself. This script builds kenref_core (and, optionally, the
+# kenref-gmx force provider) with KEnRef's own CMake, and for anything PLUMED it DELEGATES to the plumed side
+# — it never reimplements plumed's or gromacs's build. EVERYTHING installs under ONE prefix (--prefix,
+# default /usr/local/kenref).
 #
-#   (default)              kenref_core (the library)          -> --prefix (/usr/local/kenref)
-#   --with-gmx             kenref-gmx force provider (exes)    -> --gmx-prefix (/usr/local/kenref-gmx)
-#                          (fetches+builds a stock GROMACS into the build dir if none is provided)
-#   --with-plumed          + PLUMED (kenref module)  — DELEGATES to <plumed>/src/kenref/build-only.sh
-#   --with-plumed-gromacs  + PLUMED + a batched GROMACS — DELEGATES to build-and-batch.sh
+# Components are TRI-STATE: ON / OFF / AUTO (default AUTO). AUTO builds a component only if its heavy engine
+# (GROMACS / PLUMED) is ALREADY present; it never downloads one. Use =ON to force a build (fetching sub-deps
+# when --download ON). See INSTALL.md.
 #
-# For --with-plumed[-gromacs] the script only sets CMake options; KEnRef's CMake itself clones PLUMED and
-# invokes its build script (at install time, so it reuses the just-installed kenref). This script stays a
-# shallow shell: it maps flags to `cmake -D…`. Toolchain from the environment: CXX / CC / CXXFLAGS.
+#   (default)                 kenref_core (the library)
+#   --with-gmx[=ON|OFF|AUTO]   kenref-gmx force provider (executables), consuming the core
+#   --with-plumed[=ON|OFF|AUTO] + PLUMED (kenref module) — DELEGATES to <plumed>/src/kenref/build-only.sh
+#   --with-plumed-gromacs      + PLUMED + a batched GROMACS — DELEGATES to build-and-batch.sh
+#
+# A single CMake configure builds whatever resolves ON; a single `cmake --install` writes the one prefix
+# (and runs the delegated PLUMED build via install(CODE) when requested). This script stays a shallow shell:
+# it maps flags to `cmake -D…`. Toolchain from the environment: CXX / CC / CXXFLAGS.
 # =============================================================================
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ---- defaults ---------------------------------------------------------------
-WITH_GMX=0
-WITH_PLUMED=0
+WITH_GMX="AUTO"                           # ON | OFF | AUTO
+WITH_PLUMED="AUTO"                        # ON | OFF | AUTO
 WITH_PLUMED_GROMACS=0
+EXPORT_PLUMEDINTERFACE=0                   # -DKENREF_EXPORT_PLUMEDINTERFACE (plumed-side delegation sets this)
+DOWNLOAD="ON"                             # ON | OFF  (KENREF_FETCH_MISSING)
 ASSUME_YES=0
 BUILD_TYPE="Release"
 ACCEL=""                                  # empty => CMake/GROMACS auto-detect this machine's SIMD
 JOBS="$(command -v nproc >/dev/null 2>&1 && nproc || echo 4)"
-PREFIX="/usr/local/kenref"                # core/library prefix (the ONE home of libkenref_*)
-GMX_PREFIX="/usr/local/kenref-gmx"        # kenref-gmx executables prefix
-MODULEFILE_DIR=""                         # empty => CMake default (<install-base>/modulefiles/<comp>)
+PREFIX="/usr/local/kenref"                # the ONE install prefix for everything
+MODULEFILE_DIR=""                         # empty => CMake default (<prefix>/modulefiles/kenref)
+MODULEFILE_LINK=""                        # non-empty => also symlink modulefiles into this system dir
 # PLUMED (delegation): clone coords + optional local tree / install prefix
 PLUMED_SRC=""       PLUMED_PREFIX=""
-GROMACS_SRC=""                             # for --with-plumed-gromacs: a provided 2025.x source (else fetched by plumed)
-# kenref-gmx force-provider GROMACS (stock): provide the 3 dirs, else KEnRef's CMake fetches+builds it.
-GMX_GROMACS_SRC=""  GMX_GROMACS_BUILD=""  GMX_GROMACS_INSTALL=""
+GROMACS_SRC=""                             # for --with-plumed-gromacs: a provided 2025.x source (else plumed fetches)
+# kenref-gmx force-provider GROMACS: give its BUILD dir (source+install+MPI flavor are derived from it), or a
+# SOURCE for KEnRef to build; give neither and KEnRef fetches+builds a stock gromacs (--download ON).
+GMX_GROMACS_BUILD=""  GMX_GROMACS_SRC=""
 EXTRA_CMAKE=()      # anything after `--` -> forwarded to cmake (e.g. -G Ninja, extra -D...)
 
 say()  { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33mWARNING: %s\033[0m\n' "$*" >&2; }
 die()  { printf '\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 
+# normalize a tri-state token to upper-case; validate ON/OFF/AUTO
+tri() { local v; v="$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"; case "$v" in ON|OFF|AUTO) printf '%s' "$v";; *) die "expected ON|OFF|AUTO, got '$1'";; esac; }
+onoff() { local v; v="$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"; case "$v" in ON|OFF) printf '%s' "$v";; *) die "expected ON|OFF, got '$1'";; esac; }
+
 usage() {
     cat <<EOF
 Usage: ./build.sh [options]        (run with no options for interactive mode)
 
-Components:
-  (default)              build kenref_core (the library) only
-  --with-gmx             also build the kenref-gmx force provider (executables), consuming the core
-  --with-plumed          also build PLUMED with the kenref module   (delegated to the plumed side)
-  --with-plumed-gromacs  also build PLUMED + a batched GROMACS       (delegated to build-and-batch.sh)
+Components (tri-state ON/OFF/AUTO, default AUTO; bare flag = ON):
+  (default)                  build kenref_core (the library)
+  --with-gmx[=ON|OFF|AUTO]   also build the kenref-gmx force provider (executables), consuming the core
+  --with-plumed[=ON|OFF|AUTO] also build PLUMED with the kenref module   (delegated to the plumed side)
+  --with-plumed-gromacs      also build PLUMED + a batched GROMACS        (delegated to build-and-batch.sh)
+  --export-plumedinterface   install the plumedinterface source + kenref_plumed.pc (the plumed side sets this
+                             when it delegates the kenref build; enables compiling the module in-tree)
+
+  AUTO builds a component only if its engine (GROMACS/PLUMED) is already present; it never downloads one.
+  Use =ON to force it (missing sub-deps are then fetched when --download ON, else the configure FATALs).
 
 Config:
-  --build-type T         Release | Debug | RelWithDebInfo      (default: ${BUILD_TYPE})
-  --accel A              AVX_512 | AVX_256 | AVX2_256           (default: auto-detect this machine)
-  --jobs N               parallel build jobs                    (default: ${JOBS})
-  --prefix DIR           core/library install prefix            (default: ${PREFIX}; sudo if needed)
-  --gmx-prefix DIR       kenref-gmx executables prefix          (default: ${GMX_PREFIX})
-  --modulefile-dir DIR   where TCL modulefiles are written      (default: <install-base>/modulefiles/<comp>)
-  --gmx-gromacs-src DIR      stock GROMACS source   (for --with-gmx; omit all 3 to auto fetch+build)
-  --gmx-gromacs-build DIR    stock GROMACS build dir (kenref-gmx needs src+build+install)
-  --gmx-gromacs-install DIR  stock GROMACS install
+  --download ON|OFF      fetch missing sub-deps (Eigen/GROMACS/PLUMED)   (default: ${DOWNLOAD})
+  --build-type T         Release | Debug | RelWithDebInfo                (default: ${BUILD_TYPE})
+  --accel A              GROMACS GMX_SIMD tier (AVX_512/AVX2_256/AVX_256/AVX2_128/AVX_128_FMA/SSE4.1/…)
+                                                                          (default: auto-detect this machine)
+  --jobs N               parallel build jobs                             (default: ${JOBS})
+  --prefix DIR           the ONE install prefix for everything           (default: ${PREFIX}; sudo if needed)
+  --modulefile-dir DIR   where the TCL modulefile is written             (default: <prefix>/modulefiles/kenref)
+  --link-modulefiles[=DIR]  also symlink the modulefile into a system dir (default DIR: /usr/local/modulefiles)
+  --gmx-gromacs-build DIR    GROMACS's own CMake BUILD dir -- the dir you ran `cmake -B` into for GROMACS
+                             (it holds CMakeCache.txt + src/include/config.h). NOT the install prefix and NOT
+                             the source: KEnRef derives both of those, and the MPI flavor, from it.
+                             This is normally the ONLY gromacs option you need.
+  --gmx-gromacs-src DIR      GROMACS source checkout, to have KEnRef BUILD gromacs for you (no build dir yet).
+                             Omit both to fetch+build a stock gromacs (needs --download ON).
   --plumed-src DIR       PLUMED source tree (omit to clone the PR fork into the build dir)
   --plumed-prefix DIR    PLUMED install prefix
   --gromacs-src DIR      provided GROMACS 2025.x source for --with-plumed-gromacs (else plumed fetches it)
@@ -76,18 +96,23 @@ EOF
 # ---- arg parsing ------------------------------------------------------------
 while [ $# -gt 0 ]; do
     case "$1" in
-        --with-gmx)             WITH_GMX=1 ;;
-        --with-plumed)          WITH_PLUMED=1 ;;
+        --with-gmx)             WITH_GMX="ON" ;;
+        --with-gmx=*)           WITH_GMX="$(tri "${1#*=}")" ;;
+        --with-plumed)          WITH_PLUMED="ON" ;;
+        --with-plumed=*)        WITH_PLUMED="$(tri "${1#*=}")" ;;
         --with-plumed-gromacs)  WITH_PLUMED_GROMACS=1 ;;
+        --export-plumedinterface) EXPORT_PLUMEDINTERFACE=1 ;;
+        --download)             DOWNLOAD="$(onoff "$2")"; shift ;;
+        --download=*)           DOWNLOAD="$(onoff "${1#*=}")" ;;
         --build-type)           BUILD_TYPE="$2"; shift ;;
         --accel)                ACCEL="$2"; shift ;;
         --jobs)                 JOBS="$2"; shift ;;
         --prefix)               PREFIX="$2"; shift ;;
-        --gmx-prefix)           GMX_PREFIX="$2"; shift ;;
         --modulefile-dir)       MODULEFILE_DIR="$2"; shift ;;
-        --gmx-gromacs-src)      GMX_GROMACS_SRC="$2"; shift ;;
+        --link-modulefiles)     MODULEFILE_LINK="/usr/local/modulefiles" ;;
+        --link-modulefiles=*)   MODULEFILE_LINK="${1#*=}" ;;
         --gmx-gromacs-build)    GMX_GROMACS_BUILD="$2"; shift ;;
-        --gmx-gromacs-install)  GMX_GROMACS_INSTALL="$2"; shift ;;
+        --gmx-gromacs-src)      GMX_GROMACS_SRC="$2"; shift ;;
         --plumed-src)           PLUMED_SRC="$2"; shift ;;
         --plumed-prefix)        PLUMED_PREFIX="$2"; shift ;;
         --gromacs-src)          GROMACS_SRC="$2"; shift ;;
@@ -101,16 +126,21 @@ done
 
 interactive() { [ "$ASSUME_YES" = 0 ] && [ -t 0 ]; }
 ask_yesno()   { local a; read -rp "$1 [y/N] " a; [[ "$a" =~ ^[Yy] ]]; }
+ask_tri()     { local __v=$1 __p=$2 a; read -rp "${__p} [on/off/AUTO] " a; [ -n "$a" ] && printf -v "$__v" '%s' "$(tri "$a")"; }
 
-if interactive && [ "$WITH_GMX" = 0 ] && [ "$WITH_PLUMED" = 0 ] && [ "$WITH_PLUMED_GROMACS" = 0 ]; then
-    say "Interactive mode (pass flags or -y to skip). Building kenref_core; add components?"
-    ask_yesno "Also build the kenref-gmx force provider (executables)?" && WITH_GMX=1
-    if ask_yesno "Also build PLUMED with the kenref module?"; then
-        if ask_yesno "  ... and also batch a GROMACS with it?"; then WITH_PLUMED_GROMACS=1; else WITH_PLUMED=1; fi
+if interactive; then
+    say "Interactive mode (pass flags or -y to skip). Building kenref_core; component choices (ON/OFF/AUTO):"
+    ask_tri WITH_GMX    "  kenref-gmx force provider (executables)?"
+    ask_tri WITH_PLUMED "  PLUMED with the kenref module?"
+    if [ "$WITH_PLUMED" != "OFF" ] && ask_yesno "  ... and also batch a GROMACS with it?"; then WITH_PLUMED_GROMACS=1; fi
+    ask_yesno "  Allow downloading missing sub-deps (Eigen/GROMACS/PLUMED)?" && DOWNLOAD="ON" || DOWNLOAD="OFF"
+    # Modulefile system-dir link: only offer when the prefix is NOT /usr/local (there the modulefile is
+    # already under /usr/local/modulefiles, so a link would be a self-referential no-op).
+    if [ "$PREFIX" != "/usr/local" ] && [ -z "$MODULEFILE_LINK" ]; then
+        ask_yesno "  Symlink modulefiles into /usr/local/modulefiles?" && MODULEFILE_LINK="/usr/local/modulefiles"
     fi
 fi
-[ "$WITH_PLUMED_GROMACS" = 1 ] && WITH_PLUMED=0   # the -gromacs variant supersedes plain --with-plumed
-DELEGATE_PLUMED=0; { [ "$WITH_PLUMED" = 1 ] || [ "$WITH_PLUMED_GROMACS" = 1 ]; } && DELEGATE_PLUMED=1
+[ "$WITH_PLUMED_GROMACS" = 1 ] && WITH_PLUMED="ON"   # batching implies building plumed
 
 bt="$(echo "$BUILD_TYPE" | tr '[:upper:]' '[:lower:]')"
 
@@ -121,56 +151,38 @@ do_install() { # do_install <build-dir> <prefix>
     if [ -w "$parent" ]; then cmake --install "$bd"; else say "prefix ${pfx} not writable -> installing with sudo"; sudo cmake --install "$bd"; fi
 }
 
-# No -G here: CMake uses your default generator (or $CMAKE_GENERATOR — e.g. "Unix Makefiles" or "Ninja").
-# Anything after `--` on the command line (e.g. `-- -G Ninja -DFOO=bar`) is forwarded verbatim to cmake.
-COMMON=( -DCMAKE_BUILD_TYPE="$BUILD_TYPE" )
-[ -n "$ACCEL" ]          && COMMON+=( -DACCEL="$ACCEL" )
-[ -n "${CXX:-}" ]        && COMMON+=( -DCMAKE_CXX_COMPILER="$CXX" )
-[ -n "${CC:-}" ]         && COMMON+=( -DCMAKE_C_COMPILER="$CC" )
-[ -n "${CXXFLAGS:-}" ]   && COMMON+=( -DCMAKE_CXX_FLAGS="$CXXFLAGS" )
-[ -n "$MODULEFILE_DIR" ] && COMMON+=( -DKENREF_MODULEFILE_DIR="$MODULEFILE_DIR" )
-[ ${#EXTRA_CMAKE[@]} -gt 0 ] && COMMON+=( "${EXTRA_CMAKE[@]}" )   # user passthrough (after --)
+# =============================================================================
+# ONE configure / build / install — CMake builds whatever resolves ON and writes the single prefix.
+# =============================================================================
+say "kenref -> ${PREFIX}   (gmx=${WITH_GMX} plumed=${WITH_PLUMED}$([ "$WITH_PLUMED_GROMACS" = 1 ] && echo '+gromacs') download=${DOWNLOAD})"
+BUILD_DIR="${REPO_ROOT}/cmake-build-${bt}-orch"
+ARGS=( -DCMAKE_BUILD_TYPE="$BUILD_TYPE"
+       -DBUILD_KENREF_CORE=ON
+       -DBUILD_KENREF_GMX="$WITH_GMX"
+       -DKENREF_WITH_PLUMED="$WITH_PLUMED"
+       -DKENREF_FETCH_MISSING="$DOWNLOAD"
+       -DCMAKE_INSTALL_PREFIX="$PREFIX" )
+[ "$WITH_PLUMED_GROMACS" = 1 ]      && ARGS+=( -DKENREF_WITH_PLUMED_GROMACS=ON )
+[ "$EXPORT_PLUMEDINTERFACE" = 1 ]   && ARGS+=( -DKENREF_EXPORT_PLUMEDINTERFACE=ON )
+[ -n "$ACCEL" ]              && ARGS+=( -DACCEL="$ACCEL" )
+[ -n "${CXX:-}" ]           && ARGS+=( -DCMAKE_CXX_COMPILER="$CXX" )
+[ -n "${CC:-}" ]            && ARGS+=( -DCMAKE_C_COMPILER="$CC" )
+[ -n "${CXXFLAGS:-}" ]      && ARGS+=( -DCMAKE_CXX_FLAGS="$CXXFLAGS" )
+[ -n "$MODULEFILE_DIR" ]    && ARGS+=( -DKENREF_MODULEFILE_DIR="$MODULEFILE_DIR" )
+[ -n "$MODULEFILE_LINK" ]   && ARGS+=( -DKENREF_MODULEFILE_LINK_DIR="$MODULEFILE_LINK" )
+# kenref-gmx force-provider GROMACS (provide all three, or CMake fetches+builds when --with-gmx is committed)
+[ -n "$GMX_GROMACS_BUILD" ]   && ARGS+=( -DGROMACS_BUILD_DIR="$GMX_GROMACS_BUILD" )   # src+install derived from it
+[ -n "$GMX_GROMACS_SRC" ]     && ARGS+=( -DGROMACS_SRC_DIR="$GMX_GROMACS_SRC" )
+# PLUMED delegation coords (CMake clones + invokes the plumed script at install time)
+[ -n "$PLUMED_SRC" ]    && ARGS+=( -DKENREF_PLUMED_SRC_DIR="$PLUMED_SRC" )
+[ -n "$PLUMED_PREFIX" ] && ARGS+=( -DKENREF_PLUMED_INSTALL_DIR="$PLUMED_PREFIX" )
+[ -n "$GROMACS_SRC" ]   && ARGS+=( -DKENREF_GROMACS_SRC_DIR="$GROMACS_SRC" )
+[ ${#EXTRA_CMAKE[@]} -gt 0 ] && ARGS+=( "${EXTRA_CMAKE[@]}" )   # user passthrough (after --)
 
-# =============================================================================
-# PHASE 1 — kenref_core -> PREFIX (the one home of libkenref_*)
-# =============================================================================
-say "kenref_core -> ${PREFIX}"
-CORE_DIR="${REPO_ROOT}/cmake-build-${bt}-core-orch"
-CORE_ARGS=( "${COMMON[@]}" -DBUILD_KENREF_CORE=ON -DBUILD_KENREF_GMX=OFF -DBUILD_KENREF_PLUMED=OFF -DCMAKE_INSTALL_PREFIX="$PREFIX" )
-# PLUMED delegation is driven by CMake (InvokePlumed.cmake invokes the plumed script at install time); we
-# just set the options. CMake forces KENREF_EXPORT_PLUMEDINTERFACE and does the clone + build itself.
-if [ "$WITH_PLUMED_GROMACS" = 1 ]; then
-    CORE_ARGS+=( -DKENREF_WITH_PLUMED_GROMACS=ON )
-    [ -n "$GROMACS_SRC" ] && CORE_ARGS+=( -DKENREF_GROMACS_SRC_DIR="$GROMACS_SRC" )
-elif [ "$WITH_PLUMED" = 1 ]; then
-    CORE_ARGS+=( -DKENREF_WITH_PLUMED=ON )
-fi
-if [ "$DELEGATE_PLUMED" = 1 ]; then
-    [ -n "$PLUMED_SRC" ]    && CORE_ARGS+=( -DKENREF_PLUMED_SRC_DIR="$PLUMED_SRC" )
-    [ -n "$PLUMED_PREFIX" ] && CORE_ARGS+=( -DKENREF_PLUMED_INSTALL_DIR="$PLUMED_PREFIX" )
-fi
-cmake -S "$REPO_ROOT" -B "$CORE_DIR" "${CORE_ARGS[@]}"
-cmake --build "$CORE_DIR" -j "$JOBS"
+cmake -S "$REPO_ROOT" -B "$BUILD_DIR" "${ARGS[@]}"
+cmake --build "$BUILD_DIR" -j "$JOBS"
 # NOTE: if --with-plumed[-gromacs], this install ALSO runs the delegated PLUMED build (CMake install(CODE)).
-do_install "$CORE_DIR" "$PREFIX"
-
-# =============================================================================
-# PHASE 2a (optional) — kenref-gmx force provider -> GMX_PREFIX  (scenario 2)
-# GROMACS (find or fetch+build) is handled by KEnRef's CMake (kenref_provide_gromacs); this is just a
-# cmake call. Provide a stock gromacs via --gmx-gromacs-src/-build/-install, or CMake fetches+builds one.
-# =============================================================================
-if [ "$WITH_GMX" = 1 ]; then
-    say "kenref-gmx executables -> ${GMX_PREFIX}  (consuming core at ${PREFIX})"
-    GMX_DIR="${REPO_ROOT}/cmake-build-${bt}-gmx-orch"
-    GMX_ARGS=( "${COMMON[@]}" -DBUILD_KENREF_CORE=OFF -DBUILD_KENREF_GMX=ON
-               -DCMAKE_INSTALL_PREFIX="$GMX_PREFIX" -DKENREF_CORE_CMAKE_PATH="${PREFIX}/lib/cmake/KEnRef" -DCMAKE_PREFIX_PATH="$PREFIX" )
-    [ -n "$GMX_GROMACS_SRC" ]     && GMX_ARGS+=( -DGROMACS_SRC_DIR="$GMX_GROMACS_SRC" )
-    [ -n "$GMX_GROMACS_BUILD" ]   && GMX_ARGS+=( -DGROMACS_BUILD_DIR="$GMX_GROMACS_BUILD" )
-    [ -n "$GMX_GROMACS_INSTALL" ] && GMX_ARGS+=( -DGROMACS_INSTALL_DIR="$GMX_GROMACS_INSTALL" )
-    cmake -S "$REPO_ROOT" -B "$GMX_DIR" "${GMX_ARGS[@]}"
-    cmake --build "$GMX_DIR" -j "$JOBS"
-    do_install "$GMX_DIR" "$GMX_PREFIX"
-fi
+do_install "$BUILD_DIR" "$PREFIX"
 
 say "DONE."
 [ -f "${PREFIX}/kenref-build-manifest.txt" ] && cat "${PREFIX}/kenref-build-manifest.txt"
