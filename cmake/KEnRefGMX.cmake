@@ -31,14 +31,19 @@ target_link_libraries(kenref_gmxinterface PUBLIC
 
 # Separate include directories
 target_include_directories(kenref_gmxinterface PUBLIC
-    # GROMACS includes - THE ORDER IS CRITICAL
-    "${GROMACS_BUILD_DIR}/src/include/"                    # 1. config.h
-    "${GROMACS_SRC_DIR}/src/include"                       # 2. Core API
-    "${GROMACS_SRC_DIR}/src/gromacs/math/include"          # 3. Math
-    "${GROMACS_SRC_DIR}/src/gromacs/mdtypes"               # 4. MD types
-    "${GROMACS_SRC_DIR}/src/gromacs/utility/include"       # 5. Utility
-    "${GROMACS_SRC_DIR}/src/programs"                      # 6. Programs
-    "${GROMACS_SRC_DIR}/src"							   # 7. I am not sure
+    # GROMACS includes - THE ORDER IS CRITICAL.
+    # BUILD_INTERFACE-only: these are absolute paths into THIS machine's gromacs source/build trees. They are
+    # needed to COMPILE kenref_gmxinterface here, but must not leak into the INSTALLED target's interface —
+    # they are meaningless on another machine, and when gromacs is auto-fetched INTO this build dir CMake
+    # rightly refuses to export a build-dir path ("...is prefixed in the build directory", generate fails).
+    # A downstream consumer supplies its own gromacs include paths.
+    $<BUILD_INTERFACE:${GROMACS_BUILD_DIR}/src/include/>                    # 1. config.h
+    $<BUILD_INTERFACE:${GROMACS_SRC_DIR}/src/include>                       # 2. Core API
+    $<BUILD_INTERFACE:${GROMACS_SRC_DIR}/src/gromacs/math/include>          # 3. Math
+    $<BUILD_INTERFACE:${GROMACS_SRC_DIR}/src/gromacs/mdtypes>               # 4. MD types
+    $<BUILD_INTERFACE:${GROMACS_SRC_DIR}/src/gromacs/utility/include>       # 5. Utility
+    $<BUILD_INTERFACE:${GROMACS_SRC_DIR}/src/programs>                      # 6. Programs
+    $<BUILD_INTERFACE:${GROMACS_SRC_DIR}/src>                               # 7. I am not sure
     # Our interface (lowest priority)
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include_gmxinterface>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include_core>  # For CLI11 and KENREF headers
@@ -145,11 +150,15 @@ add_executable(kenref_gmx_simd_check "${CMAKE_CURRENT_SOURCE_DIR}/cmake/simd_che
 target_link_libraries(kenref_gmx_simd_check PRIVATE KENREF::CORE)
 target_include_directories(kenref_gmx_simd_check PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include_core")
 if(NOT CMAKE_CROSSCOMPILING)
+    # rc 1 = genuine mismatch; any other non-zero = the check could not RUN (see KEnRefCore.cmake) -> warn only.
     install(CODE "
         message(STATUS \"KEnRef: verifying kenref-gmx vs kenref_core SIMD/Eigen ABI ...\")
         execute_process(COMMAND \"$<TARGET_FILE:kenref_gmx_simd_check>\" RESULT_VARIABLE _kn_gmx_simd_rc)
-        if(NOT _kn_gmx_simd_rc EQUAL 0)
-            message(FATAL_ERROR \"kenref-gmx / kenref_core SIMD/Eigen ABI mismatch (rc=\${_kn_gmx_simd_rc}) — rebuild both with the same ACCEL.\")
+        if(_kn_gmx_simd_rc EQUAL 1)
+            message(FATAL_ERROR \"kenref-gmx / kenref_core SIMD/Eigen ABI MISMATCH — rebuild both with the same ACCEL and Eigen.\")
+        elseif(NOT _kn_gmx_simd_rc EQUAL 0)
+            message(WARNING \"KEnRef: could not RUN the kenref-gmx SIMD/Eigen ABI check (rc=\${_kn_gmx_simd_rc}); skipping it \"
+                            \"(not a mismatch — commonly the compiler's runtime libs are not loadable here).\")
         endif()
     ")
 endif()

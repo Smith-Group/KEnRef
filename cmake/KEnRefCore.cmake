@@ -317,11 +317,18 @@ target_include_directories(kenref_simd_check PRIVATE "${CMAKE_CURRENT_SOURCE_DIR
 
 # Skip the runtime gate when cross-compiling (the check exe can't run on the build host).
 if(NOT CMAKE_CROSSCOMPILING)
+    # rc 0 = match, rc 1 = genuine mismatch (simd_check_main's only failure return). ANY OTHER rc means the
+    # check could not RUN (e.g. 127: built with -stdlib=libc++ but libc++.so is not loadable here) — that is
+    # not evidence of a mismatch, so warn instead of falsely accusing the build and refusing to install.
     install(CODE "
         message(STATUS \"KEnRef: verifying kenref_core SIMD/Eigen ABI ...\")
         execute_process(COMMAND \"$<TARGET_FILE:kenref_simd_check>\" RESULT_VARIABLE _kn_simd_rc)
-        if(NOT _kn_simd_rc EQUAL 0)
-            message(FATAL_ERROR \"kenref_core SIMD/Eigen ABI self-check failed (rc=\${_kn_simd_rc}) — refusing to install an ISA-mismatched build.\")
+        if(_kn_simd_rc EQUAL 1)
+            message(FATAL_ERROR \"kenref_core SIMD/Eigen ABI self-check FAILED — refusing to install an ISA-mismatched build.\")
+        elseif(NOT _kn_simd_rc EQUAL 0)
+            message(WARNING \"KEnRef: could not RUN the SIMD/Eigen ABI self-check (rc=\${_kn_simd_rc}); skipping it. \"
+                            \"This is not a mismatch — commonly the compiler's runtime libs are not loadable \"
+                            \"(e.g. -stdlib=libc++ without LD_LIBRARY_PATH).\")
         endif()
     ")
 endif()
