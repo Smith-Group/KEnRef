@@ -72,6 +72,12 @@ endif()
 message(STATUS "KENREF_WITH_PLUMED: CMake will delegate to ${_kn_plumed_src}/src/kenref/${_kn_pl_script} at install time")
 
 # Runs at `cmake --install`, after kenref is installed. ${..} = configure-time; \${..} = install-time.
+#
+# The delegated plumed build MUST inherit THIS build's toolchain (the plumed scripts take CXX/CC/CXXFLAGS from
+# the environment). Sourcing env.sh alone is not enough: it sets paths, not the compiler. Without the export
+# below the plumed side silently used the ambient compiler and could compile the kenref plumedinterface against
+# a DIFFERENT standard library than libkenref_core was built with (e.g. kenref -stdlib=libc++ vs a default
+# libstdc++ plumed), failing to link with undefined std::__cxx11 / std::__1 references to IoUtils symbols.
 install(CODE "
 if(EXISTS \"${_kn_plumed_prefix}/bin/plumed\" AND NOT ${_kn_force})
     message(STATUS \"PLUMED: already built at ${_kn_plumed_prefix} — skipping (set -DKENREF_PLUMED_FORCE_REBUILD=ON to rebuild).\")
@@ -87,7 +93,7 @@ else()
     endif()
     message(STATUS \"PLUMED: delegating build -> \${_pl_script}  (reuses the just-installed kenref)\")
     execute_process(
-        COMMAND bash -c \"source '\${CMAKE_INSTALL_PREFIX}/env.sh' 2>/dev/null; exec '\${_pl_script}' ${_kn_pl_args}\"
+        COMMAND bash -c \"source '\${CMAKE_INSTALL_PREFIX}/env.sh' 2>/dev/null; export CXX='${CMAKE_CXX_COMPILER}' CC='${CMAKE_C_COMPILER}' CXXFLAGS='${CMAKE_CXX_FLAGS}'; exec '\${_pl_script}' ${_kn_pl_args}\"
         RESULT_VARIABLE _kn_r)
     if(NOT _kn_r EQUAL 0)
         message(FATAL_ERROR \"PLUMED delegated build failed (see output above).\")
