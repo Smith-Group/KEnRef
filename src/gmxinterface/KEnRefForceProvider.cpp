@@ -7,6 +7,7 @@
 #include <iostream>
 //#include <typeinfo>
 #include <cmath>
+#include <filesystem>   // std::filesystem::absolute — pulled in transitively by libc++, NOT by libstdc++
 #include <memory>
 #include <Eigen/Core>
 #include <utility>
