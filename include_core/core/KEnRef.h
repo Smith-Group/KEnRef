@@ -18,6 +18,7 @@
 
 #include <Eigen/Dense>
 
+#include "core/EigenAbiCheck.h"   // compile-time kenref<->Eigen alignment/ABI guard (see the header)
 #include "Table.h"
 // #include "../config/KEnRefConfig.h"
 

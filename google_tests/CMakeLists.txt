@@ -15,6 +15,9 @@ FetchContent_Declare(
 )
 # For Windows: Prevent overriding the parent project's compiler/linker settings
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+# Do NOT let googletest add its own install() rules: it would ship libgtest/libgmock (+ their .pc and cmake
+# configs) into the KEnRef install prefix, polluting a production install with a test-only dependency.
+set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 
 ##TODO use the next line to find resources folder and test files (later). You may combine it with creating a header file
 #cmake_path(ABSOLUTE_PATH "../res" BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE OUTPUT_VARIABLE RESOURCES_ABSOLUTE_PATH)
@@ -26,7 +29,7 @@ message(STATUS "gtest_SOURCE_DIR is: ${gtest_SOURCE_DIR}")
 include(GoogleTest)
 
 # Now simply link against gtest or gtest_main as needed. Eg
-add_executable(Google_tests_kenref_core_exe testKabsch.cpp testKEnRef.cpp testIoUtils.cpp testRestoreNoJump.cpp)
+add_executable(Google_tests_kenref_core_exe testKabsch.cpp testKEnRef.cpp testIoUtils.cpp testRestoreNoJump.cpp testSimdSignature.cpp)
 # Use namespace target for compatibility with both build and installed versions
 if(TARGET KENREF::CORE)
 	target_link_libraries(Google_tests_kenref_core_exe gtest gtest_main KENREF::CORE)
@@ -41,7 +44,7 @@ target_include_directories(Google_tests_kenref_core_exe PRIVATE
 gtest_discover_tests(Google_tests_kenref_core_exe)
 
 if(BUILD_KENREF_GMX OR TARGET kenref_gmxinterface)
-	add_executable(Google_tests_kenref_gmxinterface_exe testKEnRefForceProvider.cpp)
+	add_executable(Google_tests_kenref_gmxinterface_exe testKEnRefForceProvider.cpp testSimdSignature.cpp)
 	if(TARGET KENREF::CORE)
 		target_link_libraries(Google_tests_kenref_gmxinterface_exe gtest gtest_main KENREF::CORE kenref_gmxinterface)
 	else()

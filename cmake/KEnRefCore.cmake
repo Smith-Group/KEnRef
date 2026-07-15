@@ -63,9 +63,8 @@ target_include_directories(kenref_and_eigen3 PUBLIC
     $<INSTALL_INTERFACE:include/eigen>
 )
 
-target_link_libraries(kenref_and_eigen3 PUBLIC
-    MPI::MPI_CXX
-)
+# NOTE: no MPI here. kenref_core contains no MPI code; MPI belongs to the gmx interface + tools (which link it
+# themselves), and the PLUMED bias uses PLUMED's own Communicator. See CMakeLists.txt (kenref_provide_mpi).
 
 # Create namespace alias
 add_library(KENREF::CORE_WITH_EIGEN ALIAS kenref_and_eigen3)
@@ -76,9 +75,8 @@ add_library(KENREF::CORE_WITH_EIGEN ALIAS kenref_and_eigen3)
 
 # Core: Only permissively licensed dependencies
 target_link_libraries(kenref_core PUBLIC
-    MPI::MPI_CXX           # Check MPI license
     Eigen3::Eigen          # MPL2 - permissive
-    # NO GROMACS here!
+    # NO GROMACS here!  and NO MPI: the core has no MPI code (consumers that need it link it themselves).
 )
 
 # OpenMP (optional): when found, enables -fopenmp so the core's `#pragma omp` directives are active.
@@ -105,7 +103,7 @@ target_include_directories(kenref_core PUBLIC
 # Same sources + usage requirements; OUTPUT_NAME kenref_core => libkenref_core.so beside libkenref_core.a.
 add_library(kenref_core_shared SHARED ${core_sources} ${core_headers})
 add_library(KENREF::CORE_SHARED ALIAS kenref_core_shared)
-target_link_libraries(kenref_core_shared PUBLIC MPI::MPI_CXX Eigen3::Eigen)
+target_link_libraries(kenref_core_shared PUBLIC Eigen3::Eigen)   # no MPI (see kenref_core above)
 if(TARGET OpenMP::OpenMP_CXX)
     target_link_libraries(kenref_core_shared PUBLIC OpenMP::OpenMP_CXX)
 endif()
@@ -132,6 +130,33 @@ foreach(kenref_lib kenref_core kenref_core_shared kenref_and_eigen3)
         KENREF_ENABLE_RELAX=$<BOOL:${KENREF_ENABLE_RELAX}>
     )
 endforeach()
+
+# ============================================================================
+# COMPILE-TIME KENREF <-> EIGEN ABI GUARD
+# ============================================================================
+# kenref_core stores Eigen objects in its own containers, so Eigen's alignment is baked into libkenref_core's
+# ABI. Generate a header recording the EIGEN_MAX_ALIGN_BYTES / version kenref_core is built with (via a tiny
+# generator compiled with THIS build's flags + Eigen), which core/EigenAbiCheck.h (included from core/KEnRef.h)
+# static_asserts against — so a consumer TU whose Eigen disaligns from kenref_core FAILS TO COMPILE. Skipped
+# when cross-compiling (the generator can't run on the build host); the runtime SIMD gate still covers it.
+set(_kn_eigen_abi_hdr "${CMAKE_BINARY_DIR}/generated/core/KEnRefEigenAbi.h")
+if(NOT CMAKE_CROSSCOMPILING)
+    add_executable(kenref_eigen_abi_gen "${CMAKE_CURRENT_SOURCE_DIR}/cmake/eigen_abi_gen.cpp")
+    target_link_libraries(kenref_eigen_abi_gen PRIVATE Eigen3::Eigen)
+    add_custom_command(OUTPUT "${_kn_eigen_abi_hdr}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_BINARY_DIR}/generated/core"
+        COMMAND "$<TARGET_FILE:kenref_eigen_abi_gen>" "${_kn_eigen_abi_hdr}"
+        DEPENDS kenref_eigen_abi_gen
+        COMMENT "Recording kenref_core's Eigen ABI (alignment/version) -> KEnRefEigenAbi.h"
+        VERBATIM)
+    add_custom_target(kenref_eigen_abi DEPENDS "${_kn_eigen_abi_hdr}")
+    foreach(kenref_lib kenref_core kenref_core_shared kenref_and_eigen3)
+        add_dependencies(${kenref_lib} kenref_eigen_abi)
+        target_include_directories(${kenref_lib} PUBLIC $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/generated>)
+    endforeach()
+    # Install alongside the other core headers (include/core/core/*.h) so external consumers get the guard too.
+    install(FILES "${_kn_eigen_abi_hdr}" DESTINATION include/core/core)
+endif()
 
 # ============================================================================
 # PKG-CONFIG GENERATION FOR PLUMED INTEGRATION
@@ -273,6 +298,28 @@ build_type     = ${CMAKE_BUILD_TYPE}
 accel          = ${ACCEL}
 cxx            = ${CMAKE_CXX_COMPILER}
 \")")
+
+# ============================================================================
+# SIMD / EIGEN-ABI SELF-CHECK, FORCED AT INSTALL
+# ============================================================================
+# A tiny executable (core flags, links kenref_core) that returns non-zero if the caller's Eigen alignment
+# differs from the linked core's. Run at `cmake --install` via install(CODE) so an ISA/ABI-mismatched build
+# cannot be installed. Trivially passes for a single-configure core build; the real bite is the gmx/plumed
+# consumer check (KEnRefGMX.cmake) against a pre-installed core of a different ACCEL. See core/SimdSignature.h.
+add_executable(kenref_simd_check "${CMAKE_CURRENT_SOURCE_DIR}/cmake/simd_check_main.cpp")
+target_link_libraries(kenref_simd_check PRIVATE kenref_core)
+target_include_directories(kenref_simd_check PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include_core")
+
+# Skip the runtime gate when cross-compiling (the check exe can't run on the build host).
+if(NOT CMAKE_CROSSCOMPILING)
+    install(CODE "
+        message(STATUS \"KEnRef: verifying kenref_core SIMD/Eigen ABI ...\")
+        execute_process(COMMAND \"$<TARGET_FILE:kenref_simd_check>\" RESULT_VARIABLE _kn_simd_rc)
+        if(NOT _kn_simd_rc EQUAL 0)
+            message(FATAL_ERROR \"kenref_core SIMD/Eigen ABI self-check failed (rc=\${_kn_simd_rc}) — refusing to install an ISA-mismatched build.\")
+        endif()
+    ")
+endif()
 
 # ============================================================================
 # TESTING
