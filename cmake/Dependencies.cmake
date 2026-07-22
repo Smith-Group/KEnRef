@@ -321,5 +321,41 @@ macro(kenref_provide_gromacs)
     endif()
     find_package(GROMACS NAMES gromacs_mpi gromacs REQUIRED)
     message(STATUS "GROMACS: ${GROMACS_VERSION} (config ${GROMACS_CONFIG}); src=${GROMACS_SRC_DIR} build=${GROMACS_BUILD_DIR}")
+    # >>>>>>>>>>>>>>>>>>>>> BEGIN KENREF-TEMP-LMFIT-WORKAROUND (call site) >>>>>>>>>>>>>>>>>>>>>>
+    # DELETE this call once the GROMACS-side fix is in your installed gromacs (BUILD_INTERFACE
+    # wrap in gmxManageLmfit.cmake). Grep tag: KENREF-TEMP-LMFIT-WORKAROUND (2 bands in this file).
+    kenref_defuse_gromacs_lmfit_export()
+    # <<<<<<<<<<<<<<<<<<<<<< END KENREF-TEMP-LMFIT-WORKAROUND (call site) <<<<<<<<<<<<<<<<<<<<<<<
 endmacro()
+
+# >>>>>>>>>>>>>>>>>>>> BEGIN KENREF-TEMP-LMFIT-WORKAROUND (macro definition) >>>>>>>>>>>>>>>>>>>>
+# DELETE this whole macro once the GROMACS-side fix is in your installed gromacs (BUILD_INTERFACE
+# wrap in gmxManageLmfit.cmake) — then this consumer-side defuse is redundant. Also delete the call
+# site above (same grep tag: KENREF-TEMP-LMFIT-WORKAROUND).
+#
+# Neutralize a build-tree-only generator expression that GROMACS leaks into its INSTALLED cmake package.
+# gmxManageLmfit.cmake does `target_sources(lmfit INTERFACE $<TARGET_OBJECTS:lmfit_objlib>)` for the bundled
+# Levenberg-Marquardt sources, expecting that genexp to vanish from the install export. Some GROMACS/CMake
+# combinations instead write it VERBATIM into <install>/share/cmake/gromacs*/libgromacs.cmake:
+#     set_target_properties(Gromacs::lmfit PROPERTIES INTERFACE_SOURCES "$<TARGET_OBJECTS:lmfit_objlib>")
+# `lmfit_objlib` is an OBJECT library that exists ONLY inside GROMACS's own build tree, so it is enough for
+# ANYTHING to evaluate that imported target's INTERFACE_SOURCES — a consumer linking Gromacs::lmfit, OR just
+# the CMake File API codemodel that IDEs (CLion) request — for the generate/model step to fail with:
+#     Error evaluating generator expression: $<TARGET_OBJECTS:lmfit_objlib>
+#     Objects of target "lmfit_objlib" referenced but no such target exists.
+# (That File-API path is why the failure shows up in CLion but not a plain command-line `cmake` configure.)
+# The lmfit objects are already compiled INTO the installed libgromacs.so, so a downstream consumer never
+# needs them — the leaked INTERFACE_SOURCES is pure noise. Clear it on the imported target right after
+# find_package so the landmine can never detonate (any cmake version, fresh or incremental build dir).
+macro(kenref_defuse_gromacs_lmfit_export)
+    if(TARGET Gromacs::lmfit)
+        get_target_property(_kn_lmfit_srcs Gromacs::lmfit INTERFACE_SOURCES)
+        if(_kn_lmfit_srcs MATCHES "TARGET_OBJECTS:lmfit_objlib")
+            set_target_properties(Gromacs::lmfit PROPERTIES INTERFACE_SOURCES "")
+            message(STATUS "GROMACS: cleared leaked build-tree-only INTERFACE_SOURCES "
+                           "($<TARGET_OBJECTS:lmfit_objlib>) from the imported Gromacs::lmfit target")
+        endif()
+    endif()
+endmacro()
+# <<<<<<<<<<<<<<<<<<<<< END KENREF-TEMP-LMFIT-WORKAROUND (macro definition) <<<<<<<<<<<<<<<<<<<<<
 
