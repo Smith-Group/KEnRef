@@ -329,11 +329,12 @@ endmacro()
 # Levenberg-Marquardt sources, expecting that genexp to vanish from the install export. Some GROMACS/CMake
 # combinations instead write it VERBATIM into <install>/share/cmake/gromacs*/libgromacs.cmake:
 #     set_target_properties(Gromacs::lmfit PROPERTIES INTERFACE_SOURCES "$<TARGET_OBJECTS:lmfit_objlib>")
-# `lmfit_objlib` is an OBJECT library that exists ONLY inside GROMACS's own build tree, so the moment any
-# consumer target links Gromacs::lmfit (directly, or transitively in some incremental/stale build-dir link
-# closures) CMake's generate step fails with:
+# `lmfit_objlib` is an OBJECT library that exists ONLY inside GROMACS's own build tree, so it is enough for
+# ANYTHING to evaluate that imported target's INTERFACE_SOURCES — a consumer linking Gromacs::lmfit, OR just
+# the CMake File API codemodel that IDEs (CLion) request — for the generate/model step to fail with:
 #     Error evaluating generator expression: $<TARGET_OBJECTS:lmfit_objlib>
 #     Objects of target "lmfit_objlib" referenced but no such target exists.
+# (That File-API path is why the failure shows up in CLion but not a plain command-line `cmake` configure.)
 # The lmfit objects are already compiled INTO the installed libgromacs.so, so a downstream consumer never
 # needs them — the leaked INTERFACE_SOURCES is pure noise. Clear it on the imported target right after
 # find_package so the landmine can never detonate (any cmake version, fresh or incremental build dir).
