@@ -1,0 +1,6 @@
+model = RELAX
+guide = "guideC-alpha"
+index = "../../../res/relax/md_double/KEnRefAtomIndex.ndx"
+exp-data-folder = "../../../res/relax/md_double/"
+atomname-mapping = "../../../res/relax/md_double/GB3_27_10us.pdb"
+ref = "../../../res/relax/md_double/GB3_27_10us.pdb"
