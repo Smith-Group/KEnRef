@@ -10,6 +10,17 @@ set(CMAKE_CXX_STANDARD 17)
 # newly added core/model files). FORCE so it wins over a stale cache value. Harmless for the build.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Export compile_commands.json for clangd/IDEs" FORCE)
 
+# Default to Release when the caller set nothing. build.sh always passes -DCMAKE_BUILD_TYPE, so this is for
+# the raw-cmake path in INSTALL.md: an unset CMAKE_BUILD_TYPE means CMake adds NO optimisation flags at all,
+# which silently produced an unoptimised install that still called itself one. GROMACS does exactly this
+# (gromacs/CMakeLists.txt: `if(NOT CMAKE_BUILD_TYPE) set(... "Release" ...)`), so a KEnRef built beside it
+# behaves the same way. Only applies with no cache value — an explicit -DCMAKE_BUILD_TYPE= always wins.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+	set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type (Release/Debug/RelWithDebInfo/MinSizeRel)" FORCE)
+	set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Release Debug RelWithDebInfo MinSizeRel)
+	message(STATUS "CMAKE_BUILD_TYPE not set -> defaulting to Release (override with -DCMAKE_BUILD_TYPE=...)")
+endif()
+
 string(TOLOWER "${CMAKE_BUILD_TYPE}" build_type)   # quoted: tolerate an unset CMAKE_BUILD_TYPE
 message(STATUS "the build type is: ${build_type}")
 
