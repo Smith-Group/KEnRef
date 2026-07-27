@@ -315,6 +315,19 @@ add_executable(kenref_simd_check "${CMAKE_CURRENT_SOURCE_DIR}/cmake/simd_check_m
 target_link_libraries(kenref_simd_check PRIVATE kenref_core)
 target_include_directories(kenref_simd_check PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include_core")
 
+# The check must be able to RUN with NO environment. It executes inside `cmake --install`, and installing
+# into a system prefix means that runs under sudo — whose env_reset strips LD_LIBRARY_PATH. So a toolchain
+# whose runtime libs are not on the system loader path (e.g. clang's libc++ from a module) makes the check
+# die with "libc++.so.1: cannot open shared object file", rc=127. The install hook below treats that as
+# "could not run" and merely warns, so the build installs anyway — meaning the one guard against an
+# ISA/ABI mismatch passes by never executing. Baking the compiler's own implicit link directories into the
+# check's RUNPATH makes it self-contained, exactly as the PLUMED side solves the same sudo problem.
+# BUILD_RPATH (not INSTALL_RPATH): this executable is never installed, only run from the build tree.
+if(CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES)
+    set_target_properties(kenref_simd_check PROPERTIES
+        BUILD_RPATH "${CMAKE_CXX_IMPLICIT_LINK_DIRECTORIES}")
+endif()
+
 # Skip the runtime gate when cross-compiling (the check exe can't run on the build host).
 if(NOT CMAKE_CROSSCOMPILING)
     # rc 0 = match, rc 1 = genuine mismatch (simd_check_main's only failure return). ANY OTHER rc means the
