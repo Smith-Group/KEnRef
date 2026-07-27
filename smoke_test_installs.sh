@@ -1,29 +1,78 @@
 #!/usr/bin/env bash
 # =============================================================================
 # KEnRef / GROMACS / PLUMED install smoke test  (/smithlab/opt, AVX_512, release)
-# Drives the COMMITTED in-repo test sets res/sigma/{md_single,md_double} and
-# res/plateau/{md_single,md_double}. 500-step live MD per (model x member-count),
-# run both from the KEnRef native force provider and from gmx mdrun -plumed.
+# Drives the COMMITTED in-repo test sets res/{sigma,plateau}/{md_single,md_double}
+# and res/relax/md_double. 500-step live MD per (model x member-count), run both
+# from the KEnRef native force provider and from gmx mdrun -plumed.
 #   single set -> 1 replica (num_models=1) ;  double set -> 2 replicas (num_models=2)
 #
 # Environment is set the SANCTIONED way (no manual LD_LIBRARY_PATH):
 #   * openmpi + plumed  -> `module load`
 #   * gromacs           -> `source .../GMXRC`
 #   * kenref            -> `source .../env.sh`
-# The two sides use DIFFERENT gromacs (gromacs-4-kenref vs gromacs-4-plumed), so
-# each run gets its env in a fresh subshell.
+# The two sides use DIFFERENT gromacs (the kenref one vs the plumed-batched one),
+# so each run gets its env in a fresh subshell.
+#
+# TWO TIERS, one script — they differ ONLY in where things are installed:
+#   staging (default)  /smithlab/opt/<pkg>-dev/...   hierarchical: a directory
+#                      level per dimension, all build types, all accels
+#   deploy             /smithlab/opt/<pkg>/...       flat, release-only: the whole
+#                      config encoded in ONE directory NAME
+# Running both is the point: the tiers are built from the same sources, so a
+# result that differs between them is about the INSTALL LAYOUT, not the science.
+#
+# Usage:  ./smoke_test_installs.sh [staging|deploy]
+#         TIER=deploy KENREF_VER=2.0.0 ./smoke_test_installs.sh
 # =============================================================================
 REPO=/home/amr/CLionProjects/KEnRef
 NSTEPS=${NSTEPS:-500}
 GUIDE_ATOMS=39,60,82,101,117,234,241,256,270,284,358,368,383,397,407,422,444,454,474,496,513,534,544,558,626,642,666,680,701,771,785
 REF=$REPO/res/sigma/md_double/GB3_27_10us.pdb   # same GB3 system for every set
 
+TIER="${1:-${TIER:-staging}}"
+OPT=/smithlab/opt
+ACCEL="${ACCEL:-AVX_512}"
+KENREF_VER="${KENREF_VER:-2.0.0}"        # the kenref version dimension / name token
+GMX_VER="${GMX_VER:-2025.4}"
+PLUMED_VER="${PLUMED_VER:-master}"       # staging only; deploy uses a describe token (see below)
+
 MODINIT='source /usr/share/Modules/init/bash'
 OMPI='module load openmpi/5.0.7_clang20.1.1_cuda12.4.1; module load llvm/20.1.1'
-# KEnRef side env (gromacs-4-kenref GMXRC + kenref-gmx env.sh):
-ENV_KENREF="$MODINIT; $OMPI; source /smithlab/opt/gromacs-4-kenref/2025/2025.4/release/AVX_512/bin/GMXRC; source /smithlab/opt/kenref-gmx/2.0/2025/2025.4/release/AVX_512/env.sh; export OMP_NUM_THREADS=1"
-# PLUMED side env (gromacs-4-plumed GMXRC + module load plumed):
-ENV_PLUMED="$MODINIT; $OMPI; source /smithlab/opt/gromacs-4-plumed/2025/2025.4/release/AVX_512/bin/GMXRC; module load plumed/master/2.0/release/AVX_512; export OMP_NUM_THREADS=1"
+
+case "$TIER" in
+staging)
+    # Hierarchical: <base>-dev/<version dims>/<buildtype>/<accel>
+    KENREF_GMXRC="$OPT/gromacs-4-kenref-dev/${GMX_VER%%.*}/$GMX_VER/release/$ACCEL/bin/GMXRC"
+    KENREF_ENV="$OPT/kenref-gmx-dev/$KENREF_VER/${GMX_VER%%.*}/$GMX_VER/release/$ACCEL/env.sh"
+    PLUMED_GMXRC="$OPT/gromacs-4-plumed-dev/${GMX_VER%%.*}/$GMX_VER/release/$ACCEL/bin/GMXRC"
+    PLUMED_MODULE="plumed-dev/$PLUMED_VER/$KENREF_VER/release/$ACCEL"
+    ;;
+deploy)
+    # Flat: the config is the directory NAME. The kenref prefix holds BOTH the core and the gmx
+    # interface, and its paired GROMACS is the `-gmx-<ver>` sibling — that pairing is why they are
+    # named to sort together. The plumed name carries a describe token, so it is discovered rather
+    # than constructed: `2.10.1-778-gb1dc713b2` is not something to hardcode.
+    KENREF_GMXRC="$OPT/kenref/${KENREF_VER}_${ACCEL}-gmx-${GMX_VER}/bin/GMXRC"
+    KENREF_ENV="$OPT/kenref/${KENREF_VER}_${ACCEL}/env.sh"
+    PLUMED_GMXRC="$OPT/gromacs-4-plumed/${GMX_VER}_${ACCEL}/bin/GMXRC"
+    PLUMED_MODULE="plumed/$(ls -t "$OPT/modulefiles/plumed/"*"_${ACCEL}-kenref${KENREF_VER}" 2>/dev/null | head -1 | xargs -r basename)"
+    ;;
+*)  echo "unknown tier '$TIER' (expected: staging | deploy)" >&2; exit 1 ;;
+esac
+
+echo "tier=$TIER  accel=$ACCEL  kenref=$KENREF_VER  gromacs=$GMX_VER"
+echo "  kenref env : $KENREF_ENV"
+echo "  kenref gmx : $KENREF_GMXRC"
+echo "  plumed gmx : $PLUMED_GMXRC"
+echo "  plumed mod : $PLUMED_MODULE"
+# Fail NOW with the missing path, rather than 10 confusing GROMACS errors later.
+for p in "$KENREF_ENV" "$KENREF_GMXRC" "$PLUMED_GMXRC"; do
+    [ -e "$p" ] || { echo "MISSING: $p  — is the '$TIER' tier built?" >&2; exit 1; }
+done
+[ "${PLUMED_MODULE#plumed/}" = "" ] && { echo "MISSING: no plumed modulefile for $ACCEL/$KENREF_VER in the '$TIER' tier" >&2; exit 1; }
+
+ENV_KENREF="$MODINIT; $OMPI; source $KENREF_GMXRC; source $KENREF_ENV; export OMP_NUM_THREADS=1"
+ENV_PLUMED="$MODINIT; $OMPI; source $PLUMED_GMXRC; module load $PLUMED_MODULE; export OMP_NUM_THREADS=1"
 
 WORK=$(mktemp -d /tmp/kenref_smoke.XXXX); echo "workdir = $WORK"; echo
 pass=0; fail=0
