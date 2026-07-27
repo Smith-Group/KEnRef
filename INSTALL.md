@@ -168,6 +168,9 @@ cmake -S . -B build -DCMAKE_INSTALL_PREFIX=/usr/local/kenref \
 cmake --build build -j && cmake --install build     # the install runs the SIMD/Eigen ABI gate
 ```
 
+`CMAKE_BUILD_TYPE` defaults to **Release** when you don't pass one (as GROMACS does), so a raw `cmake` build
+is optimised by default; pass `-DCMAKE_BUILD_TYPE=Debug` etc. to change it.
+
 `BUILD_KENREF_CORE` / `BUILD_KENREF_GMX` / `BUILD_KENREF_PLUMED` and `KENREF_WITH_PLUMED` are all tri-state
 (`ON`/`OFF`/`AUTO`); `KENREF_FETCH_MISSING` is the download switch. KEnRef's CMake does **not** build PLUMED
 directly — `KENREF_WITH_PLUMED=ON` delegates to the plumed side at install time.
