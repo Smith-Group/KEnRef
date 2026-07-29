@@ -2,11 +2,13 @@ prefix=@CMAKE_INSTALL_PREFIX@
 exec_prefix=${prefix}
 libdir=${exec_prefix}/lib
 includedir=${prefix}/include
+accel=@ACCEL@
+simdflags=@KENREF_SIMD_FLAGS_STR@
 
 Name: KEnRef Core with Embedded Eigen3
 Description: Kinetic Ensemble Refinement Core Library with embedded Eigen3
 Version: @PROJECT_VERSION@
 Libs: -L${libdir} -lkenref_and_eigen3
-Cflags: -I${includedir}/core -I${includedir}/eigen
+Cflags: -I${includedir}/core -I${includedir}/eigen ${simdflags}
 # @MPI_CXX_COMPILE_OPTIONS_STR@ is harmful (containing ' >-pthread' instead of '> -pthread'
 # No Requires: eigen3 since it's embedded

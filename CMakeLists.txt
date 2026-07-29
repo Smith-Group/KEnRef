@@ -105,35 +105,46 @@ endif ()
 # name encodes GROMACS's internal kernel *datapath* width, so AVX_128_FMA / AVX2_128 (despite "128") still
 # emit 256-bit AVX at the compiler level -> Eigen align 32, same class as the *_256 tiers.
 # The three common x86 tiers keep their proven -march (the "incompatibility bug with PLUMED" fix).
+# The flags are collected into KENREF_SIMD_FLAGS rather than passed straight to add_compile_options(),
+# because they are part of kenref_core's ABI and must reach CONSUMERS too: they are re-emitted into the
+# installed pkg-config files (see cmake/*.pc.in). A consumer that compiles Eigen with a different width
+# gets a different EIGEN_MAX_ALIGN_BYTES, which the guard in core/EigenAbiCheck.h then rejects at compile
+# time. Shipping the flag in the .pc means a plain `pkg-config --cflags` consumer is correct by default
+# instead of having to learn this build's ACCEL out of band.
 if(ACCEL STREQUAL "AVX_512")
-	add_compile_options(-march=skylake-avx512)
+	set(KENREF_SIMD_FLAGS -march=skylake-avx512)
 elseif(ACCEL STREQUAL "AVX2_256")
-	add_compile_options(-march=haswell)
+	set(KENREF_SIMD_FLAGS -march=haswell)
 elseif(ACCEL STREQUAL "AVX_256")
-	add_compile_options(-march=sandybridge)
+	set(KENREF_SIMD_FLAGS -march=sandybridge)
 elseif(ACCEL STREQUAL "AVX2_128")
-	add_compile_options(-mavx2 -mfma)            # AVX2, AMD Zen 128-bit datapath; compiler 256-bit -> align 32
+	set(KENREF_SIMD_FLAGS -mavx2 -mfma)          # AVX2, AMD Zen 128-bit datapath; compiler 256-bit -> align 32
 elseif(ACCEL STREQUAL "AVX_128_FMA")
-	add_compile_options(-mavx -mfma)             # AMD fam15h (true FMA4 parts need -mfma4 via CXXFLAGS) -> align 32
+	set(KENREF_SIMD_FLAGS -mavx -mfma)           # AMD fam15h (true FMA4 parts need -mfma4 via CXXFLAGS) -> align 32
 elseif(ACCEL STREQUAL "AVX_512_KNL")
 	message(WARNING "ACCEL=AVX_512_KNL targets the DEPRECATED Knights Landing; prefer AVX_512 on modern x86.")
-	add_compile_options(-mavx512f -mavx512er -mfma)
+	set(KENREF_SIMD_FLAGS -mavx512f -mavx512er -mfma)
 elseif(ACCEL STREQUAL "SSE4.1")
-	add_compile_options(-msse4.1)
+	set(KENREF_SIMD_FLAGS -msse4.1)
 elseif(ACCEL STREQUAL "SSE2")
-	add_compile_options(-msse2)
+	set(KENREF_SIMD_FLAGS -msse2)
 elseif(ACCEL STREQUAL "ARM_NEON_ASIMD")
-	add_compile_options(-march=armv8-a+simd)
+	set(KENREF_SIMD_FLAGS -march=armv8-a+simd)
 elseif(ACCEL STREQUAL "ARM_SVE")
-	add_compile_options(-march=armv8-a+sve)      # SVE vector length is CPU / -msve-vector-bits dependent
+	set(KENREF_SIMD_FLAGS -march=armv8-a+sve)    # SVE vector length is CPU / -msve-vector-bits dependent
 elseif(ACCEL STREQUAL "IBM_VSX")
-	add_compile_options(-mcpu=power8 -mvsx)
+	set(KENREF_SIMD_FLAGS -mcpu=power8 -mvsx)
 elseif(ACCEL STREQUAL "REFERENCE" OR ACCEL STREQUAL "NONE")
-	# scalar reference build: no SIMD flags (Eigen may still use baseline SSE2 on x86-64)
+	set(KENREF_SIMD_FLAGS "")   # scalar reference build (Eigen may still use baseline SSE2 on x86-64)
 else()
 	message(FATAL_ERROR "Unknown ACCEL='${ACCEL}'. Valid (GROMACS GMX_SIMD tiers): AVX_512 AVX_512_KNL "
 		"AVX2_256 AVX2_128 AVX_256 AVX_128_FMA SSE4.1 SSE2 ARM_NEON_ASIMD ARM_SVE IBM_VSX REFERENCE")
 endif()
+if(KENREF_SIMD_FLAGS)
+	add_compile_options(${KENREF_SIMD_FLAGS})
+endif()
+# Space-separated form for the pkg-config templates (@KENREF_SIMD_FLAGS_STR@).
+string(REPLACE ";" " " KENREF_SIMD_FLAGS_STR "${KENREF_SIMD_FLAGS}")
 
 # Bake THIS build's ACCEL tier name into every TU compiled here (core, gmx, tests, the simd-check exes) as the
 # diagnostic ISA string for the SIMD guard (see core/SimdSignature.h). Directory-scope (NOT a target INTERFACE

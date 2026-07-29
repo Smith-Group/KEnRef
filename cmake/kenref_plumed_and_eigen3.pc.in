@@ -1,0 +1,12 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+includedir=${prefix}/include
+plumedsrcdir=${prefix}/src
+accel=@ACCEL@
+simdflags=@KENREF_SIMD_FLAGS_STR@
+
+Name: KEnRef PLUMED interface with Embedded Eigen3
+Description: Self-contained counterpart of kenref_plumed.pc. Same plumedinterface header + source include paths, but with the embedded Eigen headers instead of `Requires: eigen3`. This keeps the INCLUDE side in step with the LIBRARY side: kenref_and_eigen3.pc has no external Eigen dependency either, so a machine with no eigen3.pc can still resolve both halves.
+Version: @PROJECT_VERSION@
+# No Libs: the action is compiled in-tree by PLUMED (it links the engine itself).
+Cflags: -I${includedir}/core -I${includedir}/plumedinterface -I${plumedsrcdir} -I${includedir}/eigen ${simdflags}
+# No Requires: Eigen is embedded under ${includedir}/eigen.

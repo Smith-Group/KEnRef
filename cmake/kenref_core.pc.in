@@ -2,12 +2,16 @@ prefix=@CMAKE_INSTALL_PREFIX@
 exec_prefix=${prefix}
 libdir=${exec_prefix}/lib
 includedir=${prefix}/include
+# The SIMD tier this kenref_core was built with. Consumers MUST match it: kenref_core stores Eigen
+# objects in its own containers, so EIGEN_MAX_ALIGN_BYTES is part of its ABI (see core/EigenAbiCheck.h).
+accel=@ACCEL@
+simdflags=@KENREF_SIMD_FLAGS_STR@
 
 Name: KEnRef Core
 Description: Kinetic Ensemble Refinement Core Library (requires external Eigen3)
 Version: @PROJECT_VERSION@
 Libs: -L${libdir} -lkenref_core
-Cflags: -I${includedir}/core
+Cflags: -I${includedir}/core ${simdflags}
 # No MPI here: kenref_core contains no MPI code. Consumers that need MPI (the gmx interface/tools, or PLUMED)
 # link their own — see kenref_gmxinterface.pc.
 Requires: eigen3 >= 3.4.0
