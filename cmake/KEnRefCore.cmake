@@ -290,10 +290,21 @@ install(FILES LICENSE_CLI11.txt DESTINATION share/licenses/cli11)
 
 # Set VERSION / SOVERSION from the single source of truth (project(KEnRef VERSION ...) in CMakeLists.txt),
 # so the shared-library soname tracks the same version as the pkg-config files and the PLUMED floor.
+#
+# POSITION_INDEPENDENT_CODE applies to the STATIC archives too, not just kenref_core_shared. Our static
+# libraries are not end products: consumers link them *into a shared object* -- PLUMED embeds one in
+# libplumedKernel.so, and the GROMACS force provider does the same. A non-PIC .a cannot go into a .so at
+# all; ld rejects it outright with
+#     relocation R_X86_64_PC32 against symbol ... can not be used when making a shared object
+# Setting it only on the shared target hid the bug locally, because where libkenref_core.so sits beside
+# libkenref_core.a the linker silently prefers the .so. The self-contained kenref_and_eigen3 flavour has
+# no shared counterpart, so on any machine without eigen3.pc -- which is what selects that flavour -- the
+# non-PIC archive is the only candidate and the consumer's link fails.
 set_target_properties(kenref_core kenref_core_shared kenref_and_eigen3
     PROPERTIES
     VERSION ${PROJECT_VERSION}
     SOVERSION ${PROJECT_VERSION_MAJOR}
+    POSITION_INDEPENDENT_CODE ON
 )
 
 # ----------------------------------------------------------------------------
