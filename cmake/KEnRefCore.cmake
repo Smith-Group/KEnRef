@@ -168,10 +168,18 @@ install(FILES LICENSE_CLI11.txt DESTINATION share/licenses/cli11)
 # ============================================================================
 
 # Set VERSION and SOVERSION properties for shared libraries (if any)
+#
+# POSITION_INDEPENDENT_CODE matters even though both targets above are STATIC. These archives are not
+# end products: consumers link them *into a shared object* (PLUMED embeds one in libplumedKernel.so,
+# the GROMACS force provider does the same). A non-PIC .a cannot go into a .so -- ld rejects it with
+#     relocation R_X86_64_PC32 against symbol ... can not be used when making a shared object
+# and this branch has no shared variant of the core at all, so there is no .so for the linker to fall
+# back on: every consumer that builds a shared object hits it.
 set_target_properties(kenref_core kenref_and_eigen3
     PROPERTIES
     VERSION 1.0.0
     SOVERSION 1
+    POSITION_INDEPENDENT_CODE ON
 )
 
 # ============================================================================
