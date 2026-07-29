@@ -130,7 +130,7 @@ install(FILES LICENSE_GMX.txt DESTINATION share/licenses/kenref)
 # Set VERSION and SOVERSION properties for shared libraries (if any)
 set_target_properties(kenref_gmxinterface
     PROPERTIES
-    VERSION 1.0.0
+    VERSION 1.0.1
     SOVERSION 1
 )
 
