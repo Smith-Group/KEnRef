@@ -190,6 +190,15 @@ configure_file(
     @ONLY
 )
 
+# Self-contained counterpart, mirroring kenref_and_eigen3.pc on the LIBRARY side. Without it the two
+# halves fall out of step: on a machine with no eigen3.pc the library check succeeds via
+# kenref_and_eigen3 while the include check fails, because kenref_plumed.pc `Requires: eigen3`.
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/kenref_plumed_and_eigen3.pc.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/kenref_plumed_and_eigen3.pc"
+    @ONLY
+)
+
 # ============================================================================
 # INSTALLATION
 # ============================================================================
@@ -258,8 +267,10 @@ install(FILES
     DESTINATION share/pkgconfig
 )
 if(KENREF_EXPORT_PLUMEDINTERFACE)
-	install(FILES "${CMAKE_CURRENT_BINARY_DIR}/kenref_plumed.pc" DESTINATION lib/pkgconfig)
-	install(FILES "${CMAKE_CURRENT_BINARY_DIR}/kenref_plumed.pc" DESTINATION share/pkgconfig)
+	install(FILES "${CMAKE_CURRENT_BINARY_DIR}/kenref_plumed.pc"
+	              "${CMAKE_CURRENT_BINARY_DIR}/kenref_plumed_and_eigen3.pc" DESTINATION lib/pkgconfig)
+	install(FILES "${CMAKE_CURRENT_BINARY_DIR}/kenref_plumed.pc"
+	              "${CMAKE_CURRENT_BINARY_DIR}/kenref_plumed_and_eigen3.pc" DESTINATION share/pkgconfig)
 endif()
 
 # Install export configuration
