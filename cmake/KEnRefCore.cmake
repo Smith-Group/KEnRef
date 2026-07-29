@@ -377,3 +377,34 @@ target_include_directories(test_kenref_core PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include_core
 		${EIGEN3_INCLUDE_DIR}
 )
+
+# ----------------------------------------------------------------------------
+# POSITION-INDEPENDENCE PROBES
+# ----------------------------------------------------------------------------
+# The two probes above link the archives into EXECUTABLES, which succeeds even when the objects are not
+# position-independent -- which is exactly why a non-PIC libkenref_and_eigen3.a reached PLUMED's CI
+# undetected. Our consumers do not link executables: they embed these archives in SHARED objects
+# (PLUMED's libplumedKernel.so, the GROMACS force provider). Probe that, so the build fails here rather
+# than in someone else's project.
+#
+# MODULE (not SHARED) because this is a dlopen-style artefact nobody links against, and WHOLE_ARCHIVE so
+# every member is pulled in -- otherwise the check would silently depend on which objects the probe TU
+# happens to reference, and the offending one (IoUtils.cpp.o) might never be pulled.
+foreach(kenref_pic_lib kenref_core kenref_and_eigen3)
+    add_library(kenref_pic_probe_${kenref_pic_lib} MODULE
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/test_pic_probe.cpp
+    )
+    target_link_libraries(kenref_pic_probe_${kenref_pic_lib} PRIVATE
+        "$<LINK_LIBRARY:WHOLE_ARCHIVE,${kenref_pic_lib}>"
+    )
+    target_include_directories(kenref_pic_probe_${kenref_pic_lib} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include_core
+        ${EIGEN3_INCLUDE_DIR}
+    )
+    # Deliberately part of ALL rather than a ctest: the failure mode is a LINK error, so building the
+    # probe *is* the test, and there is nothing for a test runner to add. Keeping it in the default
+    # target means a regression breaks the build of whoever introduced it, instead of waiting for a
+    # consumer's CI -- which is how this bug was found. enable_testing() is also conditional on
+    # BUILD_TESTS and runs after this file, so add_test() here would be silently dropped in most builds.
+    # Cost is two small links; nothing is installed.
+endforeach()
