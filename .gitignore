@@ -1,6 +1,12 @@
 /Debug/
 /Release/
 cmake-build-*/
+# In-tree build directories. The gtests resolve their fixtures relative to the CWD
+# ("../../res/google_tests/..."), so the build dir has to live inside the source tree -- CI builds into
+# ./build for exactly that reason. Ignore the usual names so they never get committed.
+build/
+build-*/
+
 /res/run-output/*
 /res/rep01/*
 /res/rep02/*

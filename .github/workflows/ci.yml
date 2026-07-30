@@ -1,0 +1,244 @@
+name: CI
+
+# Phase 6.1. The jobs are ordered by what has actually broken us, not by tidiness:
+#   build-test          the gtests, across compilers and SIMD tiers, threaded AND serial
+#   consumer-abi        a consumer built by a DIFFERENT compiler than the library  <- caught the icpx bug
+#   pkgconfig-consumer  consumption through pkg-config alone, with and without eigen3.pc
+#   fd                  the ~30 s finite-difference kernel check (nightly; too slow per push)
+#
+# Every job builds INSIDE the source tree. The gtests open their fixtures relative to the CWD
+# ("../../res/google_tests/..."), so an out-of-tree build directory makes every fixture-based test fail
+# instantly -- a whole suite in ~15 ms -- which reads as a code regression and is not one.
+
+on:
+  push:
+    branches: [master, 'release/**']
+  pull_request:
+  schedule:
+    # Nightly, for the slow numerical checks only.
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pin Eigen: the CMake default is still "latest", which resolves to whatever was released most
+  # recently and makes a green run un-reproducible a week later.
+  KENREF_EIGEN_GIT_TAG: '5.0.1'
+
+jobs:
+  build-test:
+    name: ${{ matrix.compiler }} / ${{ matrix.accel }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+        # AVX2_256 is the portable default and is what the runners execute natively.
+        # AVX_256 and SSE2 verify the lower tiers still compile and run.
+        accel: [AVX2_256, AVX_256, SSE2]
+        include:
+          # AVX_512 is BUILD-ONLY: GitHub runners do not reliably have AVX-512, and running an
+          # skylake-avx512 binary on a machine without it is a SIGILL, not a test failure.
+          - compiler: gcc
+            accel: AVX_512
+            build_only: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libomp-dev
+          if [ "${{ matrix.compiler }}" = clang ]; then sudo apt-get install -y clang; fi
+
+      - name: Cache fetched dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: deps-${{ runner.os }}-${{ matrix.compiler }}-eigen${{ env.KENREF_EIGEN_GIT_TAG }}
+
+      - name: Configure
+        run: |
+          if [ "${{ matrix.compiler }}" = clang ]; then CC=clang; CXX=clang++; else CC=gcc; CXX=g++; fi
+          # Build dir INSIDE the source tree -- see the header comment.
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=$CC -DCMAKE_CXX_COMPILER=$CXX \
+            -DBUILD_KENREF_CORE=ON -DBUILD_KENREF_GMX=OFF \
+            -DBUILD_TESTS=ON \
+            -DACCEL=${{ matrix.accel }} \
+            -DKENREF_EIGEN_GIT_TAG=${{ env.KENREF_EIGEN_GIT_TAG }}
+
+      - name: Build
+        # This also builds the kenref_pic_probe_* targets, which link each static core into a shared
+        # object. A non-PIC archive fails the build here instead of inside PLUMED's libplumedKernel.so.
+        run: cmake --build build -j "$(nproc)"
+
+      - name: Test (all threads)
+        if: ${{ ! matrix.build_only }}
+        working-directory: build/google_tests
+        run: ./Google_tests_kenref_core_exe --gtest_filter="-KEnRefTestSuite.TestCoordArrayToSigmaEnergyFD"
+
+      - name: Test (OMP_NUM_THREADS=1)
+        # House rule: a serial pass with a threaded failure means a race, so both must run. Cheap
+        # enough to repeat on every push.
+        if: ${{ ! matrix.build_only }}
+        working-directory: build/google_tests
+        env:
+          OMP_NUM_THREADS: 1
+        run: ./Google_tests_kenref_core_exe --gtest_filter="-KEnRefTestSuite.TestCoordArrayToSigmaEnergyFD"
+
+  consumer-abi:
+    # Regression test for the two bugs that reached PLUMED's CI, both of which were invisible when the
+    # library and its consumer were built the same way:
+    #   1. non-PIC static archives could not be linked into a shared object
+    #   2. ModelRegistry's inline function-local static gave the consumer its OWN registry, so every
+    #      model looked unregistered at run time (only icpx exposed it)
+    # Building the library with gcc and the consumer with clang reproduces that split cheaply.
+    name: consumer built by a different compiler
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang libomp-dev
+
+      - name: Build and install the library with gcc
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ \
+            -DBUILD_KENREF_CORE=ON -DBUILD_KENREF_GMX=OFF \
+            -DKENREF_EXPORT_PLUMEDINTERFACE=ON \
+            -DACCEL=AVX2_256 \
+            -DKENREF_EIGEN_GIT_TAG=${{ env.KENREF_EIGEN_GIT_TAG }} \
+            -DCMAKE_INSTALL_PREFIX="$PWD/prefix"
+          cmake --build build -j "$(nproc)"
+          cmake --install build
+
+      - name: Consume it from clang, and assert the registry is shared
+        run: |
+          set -e
+          PC="$PWD/prefix/lib/pkgconfig"
+          # Prefer the self-contained flavour, exactly as a machine without eigen3.pc would.
+          FLAGS="$(PKG_CONFIG_PATH=$PC pkg-config --cflags kenref_and_eigen3)"
+          LIBS="$(PKG_CONFIG_PATH=$PC PKG_CONFIG_ALLOW_SYSTEM_LIBS=1 pkg-config --libs kenref_and_eigen3)"
+          cat > consumer.cpp <<'EOF'
+          #include "core/ModelRegistry.h"
+          #include <iostream>
+          namespace kenref { void bootstrapModels(); }
+          int main() {
+              ::kenref::bootstrapModels();
+              // If the consumer instantiated its own registry, bootstrapModels() filled a different
+              // table and this reports 0 -- the exact silent failure seen on PLUMED's icpx job.
+              const auto n = ::kenref::ModelRegistry<KEnRef_Real_t>::names().size();
+              std::cout << "models visible to the consumer: " << n << "\n";
+              for (const auto& m : ::kenref::ModelRegistry<KEnRef_Real_t>::names()) std::cout << "  " << m << "\n";
+              if (n == 0) { std::cerr << "FAIL: the consumer sees an empty registry\n"; return 1; }
+              if (!::kenref::ModelRegistry<KEnRef_Real_t>::has("SIGMA")) {
+                  std::cerr << "FAIL: SIGMA is not registered in the consumer's view\n"; return 1;
+              }
+              return 0;
+          }
+          EOF
+          # No hand-written -march, -DKENREF_DOUBLE or -fopenmp: if any of those is missing from the
+          # .pc, this step is what catches it. The scalar define in particular decides which
+          # ModelRegistry<Real> the consumer instantiates.
+          clang++ -std=c++17 -O2 $FLAGS consumer.cpp -o consumer $LIBS
+          ./consumer
+
+      - name: Assert the archive links into a shared object
+        # The PIC regression, from the consumer side: this is what PLUMED does to build
+        # libplumedKernel.so. --whole-archive forces every member in, so the check does not depend on
+        # which objects the probe happens to reference.
+        run: |
+          set -e
+          PC="$PWD/prefix/lib/pkgconfig"
+          FLAGS="$(PKG_CONFIG_PATH=$PC pkg-config --cflags kenref_and_eigen3)"
+          # The OpenMP runtime comes from the .pc; the archive itself is named explicitly because
+          # --whole-archive needs a path, not a -l.
+          LIBS="$(PKG_CONFIG_PATH=$PC PKG_CONFIG_ALLOW_SYSTEM_LIBS=1 pkg-config --libs kenref_and_eigen3)"
+          printf 'extern "C" void probe(){}\n' > shared_probe.cpp
+          clang++ -std=c++17 -fPIC -shared $FLAGS shared_probe.cpp -o libprobe.so \
+            -Wl,--whole-archive "$PWD/prefix/lib/libkenref_and_eigen3.a" -Wl,--no-whole-archive $LIBS
+          echo "linked libkenref_and_eigen3.a into a shared object"
+
+  pkgconfig-consumer:
+    # The raw ./configure route a reviewer or packager takes. Asserts the .pc files are self-contained
+    # and carry the -march the library was built with, INCLUDING on a machine with no eigen3.pc --
+    # which is the case that selects the kenref_and_eigen3 flavour and that we kept getting wrong.
+    name: pkg-config consumption (no eigen3.pc)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libomp-dev
+
+      - name: Build and install
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_KENREF_CORE=ON -DBUILD_KENREF_GMX=OFF \
+            -DKENREF_EXPORT_PLUMEDINTERFACE=ON \
+            -DACCEL=AVX2_256 \
+            -DKENREF_EIGEN_GIT_TAG=${{ env.KENREF_EIGEN_GIT_TAG }} \
+            -DCMAKE_INSTALL_PREFIX="$PWD/prefix"
+          cmake --build build -j "$(nproc)"
+          cmake --install build
+
+      - name: The .pc files must exist and be self-contained
+        run: |
+          set -e
+          PC="$PWD/prefix/lib/pkgconfig"
+          for f in kenref_core.pc kenref_and_eigen3.pc kenref_plumed.pc kenref_plumed_and_eigen3.pc ; do
+            test -f "$PC/$f" || { echo "MISSING: $f"; exit 1; }
+          done
+          # Deliberately hide any system eigen3.pc: only the self-contained flavours may resolve.
+          export PKG_CONFIG_PATH="$PC"
+          export PKG_CONFIG_LIBDIR="$PC"
+          pkg-config --exists kenref_and_eigen3 || { echo "kenref_and_eigen3 does not resolve without eigen3.pc"; exit 1; }
+          pkg-config --exists kenref_plumed_and_eigen3 || { echo "kenref_plumed_and_eigen3 does not resolve without eigen3.pc"; exit 1; }
+          echo "cflags: $(pkg-config --cflags kenref_and_eigen3)"
+          # 2.9(a): the ABI-fixing -march must travel with the package, not be folk knowledge.
+          pkg-config --cflags kenref_and_eigen3 | grep -q -- '-march=' \
+            || { echo "FAIL: no -march in the .pc Cflags; consumers would guess and trip EigenAbiCheck"; exit 1; }
+
+      - name: Compile a consumer with ONLY pkg-config flags
+        run: |
+          set -e
+          export PKG_CONFIG_PATH="$PWD/prefix/lib/pkgconfig"
+          export PKG_CONFIG_LIBDIR="$PWD/prefix/lib/pkgconfig"
+          printf '#include "core/KEnRef.h"\nint main(){return 0;}\n' > pc_consumer.cpp
+          g++ -std=c++17 -O2 $(pkg-config --cflags kenref_and_eigen3) pc_consumer.cpp -o pc_consumer \
+              $(PKG_CONFIG_ALLOW_SYSTEM_LIBS=1 pkg-config --libs kenref_and_eigen3) -fopenmp
+          ./pc_consumer
+          echo "consumed kenref through pkg-config alone"
+
+  fd:
+    # ~30 s on its own, and it is the check that actually certifies the sigma kernel against the R
+    # ground truth, so it runs nightly and on demand rather than on every push.
+    name: finite-difference kernel check
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libomp-dev
+      - name: Configure and build
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_KENREF_CORE=ON -DBUILD_KENREF_GMX=OFF -DBUILD_TESTS=ON \
+            -DACCEL=AVX2_256 -DKENREF_EIGEN_GIT_TAG=${{ env.KENREF_EIGEN_GIT_TAG }}
+          cmake --build build -j "$(nproc)"
+      - name: Finite-difference test
+        working-directory: build/google_tests
+        run: ./Google_tests_kenref_core_exe --gtest_filter="KEnRefTestSuite.TestCoordArrayToSigmaEnergyFD"
