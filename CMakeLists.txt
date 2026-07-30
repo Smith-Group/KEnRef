@@ -65,8 +65,22 @@ kenref_normalize_tristate("${BUILD_KENREF_GMX}"    _KN_GMX_REQ)
 kenref_normalize_tristate("${BUILD_KENREF_PLUMED}" _KN_PLUMED_REQ)
 kenref_normalize_tristate("${KENREF_WITH_PLUMED}"  _KN_WITHPLUMED_REQ)
 
-### comment the next line to make it float. Uncomment to make it double.
-add_compile_options(-DKENREF_DOUBLE)
+# Scalar type: KEnRef_Real_t is double when KENREF_DOUBLE is defined, float otherwise (core/KEnRef.h).
+#
+# A real option rather than a line to comment in and out, because this is ABI, not taste: it selects
+# which ModelRegistry<Real> the library instantiates, so a consumer compiled the other way links against
+# symbols that do not exist. KENREF_SCALAR_DEFS is therefore exported in the .pc Cflags below, next to
+# the -march that Eigen's alignment depends on -- a pkg-config consumer must not have to know either.
+option(KENREF_DOUBLE "Use double precision for KEnRef_Real_t (OFF = float)" ON)
+if(KENREF_DOUBLE)
+	set(KENREF_SCALAR_DEFS "-DKENREF_DOUBLE")
+	set(_kn_scalar "double")
+else()
+	set(KENREF_SCALAR_DEFS "")
+	set(_kn_scalar "float")
+endif()
+add_compile_options(${KENREF_SCALAR_DEFS})
+message(STATUS "KEnRef scalar type: ${_kn_scalar} (KENREF_DOUBLE=${KENREF_DOUBLE})")
 
 if (NOT DEFINED ACCEL)
 	# Auto-detect this machine's SIMD (like GROMACS): pick the highest of AVX_512 / AVX2_256 / AVX_256.
@@ -134,6 +148,7 @@ if(KENREF_SIMD_FLAGS)
 endif()
 # Space-separated form for the pkg-config templates (@KENREF_SIMD_FLAGS_STR@).
 string(REPLACE ";" " " KENREF_SIMD_FLAGS_STR "${KENREF_SIMD_FLAGS}")
+
 
 # Bake THIS build's ACCEL tier name into every TU compiled here (core, gmx, tests, the simd-check exes) as the
 # diagnostic ISA string for the SIMD guard (see core/SimdSignature.h). Directory-scope (NOT a target INTERFACE
