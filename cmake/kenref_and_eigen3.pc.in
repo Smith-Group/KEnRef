@@ -4,11 +4,14 @@ libdir=${exec_prefix}/lib
 includedir=${prefix}/include
 accel=@ACCEL@
 simdflags=@KENREF_SIMD_FLAGS_STR@
+# Scalar type of KEnRef_Real_t. ABI-relevant: it selects which ModelRegistry<Real> the library holds,
+# so a consumer compiled the other way fails to link. Exported so consumers never have to guess.
+scalardefs=@KENREF_SCALAR_DEFS@
 
 Name: KEnRef Core with Embedded Eigen3
 Description: Kinetic Ensemble Refinement Core Library with embedded Eigen3
 Version: @PROJECT_VERSION@
-Libs: -L${libdir} -lkenref_and_eigen3
-Cflags: -I${includedir}/core -I${includedir}/eigen ${simdflags}
+Libs: -L${libdir} -lkenref_and_eigen3 @KENREF_OPENMP_LIBS_STR@
+Cflags: -I${includedir}/core -I${includedir}/eigen ${simdflags} ${scalardefs}
 # @MPI_CXX_COMPILE_OPTIONS_STR@ is harmful (containing ' >-pthread' instead of '> -pthread'
 # No Requires: eigen3 since it's embedded

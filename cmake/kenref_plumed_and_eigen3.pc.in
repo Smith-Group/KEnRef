@@ -3,6 +3,9 @@ includedir=${prefix}/include
 plumedsrcdir=${prefix}/src
 accel=@ACCEL@
 simdflags=@KENREF_SIMD_FLAGS_STR@
+# Scalar type of KEnRef_Real_t. ABI-relevant: it selects which ModelRegistry<Real> the library holds,
+# so a consumer compiled the other way fails to link. Exported so consumers never have to guess.
+scalardefs=@KENREF_SCALAR_DEFS@
 
 Name: KEnRef PLUMED interface with Embedded Eigen3
 Description: Self-contained counterpart of kenref_plumed.pc. Same plumedinterface header + source include paths, but with the embedded Eigen headers instead of `Requires: eigen3`. This keeps the INCLUDE side in step with the LIBRARY side: kenref_and_eigen3.pc has no external Eigen dependency either, so a machine with no eigen3.pc can still resolve both halves.
@@ -11,5 +14,5 @@ Version: @PROJECT_VERSION@
 # The leaf dirs are exposed as well as their parents so a consumer can include these headers and
 # sources UNPREFIXED. PLUMED rejects a "plumedinterface/file.h" include from its kenref module,
 # because its linter requires the directory prefix to name one of PLUMED's own modules.
-Cflags: -I${includedir}/core -I${includedir}/plumedinterface -I${includedir}/plumedinterface/plumedinterface -I${plumedsrcdir} -I${plumedsrcdir}/plumedinterface -I${includedir}/eigen ${simdflags}
+Cflags: -I${includedir}/core -I${includedir}/plumedinterface -I${includedir}/plumedinterface/plumedinterface -I${plumedsrcdir} -I${plumedsrcdir}/plumedinterface -I${includedir}/eigen ${simdflags} ${scalardefs}
 # No Requires: Eigen is embedded under ${includedir}/eigen.

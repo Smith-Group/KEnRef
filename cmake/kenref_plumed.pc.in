@@ -3,6 +3,9 @@ includedir=${prefix}/include
 plumedsrcdir=${prefix}/src
 accel=@ACCEL@
 simdflags=@KENREF_SIMD_FLAGS_STR@
+# Scalar type of KEnRef_Real_t. ABI-relevant: it selects which ModelRegistry<Real> the library holds,
+# so a consumer compiled the other way fails to link. Exported so consumers never have to guess.
+scalardefs=@KENREF_SCALAR_DEFS@
 
 Name: KEnRef PLUMED interface
 Description: KEnRef PLUMED EngineAdapter source. Option A (model-abstraction restructure): KEnRefBias is compiled WITHIN PLUMED's own build by the fork's frozen frame, not linked as a prebuilt library. This pkg-config only exposes the KEnRef header + source include paths so the frame stays machine-neutral.
@@ -11,5 +14,5 @@ Version: @PROJECT_VERSION@
 # The leaf dirs are exposed as well as their parents so a consumer can include these headers and
 # sources UNPREFIXED. PLUMED rejects a "plumedinterface/file.h" include from its kenref module,
 # because its linter requires the directory prefix to name one of PLUMED's own modules.
-Cflags: -I${includedir}/core -I${includedir}/plumedinterface -I${includedir}/plumedinterface/plumedinterface -I${plumedsrcdir} -I${plumedsrcdir}/plumedinterface ${simdflags}
+Cflags: -I${includedir}/core -I${includedir}/plumedinterface -I${includedir}/plumedinterface/plumedinterface -I${plumedsrcdir} -I${plumedsrcdir}/plumedinterface ${simdflags} ${scalardefs}
 Requires: eigen3 >= 3.4.0

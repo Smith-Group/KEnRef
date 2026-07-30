@@ -6,12 +6,15 @@ includedir=${prefix}/include
 # objects in its own containers, so EIGEN_MAX_ALIGN_BYTES is part of its ABI (see core/EigenAbiCheck.h).
 accel=@ACCEL@
 simdflags=@KENREF_SIMD_FLAGS_STR@
+# Scalar type of KEnRef_Real_t. ABI-relevant: it selects which ModelRegistry<Real> the library holds,
+# so a consumer compiled the other way fails to link. Exported so consumers never have to guess.
+scalardefs=@KENREF_SCALAR_DEFS@
 
 Name: KEnRef Core
 Description: Kinetic Ensemble Refinement Core Library (requires external Eigen3)
 Version: @PROJECT_VERSION@
-Libs: -L${libdir} -lkenref_core
-Cflags: -I${includedir}/core ${simdflags}
+Libs: -L${libdir} -lkenref_core @KENREF_OPENMP_LIBS_STR@
+Cflags: -I${includedir}/core ${simdflags} ${scalardefs}
 # No MPI here: kenref_core contains no MPI code. Consumers that need MPI (the gmx interface/tools, or PLUMED)
 # link their own — see kenref_gmxinterface.pc.
 Requires: eigen3 >= 3.4.0
