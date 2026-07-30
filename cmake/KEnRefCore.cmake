@@ -167,6 +167,30 @@ endif()
 # PKG-CONFIG GENERATION FOR PLUMED INTEGRATION
 # ============================================================================
 
+# OpenMP link libraries for the templates (@KENREF_OPENMP_LIBS_STR@). Computed HERE, immediately before
+# the templates are expanded, because OpenMP is provided lazily (kenref_provide_openmp) and is not yet
+# found where the other .pc substitution variables are set in the top-level CMakeLists.
+#
+# The cores are STATIC archives holding unresolved OpenMP calls, so the CONSUMER must supply the runtime.
+# Without this a pkg-config-only consumer links and gets `undefined reference to __kmpc_fork_call`
+# (LLVM) or `GOMP_parallel` (GCC). Export the concrete libraries rather than the `-fopenmp` flag: the
+# flag means "*this* compiler's runtime", which is the wrong one whenever the consumer is built by a
+# different compiler than the library -- a case we must support, since PLUMED and GROMACS compile their
+# own side. FindOpenMP does not set OpenMP_CXX_LIBRARIES, so assemble it from OpenMP_CXX_LIB_NAMES,
+# preferring the resolved full path (OpenMP_<name>_LIBRARY) and falling back to -l<name>.
+set(_kn_omp_libs "")
+if(TARGET OpenMP::OpenMP_CXX)
+    foreach(_kn_omp_name IN LISTS OpenMP_CXX_LIB_NAMES)
+        if(OpenMP_${_kn_omp_name}_LIBRARY)
+            list(APPEND _kn_omp_libs "${OpenMP_${_kn_omp_name}_LIBRARY}")
+        else()
+            list(APPEND _kn_omp_libs "-l${_kn_omp_name}")
+        endif()
+    endforeach()
+endif()
+string(REPLACE ";" " " KENREF_OPENMP_LIBS_STR "${_kn_omp_libs}")
+message(STATUS "KEnRef pkg-config OpenMP libs: ${KENREF_OPENMP_LIBS_STR}")
+
 # Create pkg-config file for kenref_core (with external Eigen)
 configure_file(
 		"${CMAKE_CURRENT_SOURCE_DIR}/cmake/kenref_core.pc.in"
