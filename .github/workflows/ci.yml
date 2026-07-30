@@ -41,7 +41,10 @@ jobs:
         accel: [AVX2_256, AVX_256, SSE2]
         include:
           # AVX_512 is BUILD-ONLY: GitHub runners do not reliably have AVX-512, and running an
-          # skylake-avx512 binary on a machine without it is a SIGILL, not a test failure.
+          # skylake-avx512 binary on a machine without it is a SIGILL, not a test failure. Note this
+          # also means BUILD_TESTS must be OFF, not merely "skip the test step":
+          # gtest_discover_tests RUNS the test executable at BUILD time to enumerate cases, so leaving
+          # tests enabled crashes the build itself with "Result: Illegal instruction".
           - compiler: gcc
             accel: AVX_512
             build_only: true
@@ -68,7 +71,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=$CC -DCMAKE_CXX_COMPILER=$CXX \
             -DBUILD_KENREF_CORE=ON -DBUILD_KENREF_GMX=OFF \
-            -DBUILD_TESTS=ON \
+            -DBUILD_TESTS=${{ matrix.build_only && 'OFF' || 'ON' }} \
             -DACCEL=${{ matrix.accel }} \
             -DKENREF_EIGEN_GIT_TAG=${{ env.KENREF_EIGEN_GIT_TAG }}
 
