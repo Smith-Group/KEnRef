@@ -67,11 +67,26 @@ public:
 
 private:
     // Function-static singleton: avoids static-init-order issues across translation units.
-    static std::map<std::string, Entry>& table() {
-        static std::map<std::string, Entry> t;
-        return t;
-    }
+    //
+    // DECLARED here, DEFINED once in src/core/ModelRegistry.cpp. It must not be defined inline: a
+    // function-local static inside a class-template member has vague linkage, so every translation
+    // unit that touches the registry emits its own COMDAT copy and the toolchain is left to merge
+    // them. That merging is not something we can rely on when the library and its consumer are built
+    // by DIFFERENT compilers -- which is exactly our situation, since PLUMED compiles the bias in its
+    // own tree against a prebuilt libkenref_core. When the copies fail to merge, bootstrapModels()
+    // fills one table while has()/create() read another, and the only symptom is a model that
+    // "is not registered" at run time, with no diagnostic from the build.
+    static std::map<std::string, Entry>& table();
 };
+
+// Suppress implicit instantiation in consumers so they REFERENCE the definitions emitted by the
+// explicit instantiation in src/core/ModelRegistry.cpp, giving exactly one registry per process.
+//
+// This also converts a KENREF_DOUBLE mismatch from a silent failure into a link error: KEnRef_Real_t
+// is double or float depending on that macro, so a consumer compiled with the other setting would
+// otherwise instantiate ModelRegistry<float> privately, register nothing into it, and fail at run
+// time. Now it asks for a symbol the library does not export, and the build stops.
+extern template class ModelRegistry<KEnRef_Real_t>;
 
 /**
  * Register every compile-time-enabled model. DEFINED in the CMake-generated ModelBootstrap.cpp,
