@@ -44,7 +44,10 @@ message(STATUS "Fetched-deps cache (FETCHCONTENT_BASE_DIR): ${FETCHCONTENT_BASE_
 # ----------------------------------------------------------------------------
 set(KENREF_EIGEN_MIN_VERSION "3.4.0"                                  CACHE STRING "Minimum acceptable Eigen3 version")
 set(KENREF_EIGEN_GIT_URL     "https://gitlab.com/libeigen/eigen.git"  CACHE STRING "Eigen git URL for the fetch fallback")
-set(KENREF_EIGEN_GIT_TAG     "latest"                                 CACHE STRING "Eigen tag to fetch when not found ('latest' = resolve the newest release tag)")
+# PINNED, not "latest". Eigen's alignment settings are part of libkenref_core's ABI, so "whatever was
+# released most recently" makes a build silently un-reproducible: the same commit fetched a week apart
+# can produce a differently-ABI'd library. Pass -DKENREF_EIGEN_GIT_TAG=latest to opt back in.
+set(KENREF_EIGEN_GIT_TAG     "5.0.1"                                  CACHE STRING "Eigen tag to fetch when not found (explicit tag, or 'latest' to resolve the newest release tag)")
 set(KENREF_EIGEN_INSTALL_DIR "${CMAKE_BINARY_DIR}/eigen-install"      CACHE PATH   "Prefix a FETCHED Eigen is INSTALLED to (default: build folder; set e.g. /usr/local or $ENV{HOME}/.local to persist)")
 
 # Resolve the newest Eigen RELEASE tag from the remote (git ls-remote), highest semver. Only used by the
