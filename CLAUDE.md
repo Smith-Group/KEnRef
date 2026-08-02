@@ -63,15 +63,16 @@ in `KEnRef.cpp` are hot. Optimize them — but only after a correct, R-validated
 
 ## Git
 - **`master` is the development trunk** — new work lands there. Release branches are cut from it and stay
-  quiet: `release/1.0` (tag `v1.0.0`) and `release/2.0` (tag `v2.0.0`).
+  quiet: `release/1.x` (tags `v1.0.0`, `v1.1.0`) and `release/2.x` (tag `v2.0.0`). The branches are
+  named for the MAJOR line, not one version, because each accumulates minor releases.
 - **Fixes flow forward, never backward** (PLUMED's model, which this mirrors): a fix goes on the *oldest*
   release branch it applies to, then is merged up the ladder, so nothing on an older branch is ever missing
   from a newer one. New features go straight to `master`.
   ```
-  release/1.0  ──►  release/2.0  ──►  master
+  release/1.x  ──►  release/2.x  ──►  master
   ```
-  Invariant, checkable any time: `git merge-base --is-ancestor release/1.0 release/2.0` and
-  `... release/2.0 master` must both hold.
+  Invariant, checkable any time: `git merge-base --is-ancestor release/1.x release/2.x` and
+  `... release/2.x master` must both hold.
 - Tags live on the release branches. Install directory names in the deployment tree come from
   `git describe --tags --always`, so an untagged commit deploys as `2.0.0-7-gabc123456` rather than `2.0.0`
   — which is how you tell a release apart from a snapshot.
