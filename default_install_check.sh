@@ -92,7 +92,8 @@ prepare_case() {                           # prepare_case <dir>
     { echo "model = PLATEAUS"; echo 'guide = "guideC-alpha"'
       echo "index = \"$SET/KEnRefAtomIndex.ndx\""; echo "exp-data-file = \"$EXP\""
       echo "atomname-mapping = \"$REF\""; echo "ref = \"$REF\""; } > "$d/kenref.toml"
-    { echo "KENREF ..."; echo "  LABEL=kenref"; echo "  ARG="; echo "  MODEL=PLATEAUS"
+    # NO `ARG=` — KENREF biases on coordinates, not a CV. See smoke_test_installs.sh for the full story.
+    { echo "KENREF ..."; echo "  LABEL=kenref"; echo "  MODEL=PLATEAUS"
       echo "  K=1e8"; echo "  N=0.25"; echo "  EXP_DATA_FILE=$EXP"
       echo "  GUIDE_ATOMS=$GUIDE_ATOMS"; echo "  REF=$REF"; echo "  ATOMNAME_MAPPING=$REF"
       echo "  MAX_FORCE=999"; echo "  FIT_TO_REFERENCE"; echo "  SATURATE_FORCES"; echo "... KENREF"
@@ -109,12 +110,16 @@ env_kenref() { echo "$MODINIT; source ${KENREF_PREFIX}/env.sh"; }
 env_plumed() { echo "$MODINIT; source ${GROMACS_PREFIX}/bin/GMXRC"; }
 
 smoke_kenref() {                           # smoke_kenref <tag>
-    local tag="$1" d="$WORK/kn-$tag"; prepare_case "$d" || { finding "could not stage inputs ($tag)"; return 1; }
+    # SEPARATE statements: `local a="$1" b="...$a"` does NOT work — bash expands every argument to the
+    # `local` builtin BEFORE running it, so $a is still unbound (fatal under `set -u`).
+    local tag="$1"; local d="$WORK/kn-$tag"
+    prepare_case "$d" || { finding "could not stage inputs ($tag)"; return 1; }
     step "smoke-kenref-$tag" in_clean_env "$(env_kenref)" \
         "cd '$d' && KEnRef --k 1e8 --n 0.25 --max-force 999 --params '$d/kenref.toml' -- -nsteps $NSTEPS -ntomp 1 -deffnm md"
 }
 smoke_plumed() {                           # smoke_plumed <tag>
-    local tag="$1" d="$WORK/pl-$tag"; prepare_case "$d" || { finding "could not stage inputs ($tag)"; return 1; }
+    local tag="$1"; local d="$WORK/pl-$tag"        # separate statements — see smoke_kenref
+    prepare_case "$d" || { finding "could not stage inputs ($tag)"; return 1; }
     step "smoke-plumed-$tag" in_clean_env "$(env_plumed)" \
         "cd '$d' && gmx_mpi mdrun -plumed '$d/kenref.dat' -nsteps $NSTEPS -ntomp 1 -deffnm md"
 }
@@ -137,7 +142,7 @@ report_layout() {                          # report_layout <label> <dir...>
 
 # ---------------------------------------------------------------------------
 clone_plumed() {                           # clone_plumed <branch> -> echoes path
-    local br="$1" dst="$WORK/plumed-$br"
+    local br="$1"; local dst="$WORK/plumed-$br"    # separate statements — see smoke_kenref
     [ -d "$dst" ] && { echo "$dst"; return 0; }
     git clone --quiet --branch "$br" "$PLUMED_GIT" "$dst" >&2 || return 1
     echo "$dst"

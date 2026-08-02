@@ -98,7 +98,12 @@ do_set() {
     echo "atomname-mapping = \"$REF\""; echo "ref = \"$REF\""; } > "$d/kenref.toml"
 
   # ---- PLUMED-side .dat ----
-  { echo "KENREF ..."; echo "  LABEL=kenref"; echo "  ARG="; echo "  MODEL=$MODEL"; echo "  K=$K"; echo "  N=0.25";
+  # NO `ARG=`. KENREF biases on coordinates, never on a collective variable, so it takes no ARG at all.
+  # The empty `ARG=` this used to emit was a workaround for PLUMED 2.11-dev briefly making ARG compulsory
+  # for every Bias -- which meant the same input could not serve 2.10 (ARG must be ABSENT) and that
+  # 2.11-dev (ARG must be PRESENT). The module's Bias no longer declares it, so passing it now fails with
+  #   ERROR in input to action KENREF ... cannot understand the following words from the input line : ARG
+  { echo "KENREF ..."; echo "  LABEL=kenref"; echo "  MODEL=$MODEL"; echo "  K=$K"; echo "  N=0.25";
     if [ "$EXPKIND" = folder ]; then echo "  EXP_DATA_FOLDER=$EXPVAL"; [ "$MODEL" = SIGMA ] && echo "  PROTON_MHZ=700.0";
     else echo "  EXP_DATA_FILE=$EXPVAL"; fi
     echo "  GUIDE_ATOMS=$GUIDE_ATOMS"; echo "  REF=$REF"; echo "  ATOMNAME_MAPPING=$REF";
