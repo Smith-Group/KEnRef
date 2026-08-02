@@ -325,16 +325,27 @@ macro(kenref_provide_gromacs)
     find_package(GROMACS NAMES gromacs_mpi gromacs REQUIRED)
     message(STATUS "GROMACS: ${GROMACS_VERSION} (config ${GROMACS_CONFIG}); src=${GROMACS_SRC_DIR} build=${GROMACS_BUILD_DIR}")
     # >>>>>>>>>>>>>>>>>>>>> BEGIN KENREF-TEMP-LMFIT-WORKAROUND (call site) >>>>>>>>>>>>>>>>>>>>>>
-    # DELETE this call once the GROMACS-side fix is in your installed gromacs (BUILD_INTERFACE
-    # wrap in gmxManageLmfit.cmake). Grep tag: KENREF-TEMP-LMFIT-WORKAROUND (2 bands in this file).
+    # Keep this call for as long as KEnRef supports ANY GROMACS 2025.x — the upstream fix is
+    # 2026-only and will never be backported. See the macro definition below for the full
+    # condition. Grep tag: KENREF-TEMP-LMFIT-WORKAROUND (2 bands in this file).
     kenref_defuse_gromacs_lmfit_export()
     # <<<<<<<<<<<<<<<<<<<<<< END KENREF-TEMP-LMFIT-WORKAROUND (call site) <<<<<<<<<<<<<<<<<<<<<<<
 endmacro()
 
 # >>>>>>>>>>>>>>>>>>>> BEGIN KENREF-TEMP-LMFIT-WORKAROUND (macro definition) >>>>>>>>>>>>>>>>>>>>
-# DELETE this whole macro once the GROMACS-side fix is in your installed gromacs (BUILD_INTERFACE
-# wrap in gmxManageLmfit.cmake) — then this consumer-side defuse is redundant. Also delete the call
-# site above (same grep tag: KENREF-TEMP-LMFIT-WORKAROUND).
+# "TEMP" in the grep tag is a misnomer kept only so the tag stays greppable: this is PERMANENT for
+# GROMACS 2025.x. The upstream fix (BUILD_INTERFACE wrap in gmxManageLmfit.cmake) is
+#     issue  https://gitlab.com/gromacs/gromacs/-/issues/5668
+#     MR     https://gitlab.com/gromacs/gromacs/-/merge_requests/6130   -> release-2026
+# It was deliberately retargeted from release-2025 to release-2026 and will NOT be backported:
+# release-2025 is only open for fixes to serious scientific errors, which this is not. Since
+# kenref-gmx builds against 2025.4 as well as 2026.x, the workaround has to stay.
+#
+# DELETE this macro and the call site above only once BOTH hold:
+#   1. KEnRef no longer supports any GROMACS 2025.x, and
+#   2. the fix is present in every 2026+ you configure against.
+# Until then it is harmless to keep: the body is guarded on actually finding the leaked genexp, so
+# against a fixed GROMACS it matches nothing and is a silent no-op.
 #
 # Neutralize a build-tree-only generator expression that GROMACS leaks into its INSTALLED cmake package.
 # gmxManageLmfit.cmake does `target_sources(lmfit INTERFACE $<TARGET_OBJECTS:lmfit_objlib>)` for the bundled
