@@ -8,6 +8,7 @@
 #include <string>
 #include <stdexcept>
 #include <type_traits>
+#include <optional>   // std::optional (libstdc++ needs it explicitly; libc++ pulled it in transitively)
 
 template<typename Scalar, int Rows, int Cols, int Options = Eigen::ColMajor>
 class NamedMatrixImpl;
