@@ -270,6 +270,14 @@ int /*KEnRef_*/gmx_mdrun(MPI_Comm communicator, const gmx_hw_info_t& hwinfo, int
     builder.addDomainDecomposition(options.domdecOptions);
     // \todo pass by value
     builder.addNonBonded(options.nbpu_opt_choices[0]);
+#if GMX_VERSION >= 20260000
+    // GROMACS 2026 split the non-bonded free-energy kernels into their own task assignment and made
+    // the call MANDATORY: MdrunnerBuilder::build() throws
+    //     API error (bug): MdrunnerBuilder::void addNonBondedFETaskAssignment(); is required before build()
+    // if it was never made. It compiles fine without it -- the check is at run time -- so this is only
+    // reachable by actually starting an mdrun. options.nbfe_opt_choices does not exist before 2026.
+    builder.addNonBondedFETaskAssignment(options.nbfe_opt_choices[0]);
+#endif
     // \todo pass by value
     builder.addElectrostatics(options.pme_opt_choices[0], options.pme_fft_opt_choices[0]);
     builder.addBondedTaskAssignment(options.bonded_opt_choices[0]);
