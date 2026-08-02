@@ -14,6 +14,7 @@
 #include<unistd.h>
 
 #include "gromacs/mdtypes/commrec.h"
+#include "gromacs/version.h"
 #include "mpi.h"
 
 #include "gromacs/pbcutil/pbc.h"
@@ -40,6 +41,70 @@ static constexpr auto singleStr = "single";
 
 // MPI datatype matching KEnRef_Real_t (for the per-replica gather/scatter).
 static const MPI_Datatype KENREF_MPI_REAL = std::is_same_v<KEnRef_Real_t, float> ? MPI_FLOAT : MPI_DOUBLE;
+
+/* GROMACS 2026 replaced ForceProviderInput's `const t_commrec& cr_` with an MpiComm reference plus a
+ * (possibly null) gmx_domdec_t pointer, and dropped t_commrec::rankInDefaultCommunicator entirely.
+ * These accessors are the only place that difference is expressed, so the body of calculateForces()
+ * and friends stays version-agnostic. Each one defers to GROMACS's own predicate rather than
+ * reimplementing it, so the semantics cannot drift between releases. */
+#if GMX_VERSION >= 20260000
+#    define KENREF_GMX_HAS_MPICOMM_FORCEPROVIDERINPUT 1
+#else
+#    define KENREF_GMX_HAS_MPICOMM_FORCEPROVIDERINPUT 0
+#endif
+
+namespace {
+
+//! The domain-decomposition object for this step, or nullptr when DD is not in use.
+inline const gmx_domdec_t *kenrefDd(const gmx::ForceProviderInput &in) {
+#if KENREF_GMX_HAS_MPICOMM_FORCEPROVIDERINPUT
+    return in.dd_;
+#else
+    return in.cr_.dd;
+#endif
+}
+
+//! The communicator spanning this rank's group (PP or PME).
+inline MPI_Comm kenrefGroupComm(const gmx::ForceProviderInput &in) {
+#if KENREF_GMX_HAS_MPICOMM_FORCEPROVIDERINPUT
+    return in.mpiComm_.comm();
+#else
+    return in.cr_.mpi_comm_mygroup;
+#endif
+}
+
+/*! \brief A rank id for diagnostics only.
+ *
+ * Up to 2025 this reported the rank in the default (whole-run) communicator. That member is gone in
+ * 2026 and ForceProviderInput exposes only the group communicator, so on 2026 this is the rank
+ * within the group. It is printed for debugging and is not used in any calculation. */
+inline int kenrefDiagnosticRank(const gmx::ForceProviderInput &in) {
+#if KENREF_GMX_HAS_MPICOMM_FORCEPROVIDERINPUT
+    return in.mpiComm_.rank();
+#else
+    return in.cr_.rankInDefaultCommunicator;
+#endif
+}
+
+//! Whether atoms are ordered by domain decomposition (so ga2la lookups are required).
+inline bool kenrefHaveDDAtomOrdering(const gmx::ForceProviderInput &in) {
+#if KENREF_GMX_HAS_MPICOMM_FORCEPROVIDERINPUT
+    return haveDDAtomOrdering(in.dd_);
+#else
+    return haveDDAtomOrdering(in.cr_);
+#endif
+}
+
+//! Whether there is actual particle-particle domain decomposition.
+inline bool kenrefHavePPDomainDecomposition(const gmx::ForceProviderInput &in) {
+#if KENREF_GMX_HAS_MPICOMM_FORCEPROVIDERINPUT
+    return havePPDomainDecomposition(in.dd_);
+#else
+    return havePPDomainDecomposition(&in.cr_);
+#endif
+}
+
+} // namespace
 
 KEnRefForceProvider::KEnRefForceProvider() = default;
 
@@ -72,7 +137,6 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     const auto homenr = forceProviderInput.homenr_; // total number of atoms in the system (or domain dec ?)
     GMX_ASSERT(homenr >= 0, "number of home atoms must be non-negative.");
 
-    const auto &cr = forceProviderInput.cr_;
     const auto &step = forceProviderInput.step_;
 
     // Stash the per-step GROMACS state + MPI info so the EngineAdapter callbacks (invoked by
@@ -108,7 +172,7 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     if (step % 10 == 0)
         std::cout
                 << "--> numSimulations " << numSimulations_ << "\n"
-                << "--> rankInDefaultCommunicator " << cr.rankInDefaultCommunicator << " " << (isMultiSimulation_ ? simulationIndex_ : -1) << "\n"
+                << "--> rank " << kenrefDiagnosticRank(forceProviderInput) << " " << (isMultiSimulation_ ? simulationIndex_ : -1) << "\n"
                 << "--> simulationIndex " << simulationIndex_ << "\tstep " << step << std::endl;
 
     if (!paramsInitialized) {
@@ -121,9 +185,9 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     if (!paramsInitialized) {
         GMX_ASSERT(check_box(PbcType::Unset, forceProviderInput.box_) == nullptr, "Invalid box.");
         std::cout << "Number of atoms = " << homenr << std::endl;
-        std::cout << "havePPDomainDecomposition(cr): " << havePPDomainDecomposition(&cr) << std::endl;
-        std::cout << "haveDDAtomOrdering(cr): " << haveDDAtomOrdering(cr) << std::endl;
-        std::cout << "cr.dd->nnodes: " << cr.dd->nnodes << std::endl;
+        std::cout << "havePPDomainDecomposition: " << kenrefHavePPDomainDecomposition(forceProviderInput) << std::endl;
+        std::cout << "haveDDAtomOrdering: " << kenrefHaveDDAtomOrdering(forceProviderInput) << std::endl;
+        std::cout << "dd->nnodes: " << kenrefDd(forceProviderInput)->nnodes << std::endl;
         fillParamsStep0(homenr, numSimulations_, forceProviderInput); //TODO Optimize this function via OMP
         paramsInitialized = true;
     }
@@ -186,17 +250,16 @@ void KEnRefForceProvider::getLocalModelX(int /*localModel*/, CoordsMatrixType<KE
 }
 
 void KEnRefForceProvider::addLocalModelDerivatives(int /*localModel*/, const CoordsMatrixType<KEnRef_Real_t> &derivs) {
-    const auto &cr = currentInput_->cr_;
     // N.B. this assumes all ranks hit this line; mirrors the original pre-apply barrier.
-    if (isMultiSimulation_ && haveDDAtomOrdering(cr)) {
-        gmx_barrier(cr.mpi_comm_mygroup);
+    if (isMultiSimulation_ && kenrefHaveDDAtomOrdering(*currentInput_)) {
+        gmx_barrier(kenrefGroupComm(*currentInput_));
     }
     const auto &force = currentOutput_->forceWithVirial_.force_;
     const auto &sub0Id_to_global1Id = *this->sub0Id_to_global1Id_;
     //Finally, add them to corresponding atoms
     for (int i = 0; i < derivs.rows(); i++) {
         const int global0Id = sub0Id_to_global1Id[i] - 1;
-        const int *piLocal = cr.dd->ga2la->findHome(global0Id); //TODO Confirm whether it use global or local ID?
+        const int *piLocal = kenrefDd(*currentInput_)->ga2la->findHome(global0Id); //TODO Confirm whether it use global or local ID?
         //next line assumes that the basic type of force is **real**
         // TODO optimize this line/process
         force[*piLocal] -= {
@@ -252,7 +315,7 @@ void KEnRefForceProvider::fillSubAtomsX(CoordsMatrixType<KEnRef_Real_t> &subAtom
                                         const gmx::ForceProviderInput &forceProviderInput, const bool toAngstrom) {
     for (int i = 0; i < subAtomsX.rows(); i++) {
         const int global0Id = sub0Id_to_global1Id[i] - 1;
-        const int *piLocal = forceProviderInput.cr_.dd->ga2la->findHome(global0Id);
+        const int *piLocal = kenrefDd(forceProviderInput)->ga2la->findHome(global0Id);
         GMX_ASSERT(piLocal, "ERROR: Can't find local index of atom");
         const gmx::RVec atom_x = forceProviderInput.x_[*piLocal];
 #if VERBOSE
@@ -280,7 +343,7 @@ CoordsMatrixType<KEnRef_Real_t> KEnRefForceProvider::getGuideAtomsX(const std::v
     KEnRef_Real_t *guideAtomsX_ZEROIndexed_buffer = guideAtomsX_ZEROIndexed.data();
     for (auto i = 0; i < guideAtom0IndicesSize; i++) {
         const int *pi = &guideAtom0Indices[i];
-        const int *piLocal = forceProviderInput.cr_.dd->ga2la->findHome(*pi);
+        const int *piLocal = kenrefDd(forceProviderInput)->ga2la->findHome(*pi);
         GMX_ASSERT(piLocal, "ERROR: Can't find local index of atom");
         const gmx::RVec atom_x = forceProviderInput.x_[*piLocal];
 

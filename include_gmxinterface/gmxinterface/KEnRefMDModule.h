@@ -15,6 +15,7 @@
 #include <gromacs/options/optionfiletype.h>
 #include <gromacs/selection/selection.h>
 #include <gromacs/mdtypes/imdmodule.h>
+#include <gromacs/version.h>
 #include <gromacs/mdtypes/imdoutputprovider.h>
 #include <gromacs/mdtypes/imdpoptionprovider.h>
 #include <gromacs/mdrun/simulationcontext.h>
@@ -121,6 +122,14 @@ public:
     void subscribeToSimulationSetupNotifications(gmx::MDModulesNotifiers* notifiers) override;
     //! Subscribe to pre processing notifications
     void subscribeToPreProcessingNotifications(gmx::MDModulesNotifiers* notifiers) override;
+#if GMX_VERSION >= 20260000
+    /*! \brief Subscribe to simulation run notifications.
+     *
+     * GROMACS 2026 added this as a pure virtual on IMDModule, so it must be present to instantiate
+     * the module there; on 2025 the method does not exist and `override` would not compile. KEnRef
+     * needs nothing from the run-time notifiers, so the implementation is empty. */
+    void subscribeToSimulationRunNotifications(gmx::MDModulesNotifiers* notifiers) override;
+#endif
     virtual void setSimulationContext(gmx::SimulationContext* simulationContext);
 
 };
