@@ -23,6 +23,7 @@
 #include "gromacs/domdec/ga2la.h"
 #include "gromacs/mdlib/gmx_omp_nthreads.h"
 #include "gromacs/mdtypes/forceoutput.h"
+#include "gromacs/utility/fatalerror.h"
 #include "core/KEnRef.h"
 #include "core/kabsch.h"
 #include "core/IoUtils.h"
@@ -184,6 +185,32 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
     if (!paramsInitialized) {
         GMX_ASSERT(check_box(PbcType::Unset, forceProviderInput.box_) == nullptr, "Invalid box.");
+
+        /* KEnRef supports exactly ONE RANK PER SIMULATION, and refuses anything else here rather than
+         * producing wrong numbers.
+         *
+         * Under domain decomposition each rank owns only a subset of the atoms, and the local ordering is
+         * re-sorted at every repartition. This code assumes the opposite: it resolves every sub-atom and
+         * guide atom through ga2la->findHome() and dereferences the result without checking, and the
+         * per-replica MPI_Gather/MPI_Scatter below run on mainRanksComm_, which is only a valid
+         * communicator on a simulation's main rank. With one rank per simulation both assumptions hold --
+         * every atom is home, and every rank is a main rank -- which is why this has never been hit.
+         *
+         * Left unguarded the failure is silent then fatal: the energy comes out `nan` at step 0, the box
+         * follows, and the run dies later inside MPI or on an illegal instruction, with nothing in the
+         * output naming KEnRef. Refuse up front instead. Removing this guard is the acceptance test for
+         * real DD support, not an optimisation. */
+        if (kenrefHavePPDomainDecomposition(forceProviderInput))
+        {
+            gmx_fatal(FARGS,
+                      "KEnRef does not support domain decomposition: this simulation has %d PP ranks. "
+                      "Run KEnRef with ONE RANK PER SIMULATION -- e.g. `mpirun -np <N> ... -multidir "
+                      "<N directories>`, which gives each replica a single rank -- or add `-ntmpi 1` / "
+                      "reduce the rank count so no simulation is decomposed. Threads are unaffected: "
+                      "-ntomp is free to use.",
+                      kenrefDd(forceProviderInput)->nnodes);
+        }
+
         std::cout << "Number of atoms = " << homenr << std::endl;
         std::cout << "havePPDomainDecomposition: " << kenrefHavePPDomainDecomposition(forceProviderInput) << std::endl;
         std::cout << "haveDDAtomOrdering: " << kenrefHaveDDAtomOrdering(forceProviderInput) << std::endl;
