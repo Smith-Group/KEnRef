@@ -107,7 +107,13 @@ if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 endif()
 
 #set(CMAKE_MODULE_PATH /usr/local/gromacs-dev/share/gromacs/template/cmake:$CMAKE_MODULE_PATH)
-set(Eigen3_DIR /smithlab/opt/eigen/5.0.1/${build_type}/share/eigen3/cmake)
+# Default to this machine's Eigen, but let -DEigen3_DIR=... win. A bare set() creates a NORMAL variable
+# that shadows the cache entry -D creates, so the hardcoded path silently overrode any override -- which
+# makes the branch unbuildable anywhere this absolute path does not exist (CI, another machine, a
+# container). Guarding it keeps the local default and makes the override actually work.
+if(NOT DEFINED Eigen3_DIR)
+	set(Eigen3_DIR /smithlab/opt/eigen/5.0.1/${build_type}/share/eigen3/cmake)
+endif()
 
 # ============================================================================
 # COMMON DEPENDENCIES
