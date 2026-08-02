@@ -1,0 +1,169 @@
+name: CI
+
+# CI for the 1.x maintenance line.
+#
+# This is a REDUCED version of the workflow on release/2.x and master. Only the jobs this branch can
+# actually support are here; the others are omitted deliberately, not forgotten:
+#   consumer-abi        needs include_core/core/{EigenAbiCheck,SimdSignature}.h and
+#                       cmake/simd_check_main.cpp -- none of which exist on 1.x
+#   pkgconfig-consumer  needs KENREF_EXPORT_PLUMEDINTERFACE and the kenref_plumed*.pc.in templates,
+#                       which arrived with the 2.0 build-system overhaul
+# Do NOT "fix" a forward merge by taking this file over the newer one: on 2.x and master the fuller
+# workflow is correct. Resolve conflicts toward the newer branch.
+#
+# Two things differ from the 2.x workflow beyond the missing jobs:
+#   * Eigen is built from source here. This branch requires Eigen >= 5.0 and has no fetch fallback
+#     (no cmake/Dependencies.cmake), and the distro package is 3.4.
+#   * MPI is installed even though only the core is built: find_package(MPI REQUIRED) is unconditional
+#     in this branch's top-level CMakeLists.txt.
+#
+# Every job builds INSIDE the source tree. The gtests open their fixtures relative to the CWD
+# ("../../res/google_tests/..."), so an out-of-tree build directory makes every fixture-based test fail
+# instantly -- a whole suite in milliseconds -- which reads as a code regression and is not one.
+
+on:
+  push:
+    branches: ['release/1.x']
+  pull_request:
+    branches: ['release/1.x']
+  schedule:
+    # Nightly, for the slow numerical check only.
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned, not "latest": Eigen's alignment settings are part of libkenref_core's ABI, so an unpinned
+  # dependency makes a green run un-reproducible a week later.
+  KENREF_EIGEN_VERSION: '5.0.1'
+
+jobs:
+  build-test:
+    name: ${{ matrix.compiler }} / ${{ matrix.accel }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+        # AVX2_256 is the portable default and is what the runners execute natively.
+        # AVX_256 and SSE2 verify the lower tiers still compile and run.
+        accel: [AVX2_256, AVX_256, SSE2]
+        include:
+          # AVX_512 is BUILD-ONLY: GitHub runners do not reliably have AVX-512, and running an
+          # skylake-avx512 binary on a machine without it is a SIGILL, not a test failure. Note this
+          # also means BUILD_TESTS must be OFF, not merely "skip the test step": gtest_discover_tests
+          # RUNS the test executable at BUILD time to enumerate cases, so leaving tests enabled
+          # crashes the build itself with "Result: Illegal instruction".
+          - compiler: gcc
+            accel: AVX_512
+            build_only: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libomp-dev libopenmpi-dev openmpi-bin
+          if [ "${{ matrix.compiler }}" = clang ]; then sudo apt-get install -y clang; fi
+
+      - name: Cache Eigen
+        id: cache-eigen
+        uses: actions/cache@v4
+        with:
+          path: ~/eigen-install
+          key: eigen-${{ env.KENREF_EIGEN_VERSION }}-${{ runner.os }}
+
+      - name: Build Eigen ${{ env.KENREF_EIGEN_VERSION }}
+        if: steps.cache-eigen.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch "${KENREF_EIGEN_VERSION}" \
+            https://gitlab.com/libeigen/eigen.git /tmp/eigen-src
+          # Header-only install: Eigen's optional reference BLAS/LAPACK take minutes to compile, KEnRef
+          # uses Eigen header-only, and distro packages do not ship them either.
+          cmake -S /tmp/eigen-src -B /tmp/eigen-build \
+            -DCMAKE_INSTALL_PREFIX="$HOME/eigen-install" \
+            -DEIGEN_BUILD_BLAS=OFF -DEIGEN_BUILD_LAPACK=OFF -DEIGEN_BUILD_TESTING=OFF \
+            -DBUILD_TESTING=OFF -DEIGEN_BUILD_DOC=OFF -DEIGEN_BUILD_DEMOS=OFF \
+            -DCMAKE_EXPORT_PACKAGE_REGISTRY=OFF
+          cmake --build /tmp/eigen-build --target install
+
+      - name: Configure
+        run: |
+          if [ "${{ matrix.compiler }}" = clang ]; then CC=clang; CXX=clang++; else CC=gcc; CXX=g++; fi
+          # Build dir INSIDE the source tree -- see the header comment.
+          # Eigen3_DIR must be passed explicitly: this branch defaults it to a machine-specific
+          # absolute path, guarded so an override wins.
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=$CC -DCMAKE_CXX_COMPILER=$CXX \
+            -DBUILD_KENREF_CORE=ON -DBUILD_KENREF_GMX=OFF \
+            -DBUILD_TESTS=${{ matrix.build_only && 'OFF' || 'ON' }} \
+            -DACCEL=${{ matrix.accel }} \
+            -DEigen3_DIR="$HOME/eigen-install/share/eigen3/cmake"
+
+      - name: Build
+        run: cmake --build build -j "$(nproc)"
+
+      - name: Test (all threads)
+        if: ${{ ! matrix.build_only }}
+        working-directory: build/google_tests
+        run: ./Google_tests_kenref_core_exe --gtest_filter="-KEnRefTestSuite.TestCoordArrayToSigmaEnergyFD"
+
+      - name: Test (OMP_NUM_THREADS=1)
+        # House rule: a serial pass with a threaded failure means a race, so both must run. Cheap
+        # enough to repeat on every push.
+        if: ${{ ! matrix.build_only }}
+        working-directory: build/google_tests
+        env:
+          OMP_NUM_THREADS: 1
+        run: ./Google_tests_kenref_core_exe --gtest_filter="-KEnRefTestSuite.TestCoordArrayToSigmaEnergyFD"
+
+  fd:
+    # The finite-difference kernel check is slow, so it runs nightly rather than on every push. Run it
+    # before claiming any numerical kernel is correct.
+    name: finite-difference (nightly)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libomp-dev libopenmpi-dev openmpi-bin
+
+      - name: Cache Eigen
+        id: cache-eigen
+        uses: actions/cache@v4
+        with:
+          path: ~/eigen-install
+          key: eigen-${{ env.KENREF_EIGEN_VERSION }}-${{ runner.os }}
+
+      - name: Build Eigen ${{ env.KENREF_EIGEN_VERSION }}
+        if: steps.cache-eigen.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch "${KENREF_EIGEN_VERSION}" \
+            https://gitlab.com/libeigen/eigen.git /tmp/eigen-src
+          cmake -S /tmp/eigen-src -B /tmp/eigen-build \
+            -DCMAKE_INSTALL_PREFIX="$HOME/eigen-install" \
+            -DEIGEN_BUILD_BLAS=OFF -DEIGEN_BUILD_LAPACK=OFF -DEIGEN_BUILD_TESTING=OFF \
+            -DBUILD_TESTING=OFF -DEIGEN_BUILD_DOC=OFF -DEIGEN_BUILD_DEMOS=OFF \
+            -DCMAKE_EXPORT_PACKAGE_REGISTRY=OFF
+          cmake --build /tmp/eigen-build --target install
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_KENREF_CORE=ON -DBUILD_KENREF_GMX=OFF -DBUILD_TESTS=ON \
+            -DACCEL=AVX2_256 \
+            -DEigen3_DIR="$HOME/eigen-install/share/eigen3/cmake"
+
+      - name: Build
+        run: cmake --build build -j "$(nproc)"
+
+      - name: Finite-difference test
+        working-directory: build/google_tests
+        run: ./Google_tests_kenref_core_exe --gtest_filter="KEnRefTestSuite.TestCoordArrayToSigmaEnergyFD"
