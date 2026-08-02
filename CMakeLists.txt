@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.24)
-project(KEnRef)
+project(KEnRef VERSION 1.0.0)
+# Single source of truth for the KEnRef version. Flows to the pkg-config files (@PROJECT_VERSION@ in
+# cmake/*.pc.in) and to the library VERSION/SOVERSION properties (${PROJECT_VERSION} /
+# ${PROJECT_VERSION_MAJOR} in cmake/KEnRefCore.cmake and cmake/KEnRefGMX.cmake). Bump it HERE and
+# nowhere else.
 set(CMAKE_CXX_STANDARD 17)
 
 string(TOLOWER ${CMAKE_BUILD_TYPE} build_type)

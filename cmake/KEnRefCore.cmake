@@ -177,8 +177,8 @@ install(FILES LICENSE_CLI11.txt DESTINATION share/licenses/cli11)
 # back on: every consumer that builds a shared object hits it.
 set_target_properties(kenref_core kenref_and_eigen3
     PROPERTIES
-    VERSION 1.0.0
-    SOVERSION 1
+    VERSION ${PROJECT_VERSION}
+    SOVERSION ${PROJECT_VERSION_MAJOR}
     POSITION_INDEPENDENT_CODE ON
 )
 
