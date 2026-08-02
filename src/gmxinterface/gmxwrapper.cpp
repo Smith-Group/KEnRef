@@ -10,7 +10,13 @@
 #include <CLI11/CLI11.hpp>
 #include "gmxpre.h"
 #include "mdrun/mdrun_main.h"
+#include "gromacs/version.h"
 #include "gromacs/commandline/cmdlinemodule.h"
+#if GMX_VERSION >= 20260000
+// GROMACS 2026 split CommandLineModuleSettings out of cmdlinemodule.h, which now only
+// forward-declares it; the definition is needed for setDefaultNiceLevel() below.
+#    include "gromacs/commandline/cmdlinemodulesettings.h"
+#endif
 #include "gromacs/commandline/cmdlinemodulemanager.h"
 #include "gmxinterface/gmxwrapper.h"
 #include "core/KEnRef.h"

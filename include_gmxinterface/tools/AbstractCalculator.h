@@ -12,7 +12,13 @@
 #include "gromacs/fileio/xtcio.h"
 #include "gromacs/fileio/trrio.h"
 #include "gromacs/utility/smalloc.h"
-#include "gromacs/math/vecdump.h"
+#include "gromacs/version.h"
+#if GMX_VERSION >= 20260000
+// GROMACS 2026 moved vecdump.h from the math module to the utility module.
+#    include "gromacs/utility/vecdump.h"
+#else
+#    include "gromacs/math/vecdump.h"
+#endif
 #include "gromacs/gmxlib/network.h"
 #include "core/kabsch.h"
 #include "core/KEnRef.h"

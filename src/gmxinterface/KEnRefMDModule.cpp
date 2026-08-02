@@ -71,6 +71,12 @@ void KEnRefMDModule::subscribeToSimulationSetupNotifications(gmx::MDModulesNotif
 }
 
 //! Subscribe to pre processing notifications
+#if GMX_VERSION >= 20260000
+void KEnRefMDModule::subscribeToSimulationRunNotifications(gmx::MDModulesNotifiers* /*notifiers*/) {
+    // Nothing to subscribe to: KEnRef reads everything it needs at setup time and per force call.
+}
+#endif
+
 void KEnRefMDModule::subscribeToPreProcessingNotifications(gmx::MDModulesNotifiers* notifier) {
 
     std::cerr << "subscribeToPreProcessingNotifications() called +++++++++" << std::endl;

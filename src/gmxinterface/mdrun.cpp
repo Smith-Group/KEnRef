@@ -53,6 +53,7 @@
 
 #include <memory>
 
+#include "gromacs/version.h"
 #include "gromacs/commandline/pargs.h"
 #include "gromacs/domdec/options.h"
 #include "gromacs/fileio/gmxfio.h"
@@ -242,7 +243,12 @@ int /*KEnRef_*/gmx_mdrun(MPI_Comm communicator, const gmx_hw_info_t& hwinfo, int
 
     auto kEnRefModule = KEnRefModuleInfo::create();
     (dynamic_cast<KEnRefMDModule*>(kEnRefModule.get()))->setSimulationContext(&simulationContext);
+#if GMX_VERSION >= 20260000
+    // GROMACS 2026 added a module name as the first argument of MDModules::add().
+    mdModules->add("KEnRef", std::move(kEnRefModule)); //MOST IMPORTANT LINE
+#else
     mdModules->add(std::move(kEnRefModule)); //MOST IMPORTANT LINE
+#endif
 
 
 
