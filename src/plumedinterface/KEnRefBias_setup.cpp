@@ -27,6 +27,33 @@
 namespace PLMD::kenref {
 
     KEnRefBias::KEnRefBias(const ActionOptions &ao) : PLUMED_BIAS_INIT(ao), ActionAtomistic(ao) {
+        /* KEnRef supports exactly ONE RANK PER REPLICA, and refuses anything else here rather than
+         * producing wrong numbers. `comm` is the INTRA-replica communicator, so comm.Get_size() > 1
+         * means this replica's atoms are split across ranks -- GROMACS domain decomposition, or
+         * `plumed driver` without --multi, which splits atoms the same way.
+         *
+         * Why this is fatal rather than merely unsupported: the inter-replica communicator is only
+         * set on a replica's MAIN rank (PLUMED's GROMACS patch calls "GREX setMPIIntercomm" under
+         * `if (MAIN(cr))`, and GREX.cpp is what populates multi_sim_comm). An unset Communicator is
+         * MPI_COMM_SELF, whose Get_size() silently returns 1 and Get_rank() 0 -- it never errors. So
+         * every non-main rank would conclude "I am replica 0 of a 1-replica ensemble", compute a
+         * SINGLE-REPLICA restraint, and apply it to the atoms it homes, while the main rank applied
+         * the real ensemble forces to its own. The result is a spatial patchwork of two different
+         * force fields, with no crash and a plausible-looking energy.
+         *
+         * The supported multi-replica mode is unaffected: one rank per replica leaves comm at size 1
+         * on every rank, and `plumed driver --multi N` under `mpirun -np N` gives nintra == 1.
+         *
+         * Removing this guard is the acceptance test for real DD support, not an optimisation; the
+         * fix is to gate every multi_sim_comm access on comm.Get_rank()==0 and propagate down `comm`
+         * (see PLMD::function::Ensemble). Mirrors the gmx_fatal in KEnRefForceProvider.cpp. */
+        if (comm.Get_size() > 1)
+            error("KENREF does not support domain decomposition: this replica spans "
+                  + std::to_string(comm.Get_size()) + " ranks. Run KEnRef with ONE RANK PER REPLICA "
+                  "-- e.g. `mpirun -np <N> ... -multidir <N directories>`, which gives each replica a "
+                  "single rank -- or reduce the rank count so no replica is decomposed. Threads are "
+                  "unaffected: -ntomp / PLUMED_NUM_THREADS are free to use.");
+
         // ---- general parameters ----
         parse("MODEL", modelName_);
         ::kenref::bootstrapModels();
