@@ -242,7 +242,31 @@ int /*KEnRef_*/gmx_mdrun(MPI_Comm communicator, const gmx_hw_info_t& hwinfo, int
                                                              options.filenames.data());
 
     auto kEnRefModule = KEnRefModuleInfo::create();
-    (dynamic_cast<KEnRefMDModule*>(kEnRefModule.get()))->setSimulationContext(&simulationContext);
+    auto* kEnRefModuleRaw = dynamic_cast<KEnRefMDModule*>(kEnRefModule.get());
+    kEnRefModuleRaw->setSimulationContext(&simulationContext);
+
+    /* Subscribe to the simulation-setup notifiers OURSELVES.
+     *
+     * GROMACS will not do it for us. MDModules::add() stores the module in `impl_->modules_`, and that
+     * vector is iterated in exactly one function -- initForceProviders. Every subscribe* dispatcher in
+     * mdmodules.cpp hard-codes the five built-in modules (densityFitting_, qmmm_, colvars_, plumed_,
+     * nnpot_), so an externally added module never receives the notifications its own IMDModule
+     * interface declares. PLUMED gets them because it is a built-in; we never would.
+     *
+     * The notifier is a plain broadcast: subscribing only registers callbacks, and nothing checks who
+     * registered. MDModules::notifiers() hands back the very object the runner later emits on
+     * (runner.cpp: `mdModules_->notifiers().simulationSetupNotifier_`), so registering here -- before
+     * mdrunner() runs -- is sufficient to receive everything the built-ins receive, including the
+     * LocalAtomSetManager needed for domain-decomposition-safe atom lookup.
+     *
+     * The const_cast is deliberate: notifiers() returns a const reference, while subscribing mutates
+     * the notifier. MDModules passes its own built-ins a non-const pointer to the same object, so this
+     * does exactly what MDModules does internally. If GROMACS ever iterates modules_ in the subscribe*
+     * dispatchers (a one-line fix we intend to propose upstream), this block becomes redundant and can
+     * simply be deleted. */
+    kEnRefModuleRaw->subscribeToSimulationSetupNotifications(
+            const_cast<gmx::MDModulesNotifiers*>(&mdModules->notifiers()));
+
 #if GMX_VERSION >= 20260000
     // GROMACS 2026 added a module name as the first argument of MDModules::add().
     mdModules->add("KEnRef", std::move(kEnRefModule)); //MOST IMPORTANT LINE

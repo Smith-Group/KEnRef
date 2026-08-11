@@ -19,6 +19,7 @@
 #include <gromacs/mdtypes/imdoutputprovider.h>
 #include <gromacs/mdtypes/imdpoptionprovider.h>
 #include <gromacs/mdrun/simulationcontext.h>
+#include <gromacs/domdec/localatomsetmanager.h>
 #include "KEnRefForceProvider.h"
 #include "core/IoUtils.h"
 
@@ -94,6 +95,13 @@ class KEnRefMDModule final: public gmx::IMDModule {
     //! Object that evaluates the forces
     std::shared_ptr<KEnRefForceProvider> forceProvider_;
     gmx::SimulationContext* simulationContext_ = nullptr;
+    /*! \brief Owns every LocalAtomSet; delivered by the simulation-setup notifier.
+     *
+     * Null unless subscribeToSimulationSetupNotifications() ran AND GROMACS emitted the notification.
+     * GROMACS does not call that subscription for externally added modules (see the comment on the
+     * definition), so KEnRef arranges the call itself in its own mdrun.cpp. Treat null as "no manager
+     * available" rather than as an error, so a build that has not been wired up still runs. */
+    gmx::LocalAtomSetManager* localAtomSetManager_ = nullptr;
     std::shared_ptr<std::vector<int> const> guideAtoms0Indexed; //ZERO indexed
     std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> guideAtomsReferenceCoords_;
 
