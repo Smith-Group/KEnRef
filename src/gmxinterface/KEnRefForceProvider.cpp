@@ -105,6 +105,71 @@ inline bool kenrefHavePPDomainDecomposition(const gmx::ForceProviderInput &in) {
 #endif
 }
 
+/*! \brief Number of ranks this simulation (replica) is spread over.
+ *
+ * This is the INTRA-simulation communicator, so it counts the ranks sharing one replica's atoms --
+ * i.e. the domain-decomposition width. It is 1 in the only configuration KEnRef supports today, which
+ * is what makes every reduction below a no-op there. */
+inline int kenrefSimCommSize(const gmx::ForceProviderInput &in) {
+    const MPI_Comm comm = kenrefGroupComm(in);
+    if (comm == MPI_COMM_NULL)
+        return 1;
+    int size = 1;
+    MPI_Comm_size(comm, &size);
+    return size;
+}
+
+/*! \brief Whether this rank is the main rank of ITS OWN simulation.
+ *
+ * Not to be confused with "rank 0 of the world": with `-multidir` every replica has its own main rank.
+ * This is the rank that may touch `mainRanksComm_`, because that communicator is MPI_COMM_NULL
+ * everywhere else (gmx_multisim_t documents it as "valid only on main ranks"). */
+inline bool kenrefIsSimMainRank(const gmx::ForceProviderInput &in) {
+    const MPI_Comm comm = kenrefGroupComm(in);
+    if (comm == MPI_COMM_NULL)
+        return true;              // no intra-simulation communicator ⇒ this rank is alone ⇒ it is main
+    int rank = 0;
+    MPI_Comm_rank(comm, &rank);
+    return rank == 0;
+}
+
+/*! \brief Sum a coordinate block across the ranks of one simulation, in place.
+ *
+ * The zero-fill convention: every rank leaves the rows it does not own at zero and writes only its own,
+ * so the sum reconstructs the complete, correctly-ordered block on every rank. This is EXACT, not
+ * merely accurate: each row has exactly one non-zero contributor (ga2la::findHome resolves an atom on
+ * its home rank only), and `0.0 + x == x` in IEEE-754 for any finite x, with addition commutative --
+ * so the result does not depend on the reduction order or the rank count.
+ *
+ * A size-1 communicator short-circuits, which keeps the supported one-rank-per-replica configuration
+ * bit-identical to the code that existed before domain-decomposition support. */
+inline void kenrefSumOverSimRanks(const gmx::ForceProviderInput &in, KEnRef_Real_t *data, std::size_t count) {
+    const MPI_Comm comm = kenrefGroupComm(in);
+    if (comm == MPI_COMM_NULL || count == 0)
+        return;
+    int size = 1;
+    MPI_Comm_size(comm, &size);
+    if (size <= 1)
+        return;                   // nothing to combine; also the supported configuration
+    MPI_Allreduce(MPI_IN_PLACE, data, static_cast<int>(count), KENREF_MPI_REAL, MPI_SUM, comm);
+}
+
+/*! \brief Broadcast a block from a simulation's main rank to the rest of that simulation.
+ *
+ * Needed because only the main rank takes part in the cross-replica exchange (mainRanksComm_ is
+ * MPI_COMM_NULL elsewhere), yet every rank has to apply forces to the atoms it owns. No-op on a
+ * size-1 communicator, so the supported configuration is untouched. */
+inline void kenrefBcastFromSimMain(const gmx::ForceProviderInput &in, KEnRef_Real_t *data, std::size_t count) {
+    const MPI_Comm comm = kenrefGroupComm(in);
+    if (comm == MPI_COMM_NULL || count == 0)
+        return;
+    int size = 1;
+    MPI_Comm_size(comm, &size);
+    if (size <= 1)
+        return;
+    MPI_Bcast(data, static_cast<int>(count), KENREF_MPI_REAL, 0, comm);
+}
+
 } // namespace
 
 KEnRefForceProvider::KEnRefForceProvider() = default;
@@ -148,6 +213,10 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     mainRanksComm_ = isMultiSimulation_ ? this->simulationContext_->multiSimulation_->mainRanksComm_ : MPI_COMM_NULL;
     currentInput_ = &forceProviderInput;
     currentOutput_ = forceProviderOutput;
+    /* Refresh every step rather than caching at setup: it is one MPI_Comm_rank on an intra-simulation
+     * communicator, and a cached value could go stale if the communicator were ever rebuilt. Always
+     * true at one rank per replica. */
+    isSimMainRank_ = kenrefIsSimMainRank(forceProviderInput);
 
     if (!paramsInitialized) {
         std::string alt_out_path = Settings::alt_out_path;
@@ -284,9 +353,15 @@ void KEnRefForceProvider::addLocalModelDerivatives(int /*localModel*/, const Coo
     const auto &force = currentOutput_->forceWithVirial_.force_;
     const auto &sub0Id_to_global1Id = *this->sub0Id_to_global1Id_;
     //Finally, add them to corresponding atoms
+    /* Each rank applies forces ONLY to the atoms it owns. There is no reduction here and there must
+     * not be one: the force array is indexed by local atom, the rank sets are disjoint, and a rank
+     * that does not own an atom has nowhere to put its force. Skipping is therefore the whole fix --
+     * a non-owned atom is another rank's responsibility, not a lost contribution. */
     for (int i = 0; i < derivs.rows(); i++) {
         const int global0Id = sub0Id_to_global1Id[i] - 1;
-        const int *piLocal = kenrefDd(*currentInput_)->ga2la->findHome(global0Id); //TODO Confirm whether it use global or local ID?
+        const int *piLocal = kenrefDd(*currentInput_)->ga2la->findHome(global0Id);
+        if (piLocal == nullptr)
+            continue;             // not this rank's atom; its owner applies this row
         //next line assumes that the basic type of force is **real**
         // TODO optimize this line/process
         force[*piLocal] -= {
@@ -304,8 +379,13 @@ void KEnRefForceProvider::gatherFittedSubAtomsX(const std::vector<CoordsMatrixTy
         all.assign(localFitted.begin(), localFitted.end()); // single replica: it is the whole ensemble
         return;
     }
-    // Gather every replica's fitted sub-coords onto the master's contiguous buffer.
+    /* ONLY a simulation's main rank may touch mainRanksComm_: gmx_multisim_t documents it as "valid
+     * only on main ranks" and it is MPI_COMM_NULL everywhere else, so calling a collective on it from
+     * a non-main rank is undefined. With one rank per replica every rank is a main rank, which is why
+     * this has always worked and why the guard below changes nothing there. */
     const int subAtomsXSize = static_cast<int>(fitted.size());
+    if (!isSimMainRank_)
+        return;                   // this rank's atoms already reached the main rank via the reduction
     MPI_Gather(const_cast<KEnRef_Real_t *>(fitted.data()), subAtomsXSize, KENREF_MPI_REAL,
                this->allSimulationsSubAtomsX_->data(), subAtomsXSize, KENREF_MPI_REAL, 0, mainRanksComm_);
     if (simulationIndex_ == 0) {
@@ -327,12 +407,19 @@ void KEnRefForceProvider::scatterModelDerivatives(const std::vector<CoordsMatrix
     auto allDerivatives_buffer = this->allDerivatives_buffer_.get();
     auto derivatives_buffer = this->derivatives_buffer_.get();
     // Master packs the per-model derivatives contiguously, then scatters one block to each replica.
-    if (simulationIndex_ == 0) {
-        for (int m = 0; m < numSimulations_; ++m)
-            std::copy_n(allPerModel[m].data(), subAtomsXSize, &allDerivatives_buffer[m * subAtomsXSize]);
+    // As in gatherFittedSubAtomsX, only main ranks may use mainRanksComm_.
+    if (isSimMainRank_) {
+        if (simulationIndex_ == 0) {
+            for (int m = 0; m < numSimulations_; ++m)
+                std::copy_n(allPerModel[m].data(), subAtomsXSize, &allDerivatives_buffer[m * subAtomsXSize]);
+        }
+        MPI_Scatter(allDerivatives_buffer, subAtomsXSize, KENREF_MPI_REAL,
+                    derivatives_buffer, subAtomsXSize, KENREF_MPI_REAL, 0, mainRanksComm_);
     }
-    MPI_Scatter(allDerivatives_buffer, subAtomsXSize, KENREF_MPI_REAL,
-                derivatives_buffer, subAtomsXSize, KENREF_MPI_REAL, 0, mainRanksComm_);
+    /* Every rank needs the derivatives, because every rank applies forces to the atoms it owns -- but
+     * only the main rank received them. Push them down the simulation. No-op at one rank per replica. */
+    kenrefBcastFromSimMain(*currentInput_, derivatives_buffer,
+                           static_cast<std::size_t>(subAtomsXSize));
     localPerModel.resize(1);
     localPerModel[0] = CoordsMapType<KEnRef_Real_t>(derivatives_buffer, nSub, 3); // copy out of the buffer
 }
@@ -340,14 +427,22 @@ void KEnRefForceProvider::scatterModelDerivatives(const std::vector<CoordsMatrix
 void KEnRefForceProvider::fillSubAtomsX(CoordsMatrixType<KEnRef_Real_t> &subAtomsX,
                                         const std::vector<int> &sub0Id_to_global1Id,
                                         const gmx::ForceProviderInput &forceProviderInput, const bool toAngstrom) {
+    /* Under domain decomposition a rank owns only a subset of the atoms, so findHome() legitimately
+     * returns null for the rest -- it is NOT an error. Leave those rows at zero and let
+     * kenrefSumOverSimRanks() below fill them in from the rank that does own them. With one rank per
+     * replica every atom is home, the reduction short-circuits, and this is bit-identical to the
+     * previous unguarded code. */
+    subAtomsX.setZero();
     for (int i = 0; i < subAtomsX.rows(); i++) {
         const int global0Id = sub0Id_to_global1Id[i] - 1;
         const int *piLocal = kenrefDd(forceProviderInput)->ga2la->findHome(global0Id);
-        GMX_ASSERT(piLocal, "ERROR: Can't find local index of atom");
+        if (piLocal == nullptr)
+            continue;             // not this rank's atom; another rank contributes this row
         const gmx::RVec atom_x = forceProviderInput.x_[*piLocal];
 #if VERBOSE
         std::cout << sub0Id_to_global1Id[i] << "\t" << global0Id << "\t" << *piLocal << "\t x: " << atom_x[0] << ", " << atom_x[1] << ", " << atom_x[2] << std::endl;
 #endif
+        // (rows this rank does not own were skipped above and stay zero until the reduction)
         if constexpr (std::is_same_v<KEnRef_Real_t, real>) {
             auto subAtomsX_buffer = subAtomsX.data();
             const auto rvec = atom_x.as_vec();
@@ -358,6 +453,10 @@ void KEnRefForceProvider::fillSubAtomsX(CoordsMatrixType<KEnRef_Real_t> &subAtom
             }
         }
     }
+    // Combine the per-rank contributions BEFORE scaling: every row now has exactly one non-zero
+    // contributor, so the sum is exact and rank-count independent. No-op at one rank per replica.
+    kenrefSumOverSimRanks(forceProviderInput, subAtomsX.data(),
+                          static_cast<std::size_t>(subAtomsX.rows()) * 3u);
     if (toAngstrom)
         subAtomsX *= 10;
 }
@@ -368,15 +467,21 @@ CoordsMatrixType<KEnRef_Real_t> KEnRefForceProvider::getGuideAtomsX(const std::v
     long guideAtom0IndicesSize = static_cast<long>(guideAtom0Indices.size());
     auto guideAtomsX_ZEROIndexed = CoordsMatrixType<KEnRef_Real_t>(guideAtom0IndicesSize, 3);
     KEnRef_Real_t *guideAtomsX_ZEROIndexed_buffer = guideAtomsX_ZEROIndexed.data();
+    // Same zero-fill convention as fillSubAtomsX: rows this rank does not own stay zero and are
+    // supplied by the reduction below. findHome() returning null is expected under DD, not an error.
+    guideAtomsX_ZEROIndexed.setZero();
     for (auto i = 0; i < guideAtom0IndicesSize; i++) {
         const int *pi = &guideAtom0Indices[i];
         const int *piLocal = kenrefDd(forceProviderInput)->ga2la->findHome(*pi);
-        GMX_ASSERT(piLocal, "ERROR: Can't find local index of atom");
+        if (piLocal == nullptr)
+            continue;             // not this rank's atom
         const gmx::RVec atom_x = forceProviderInput.x_[*piLocal];
 
         auto rvec = atom_x.as_vec();
         std::copy_n(rvec, 3, &guideAtomsX_ZEROIndexed_buffer[i * 3]);
     }
+    kenrefSumOverSimRanks(forceProviderInput, guideAtomsX_ZEROIndexed.data(),
+                          static_cast<std::size_t>(guideAtom0IndicesSize) * 3u);
     //TODO make a unit test to validate that the value coming in rvec is equal to the value in guideAtomsX_ZEROIndexed
 #if VERBOSE
     std::cout << "guideAtomsX_ZEROIndexed shape is (" << guideAtomsX_ZEROIndexed.rows() << ", " << guideAtomsX_ZEROIndexed.cols() << ")" << std::endl;

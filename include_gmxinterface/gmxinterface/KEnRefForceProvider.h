@@ -60,6 +60,14 @@ private:
 	bool isMultiSimulation_ = false;
 	int numSimulations_ = 1;
 	int simulationIndex_ = 0;
+	/*! \brief Whether this rank is the main rank of ITS OWN simulation.
+	 *
+	 * True for every rank when there is one rank per replica, which is why nothing depended on it
+	 * before. Under domain decomposition it distinguishes the one rank per replica that may use
+	 * mainRanksComm_ (MPI_COMM_NULL elsewhere) from the ranks that may not. Refreshed each step from
+	 * the intra-simulation communicator rather than cached at setup, because it costs one integer
+	 * and cannot then go stale. */
+	bool isSimMainRank_ = true;
 	MPI_Comm mainRanksComm_ = MPI_COMM_NULL;
 
 public:
@@ -110,7 +118,15 @@ public:
 	                    CoordsMatrixType<KEnRef_Real_t> &subX, Eigen::Matrix<KEnRef_Real_t, 3, 3> &box) const override;
 	void addLocalModelDerivatives(int localModel, const CoordsMatrixType<KEnRef_Real_t> &derivs) override;
 	[[nodiscard]] int numModelsTotal() const override { return numSimulations_; }
-	[[nodiscard]] int simulationIndex() const override { return simulationIndex_; }
+	/*! \brief Which model this process contributes; 0 identifies the MASTER, per EngineAdapter.
+	 *
+	 * The driver's only use of this is `if (adapter.simulationIndex() == 0)` -- the test for "am I the
+	 * process that assembles the ensemble and computes the energy". Under domain decomposition EVERY
+	 * rank of replica 0 has simulationIndex_ == 0, so the bare member would make all of them run the
+	 * model and drive the cross-replica collectives. Reporting a non-master value on a non-main rank
+	 * keeps that test meaning exactly what EngineAdapter documents it to mean. Unchanged at one rank
+	 * per replica, where every rank is its simulation's main rank. */
+	[[nodiscard]] int simulationIndex() const override { return isSimMainRank_ ? simulationIndex_ : -1; }
 	void gatherFittedSubAtomsX(const std::vector<CoordsMatrixType<KEnRef_Real_t>> &localFitted,
 	                           std::vector<CoordsMatrixType<KEnRef_Real_t>> &all) const override;
 	void scatterModelDerivatives(const std::vector<CoordsMatrixType<KEnRef_Real_t>> &allPerModel,
