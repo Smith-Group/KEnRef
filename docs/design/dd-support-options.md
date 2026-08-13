@@ -170,6 +170,42 @@ Hence the two milestones:
   re-`push_back`ed at every repartition, so re-fetch the `ArrayRef` each step and hoist only *within* a
   step — never cache it across steps.
 
+## Status 2026-08-13 — step 1, milestone A and milestone B are DONE
+
+| stage | commit | state |
+|---|---|---|
+| step 1 — subscribe ourselves | `7237ac7` | done; proven at runtime (manager arrives non-null) |
+| milestone A — guarded `findHome` + zero-fill + reduce | `a1c4aef` | done |
+| milestone B(i) — setup moved to setup time, sets registered | `e806e68` | done |
+| milestone B(ii) — `localIndex()`/`collectiveIndex()` + self-check | `9789a63` | done |
+
+**Registration timing is the constraint that shaped B.** `LocalAtomSetData`'s constructor initialises
+`localIndex_` to the GLOBAL indices; only `setIndicesInDomainDecomposition()`, called from each
+`dd_partition_system()`, makes them local. A set registered at step 0 would hand out global indices as
+if they were local until the next repartition. `runner.cpp` calls `initForceProviders()` right after
+`setupNotifier.notify(&atomSets)` (:1827/:1836) and well before the MD loop's first partition
+(`md.cpp:391`), so that is the only valid window — which forced `fillParamsStep0` to move to setup
+time, since the sub-atom index list comes from `buildModelIndexing`.
+
+**The ownership self-check (`KENREF_DD_SELFCHECK=1`).** Verifies that every row is written by exactly
+one rank, which is the sole reason the zero-fill sum is exact. Validated by fault injection (a
+double-claimed row and an unowned row were each injected and each correctly aborted the run), not
+merely by passing.
+
+## Testing note: single-sample byte-identity is NOT a sound acceptance test here
+
+Measured 2026-08-13. Running the **pristine pre-DD binary** against its own reference output scored
+**4/6** byte-identical on `md.gro` and `md.edr`, while `md.trr` stayed **6/6**. The variation is in the
+last decimal of the velocities and appears with an identical binary, identical environment and
+identical inputs — it is GROMACS-level run-to-run nondeterminism in this harness, unrelated to any
+KEnRef change.
+
+Consequence: **`md.trr` and the KEnRef energies are the stable discriminators**; `md.gro`/`md.edr`
+must be reported as a match count over several runs, never asserted from one run. Milestone B scored
+6/6 on both stable invariants and 5/6 on the flaky pair, i.e. indistinguishable from the baseline's own
+behaviour. Earlier milestone claims in this document were single-sample and should be read with that
+caveat.
+
 ## Suggested sequence
 
 1. Register the two `LocalAtomSet`s; keep the `gmx_fatal` guard in place — no behaviour change yet.
