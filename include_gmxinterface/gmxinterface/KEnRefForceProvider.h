@@ -20,6 +20,8 @@
 #include <gromacs/mdtypes/iforceprovider.h>
 #include <gromacs/mdrun/simulationcontext.h>
 #include <gromacs/selection/selection.h>
+#include <gromacs/domdec/localatomset.h>
+#include <gromacs/domdec/localatomsetmanager.h>
 #include <chrono>
 
 #include "gmxwrapper.h"
@@ -70,6 +72,19 @@ private:
 	bool isSimMainRank_ = true;
 	MPI_Comm mainRanksComm_ = MPI_COMM_NULL;
 
+	/*! \brief Owns every LocalAtomSet; handed over at setup time, null if the notifier never fired.
+	 *
+	 * Null is a supported state, not an error: it means this build did not receive the
+	 * simulation-setup notification, and the fill loops fall back to their ga2la path. */
+	gmx::LocalAtomSetManager *localAtomSetManager_ = nullptr;
+	/*! \brief The restrained (sub) atoms and the guide atoms, maintained by DD across repartitions.
+	 *
+	 * Registered once at setup. `localIndex()[k]` is the local index of the k-th atom this rank owns
+	 * and `collectiveIndex()[k]` is that atom's slot in the set's own (global) ordering -- exactly the
+	 * row index the fill loops need. Empty optionals when no manager was delivered. */
+	std::optional<gmx::LocalAtomSet> subAtomSet_;
+	std::optional<gmx::LocalAtomSet> guideAtomSet_;
+
 public:
 	EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
@@ -90,12 +105,30 @@ public:
 
     [[maybe_unused]]void setSimulationContext(gmx::SimulationContext *simulationContext);
 
+	/*! \brief Hand over the manager that owns every LocalAtomSet, before any atom set is registered.
+	 *
+	 * Must be called before initParamsAtSetup(), which does the registering. Passing nullptr is
+	 * allowed and simply leaves KEnRef on its ga2la fallback. */
+	void setLocalAtomSetManager(gmx::LocalAtomSetManager *manager);
+
 	void setGuideAtom0Indices(std::shared_ptr<std::vector<int> const> targetAtoms0Indices);
 
 	void setGuideAtomsReferenceCoords(
 		std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> &guideAtomsReferenceCoords);
 
-    void fillParamsStep0(size_t homenr, int numSimulations, const gmx::ForceProviderInput &forceProviderInput);
+	/*! \brief One-time setup: atom mapping, model indexing, per-step buffers and the driver.
+	 *
+	 * Runs at SETUP time (from KEnRefMDModule::initForceProviders), not at step 0. That is a hard
+	 * requirement rather than a tidy-up: a LocalAtomSet may only be registered before the first
+	 * dd_partition_system(), because LocalAtomSetData's constructor initialises localIndex_ to the
+	 * GLOBAL indices and only setIndicesInDomainDecomposition() (called from each repartition) makes
+	 * them local. A set registered at step 0 would therefore hand out global indices as if they were
+	 * local until the next repartition -- silently wrong under DD. The sub-atom index list comes from
+	 * buildModelIndexing(), so that has to happen here too.
+	 *
+	 * Safe to call this early because it reads only Settings, the mapping files and the simulation
+	 * context: the old signature took `homenr` and `ForceProviderInput` but used neither. */
+	void initParamsAtSetup();
 
 	static CoordsMatrixType<KEnRef_Real_t>
 	getGuideAtomsX(const std::vector<int> &guideAtom0Indices,

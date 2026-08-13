@@ -62,7 +62,13 @@ void KEnRefMDModule::initForceProviders(gmx::ForceProviders* forceProviders) {
     forceProvider_->setGuideAtom0Indices(this->guideAtoms0Indexed);
     forceProvider_->setGuideAtomsReferenceCoords(this->guideAtomsReferenceCoords_);
 	forceProvider_->set_selected_energy_model(Settings::selected_energy_model);
-forceProviders->addForceProvider(forceProvider_.get());
+	/* Hand over the LocalAtomSetManager and do the one-time setup HERE rather than at step 0.
+	 * runner.cpp calls this function immediately after emitting the setup notification that delivered
+	 * the manager, and well before the MD loop's first dd_partition_system(), which is the last moment
+	 * an atom set may be registered and still be indexed correctly from the first partition on. */
+	forceProvider_->setLocalAtomSetManager(localAtomSetManager_);
+	forceProvider_->initParamsAtSetup();
+	forceProviders->addForceProvider(forceProvider_.get());
 }
 
 //! Subscribe to simulation setup notifications

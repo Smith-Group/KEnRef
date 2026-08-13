@@ -218,26 +218,8 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
      * true at one rank per replica. */
     isSimMainRank_ = kenrefIsSimMainRank(forceProviderInput);
 
-    if (!paramsInitialized) {
-        std::string alt_out_path = Settings::alt_out_path;
-        if (alt_out_path.empty()) {
-            std::cout << "No alt_out_path defined. Will not redirect stdout stream." << std::endl;
-        } else {
-            if (isMultiSimulation_) {
-                auto pos = alt_out_path.find(singleStr);
-                std::string simIndexStr = std::to_string(simulationIndex_ + 1);
-                if (pos != std::string::npos)
-                    alt_out_path.replace(pos, strlen(singleStr), simIndexStr, 0, simIndexStr.length());
-            }
-            alt_out_path = std::filesystem::absolute(alt_out_path);
-            std::cout << "Attempting to redirect output to " << alt_out_path << std::endl;
-            if (std::freopen(alt_out_path.c_str(), "a", stdout)) {
-                std::cout << "Redirected stdout stream" << std::endl;
-            } else {
-                std::cout << "FAILED to redirect output to " << alt_out_path << std::endl;
-            }
-        }
-    }
+    // (the stdout redirection and the whole of the one-time setup now happen in initParamsAtSetup(),
+    //  called from KEnRefMDModule::initForceProviders -- see the comment on its declaration)
 
     if (step % 10 == 0)
         std::cout
@@ -284,7 +266,6 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
         std::cout << "havePPDomainDecomposition: " << kenrefHavePPDomainDecomposition(forceProviderInput) << std::endl;
         std::cout << "haveDDAtomOrdering: " << kenrefHaveDDAtomOrdering(forceProviderInput) << std::endl;
         std::cout << "dd->nnodes: " << kenrefDd(forceProviderInput)->nnodes << std::endl;
-        fillParamsStep0(homenr, numSimulations_, forceProviderInput); //TODO Optimize this function via OMP
         paramsInitialized = true;
     }
 
@@ -492,9 +473,46 @@ CoordsMatrixType<KEnRef_Real_t> KEnRefForceProvider::getGuideAtomsX(const std::v
     return guideAtomsX_ZEROIndexed; //RETURN BY VALUE
 }
 
-void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulations, const gmx::ForceProviderInput &forceProviderInput) {
+void KEnRefForceProvider::setLocalAtomSetManager(gmx::LocalAtomSetManager *manager) {
+    this->localAtomSetManager_ = manager;
+}
+
+void KEnRefForceProvider::initParamsAtSetup() {
     auto begin = std::chrono::high_resolution_clock::now();
-    bool isMultiSimulation = this->simulationContext_->multiSimulation_ != nullptr;
+
+    /* The multi-simulation facts are constant for the run, so read them once here. They used to be
+     * read at step 0; calculateForces() still refreshes them every step, which is free and keeps a
+     * single source of truth. numSimulations_ in particular is needed BELOW, by buildModelIndexing. */
+    isMultiSimulation_ = this->simulationContext_->multiSimulation_ != nullptr;
+    numSimulations_ = isMultiSimulation_ ? this->simulationContext_->multiSimulation_->numSimulations_ : 1;
+    simulationIndex_ = isMultiSimulation_ ? this->simulationContext_->multiSimulation_->simulationIndex_ : 0;
+    mainRanksComm_ = isMultiSimulation_ ? this->simulationContext_->multiSimulation_->mainRanksComm_ : MPI_COMM_NULL;
+    const bool isMultiSimulation = isMultiSimulation_;
+    const int numSimulations = numSimulations_;
+
+    /* Redirect stdout before anything below prints, so the setup output still lands in the per-replica
+     * file exactly as it did when this ran at step 0. */
+    {
+        std::string alt_out_path = Settings::alt_out_path;
+        if (alt_out_path.empty()) {
+            std::cout << "No alt_out_path defined. Will not redirect stdout stream." << std::endl;
+        } else {
+            if (isMultiSimulation_) {
+                auto pos = alt_out_path.find(singleStr);
+                std::string simIndexStr = std::to_string(simulationIndex_ + 1);
+                if (pos != std::string::npos)
+                    alt_out_path.replace(pos, strlen(singleStr), simIndexStr, 0, simIndexStr.length());
+            }
+            alt_out_path = std::filesystem::absolute(alt_out_path);
+            std::cout << "Attempting to redirect output to " << alt_out_path << std::endl;
+            if (std::freopen(alt_out_path.c_str(), "a", stdout)) {
+                std::cout << "Redirected stdout stream" << std::endl;
+            } else {
+                std::cout << "FAILED to redirect output to " << alt_out_path << std::endl;
+            }
+        }
+    }
+
     std::cout << "Energy model: " << selectedEnergyModel << std::endl;
 
     this->atomName_to_atomGlobalId_map_ = std::make_shared<std::map<std::string, int> >(
@@ -518,6 +536,28 @@ void KEnRefForceProvider::fillParamsStep0(const size_t homenr, int numSimulation
     auto mi = kenref::buildModelIndexing<KEnRef_Real_t>(
         modelName, *this, atomName_to_atomGlobalId_map, handleNames, numSimulations, numOmpThreads());
     this->sub0Id_to_global1Id_ = std::make_shared<std::vector<int> >(std::move(mi.subAtomGlobalIds));
+
+    /* ---- register the two atom sets with domain decomposition ----
+     * This is the ONLY point at which registration is legal: we are inside initForceProviders(), which
+     * runner.cpp calls after setupNotifier.notify(&atomSets) (so the manager exists) but before the
+     * first dd_partition_system() in the MD loop (so DD will compute this set's indices from the very
+     * first partition). LocalAtomSetManager::add() copies the indices, so the temporaries below may die.
+     *
+     * Both sets are built from ZERO-based global indices: LocalAtomSet speaks GROMACS's global atom
+     * numbering, whereas sub0Id_to_global1Id_ holds ONE-based serials from the mapping PDB. */
+    if (localAtomSetManager_ != nullptr) {
+        std::vector<int> subGlobal0Ids;
+        subGlobal0Ids.reserve(this->sub0Id_to_global1Id_->size());
+        for (const int global1Id : *this->sub0Id_to_global1Id_)
+            subGlobal0Ids.push_back(global1Id - 1);
+        subAtomSet_ = localAtomSetManager_->add(subGlobal0Ids);
+        guideAtomSet_ = localAtomSetManager_->add(*this->guideAtom0Indices_); // already zero-based
+        std::cout << "KEnRef: registered LocalAtomSets -- " << subGlobal0Ids.size() << " sub atoms, "
+                  << this->guideAtom0Indices_->size() << " guide atoms" << std::endl;
+    } else {
+        std::cout << "KEnRef: no LocalAtomSetManager available; falling back to ga2la lookups"
+                  << std::endl;
+    }
 
     // ---- per-step buffers (allocated once, reused every step) ----
     this->subAtomsX_ = std::make_shared<CoordsMatrixType<KEnRef_Real_t> >(this->sub0Id_to_global1Id_->size(), 3); //contains needed atoms only
