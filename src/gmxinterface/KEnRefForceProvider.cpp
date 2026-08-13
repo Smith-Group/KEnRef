@@ -7,8 +7,10 @@
 #include <iostream>
 //#include <typeinfo>
 #include <cmath>
+#include <cstdlib>      // std::getenv, for the KENREF_DD_SELFCHECK switch
 #include <filesystem>   // std::filesystem::absolute — pulled in transitively by libc++, NOT by libstdc++
 #include <memory>
+#include <vector>
 #include <Eigen/Core>
 #include <utility>
 #include<unistd.h>
@@ -24,6 +26,7 @@
 #include "gromacs/mdlib/gmx_omp_nthreads.h"
 #include "gromacs/mdtypes/forceoutput.h"
 #include "gromacs/utility/fatalerror.h"
+#include "gromacs/utility/arrayref.h"
 #include "core/KEnRef.h"
 #include "core/kabsch.h"
 #include "core/IoUtils.h"
@@ -168,6 +171,61 @@ inline void kenrefBcastFromSimMain(const gmx::ForceProviderInput &in, KEnRef_Rea
     if (size <= 1)
         return;
     MPI_Bcast(data, static_cast<int>(count), KENREF_MPI_REAL, 0, comm);
+}
+
+/*! \brief Whether the domain-decomposition self-check is switched on (KENREF_DD_SELFCHECK=1).
+ *
+ * Off by default: the check costs an extra allreduce per atom set per step. Read once. */
+inline bool kenrefDdSelfCheckEnabled() {
+    static const bool enabled = [] {
+        const char *e = std::getenv("KENREF_DD_SELFCHECK");
+        return e != nullptr && e[0] != '\0' && e[0] != '0';
+    }();
+    return enabled;
+}
+
+/*! \brief Assert that every row of an atom set was written by EXACTLY ONE rank.
+ *
+ * This is the property the whole zero-fill design rests on. `0.0 + x == x` exactly in IEEE-754 and
+ * addition is commutative, so summing the per-rank buffers reproduces the full set bit-for-bit and
+ * independently of the rank count -- but ONLY if each row has exactly one non-zero contributor. Two
+ * ranks claiming the same atom would double it; none claiming it would silently leave it at the
+ * origin. Neither shows up as a crash, and a wrong coordinate merely biases the restraint, so this
+ * is precisely the kind of failure that has to be tested for rather than waited for.
+ *
+ * \p ownerCount holds 1 for each row this rank wrote; the same reduction used for the coordinates
+ * turns it into a global writer count per row.
+ *
+ * Collective over the simulation's ranks: every rank calls it, from the same place, every step. */
+inline void kenrefCheckExactlyOneWriter(const gmx::ForceProviderInput &in,
+                                        std::vector<KEnRef_Real_t> &ownerCount,
+                                        const char *what, int64_t step) {
+    kenrefSumOverSimRanks(in, ownerCount.data(), ownerCount.size());
+    std::size_t unowned = 0;
+    std::size_t contested = 0;
+    std::size_t firstBad = 0;
+    bool haveBad = false;
+    for (std::size_t i = 0; i < ownerCount.size(); ++i) {
+        const KEnRef_Real_t c = ownerCount[i];
+        if (c == KEnRef_Real_t(0))
+            ++unowned;
+        else if (c != KEnRef_Real_t(1))
+            ++contested;
+        else
+            continue;
+        if (!haveBad) {
+            firstBad = i;
+            haveBad = true;
+        }
+    }
+    if (unowned != 0 || contested != 0) {
+        gmx_fatal(FARGS,
+                  "KEnRef domain-decomposition self-check FAILED for the '%s' atom set at step %lld: "
+                  "of %zu rows, %zu had NO owning rank and %zu were claimed by more than one "
+                  "(first offending row: %zu). The zero-fill reduction is exact only when every row "
+                  "is written exactly once, so the coordinates this step are wrong.",
+                  what, static_cast<long long>(step), ownerCount.size(), unowned, contested, firstBad);
+    }
 }
 
 } // namespace
@@ -316,9 +374,9 @@ int KEnRefForceProvider::numOmpThreads() const {
 void KEnRefForceProvider::getLocalModelX(int /*localModel*/, CoordsMatrixType<KEnRef_Real_t> &guideX,
                                          CoordsMatrixType<KEnRef_Real_t> &subX,
                                          Eigen::Matrix<KEnRef_Real_t, 3, 3> &box) const {
-    guideX = getGuideAtomsX(*this->guideAtom0Indices_, *currentInput_, true);
+    guideX = getGuideAtomsX(*currentInput_, true);
     subX.resize(static_cast<Eigen::Index>(this->sub0Id_to_global1Id_->size()), 3);
-    fillSubAtomsX(subX, *this->sub0Id_to_global1Id_, *currentInput_, true);
+    fillSubAtomsX(subX, *currentInput_, true);
     // GROMACS box (nm, real[3][3]) -> Eigen 3x3 (raw; the driver scales it to Angstrom via toAngstrom).
     const matrix &b = currentInput_->box_;
     for (int i = 0; i < 3; ++i)
@@ -332,24 +390,40 @@ void KEnRefForceProvider::addLocalModelDerivatives(int /*localModel*/, const Coo
         gmx_barrier(kenrefGroupComm(*currentInput_));
     }
     const auto &force = currentOutput_->forceWithVirial_.force_;
-    const auto &sub0Id_to_global1Id = *this->sub0Id_to_global1Id_;
     //Finally, add them to corresponding atoms
     /* Each rank applies forces ONLY to the atoms it owns. There is no reduction here and there must
      * not be one: the force array is indexed by local atom, the rank sets are disjoint, and a rank
      * that does not own an atom has nowhere to put its force. Skipping is therefore the whole fix --
-     * a non-owned atom is another rank's responsibility, not a lost contribution. */
-    for (int i = 0; i < derivs.rows(); i++) {
-        const int global0Id = sub0Id_to_global1Id[i] - 1;
-        const int *piLocal = kenrefDd(*currentInput_)->ga2la->findHome(global0Id);
-        if (piLocal == nullptr)
-            continue;             // not this rank's atom; its owner applies this row
-        //next line assumes that the basic type of force is **real**
-        // TODO optimize this line/process
-        force[*piLocal] -= {
-                static_cast<real>(derivs(i, 0)),
-                static_cast<real>(derivs(i, 1)),
-                static_cast<real>(derivs(i, 2))
-        };
+     * a non-owned atom is another rank's responsibility, not a lost contribution.
+     *
+     * Mirrors fillOwnedRows(): same two ways of deciding ownership, same re-fetch-every-step rule for
+     * the ArrayRefs. It has to stay the mirror image, because a row filled from atom A but whose force
+     * lands on atom B would be a silent, energy-conserving-looking corruption. */
+    if (subAtomSet_.has_value()) {
+        const gmx::ArrayRef<const int> localIndex = subAtomSet_->localIndex();
+        const gmx::ArrayRef<const int> collectiveIndex = subAtomSet_->collectiveIndex();
+        for (std::size_t k = 0; k < localIndex.size(); ++k) {
+            const auto row = static_cast<Eigen::Index>(collectiveIndex[k]);
+            //next line assumes that the basic type of force is **real**
+            force[localIndex[k]] -= {
+                    static_cast<real>(derivs(row, 0)),
+                    static_cast<real>(derivs(row, 1)),
+                    static_cast<real>(derivs(row, 2))
+            };
+        }
+    } else {
+        const auto &subGlobal0Ids = this->subGlobal0Ids_;
+        for (int i = 0; i < derivs.rows(); i++) {
+            const int *piLocal = kenrefDd(*currentInput_)->ga2la->findHome(subGlobal0Ids[i]);
+            if (piLocal == nullptr)
+                continue;         // not this rank's atom; its owner applies this row
+            // TODO optimize this line/process
+            force[*piLocal] -= {
+                    static_cast<real>(derivs(i, 0)),
+                    static_cast<real>(derivs(i, 1)),
+                    static_cast<real>(derivs(i, 2))
+            };
+        }
     }
 }
 
@@ -405,65 +479,78 @@ void KEnRefForceProvider::scatterModelDerivatives(const std::vector<CoordsMatrix
     localPerModel[0] = CoordsMapType<KEnRef_Real_t>(derivatives_buffer, nSub, 3); // copy out of the buffer
 }
 
-void KEnRefForceProvider::fillSubAtomsX(CoordsMatrixType<KEnRef_Real_t> &subAtomsX,
-                                        const std::vector<int> &sub0Id_to_global1Id,
-                                        const gmx::ForceProviderInput &forceProviderInput, const bool toAngstrom) {
-    /* Under domain decomposition a rank owns only a subset of the atoms, so findHome() legitimately
-     * returns null for the rest -- it is NOT an error. Leave those rows at zero and let
-     * kenrefSumOverSimRanks() below fill them in from the rank that does own them. With one rank per
-     * replica every atom is home, the reduction short-circuits, and this is bit-identical to the
-     * previous unguarded code. */
-    subAtomsX.setZero();
-    for (int i = 0; i < subAtomsX.rows(); i++) {
-        const int global0Id = sub0Id_to_global1Id[i] - 1;
-        const int *piLocal = kenrefDd(forceProviderInput)->ga2la->findHome(global0Id);
-        if (piLocal == nullptr)
-            continue;             // not this rank's atom; another rank contributes this row
-        const gmx::RVec atom_x = forceProviderInput.x_[*piLocal];
-#if VERBOSE
-        std::cout << sub0Id_to_global1Id[i] << "\t" << global0Id << "\t" << *piLocal << "\t x: " << atom_x[0] << ", " << atom_x[1] << ", " << atom_x[2] << std::endl;
-#endif
-        // (rows this rank does not own were skipped above and stay zero until the reduction)
-        if constexpr (std::is_same_v<KEnRef_Real_t, real>) {
-            auto subAtomsX_buffer = subAtomsX.data();
-            const auto rvec = atom_x.as_vec();
-            std::copy_n(rvec, 3, &subAtomsX_buffer[i * 3]);
-        } else {
-            for (int j = 0; j < 3; ++j) {
-                subAtomsX(i, j) = static_cast<KEnRef_Real_t>(atom_x[j]);
-            }
+void KEnRefForceProvider::fillOwnedRows(CoordsMatrixType<KEnRef_Real_t> &dest,
+                                        const std::optional<gmx::LocalAtomSet> &atomSet,
+                                        const std::vector<int> &global0Ids,
+                                        const gmx::ForceProviderInput &forceProviderInput,
+                                        const char *what) const {
+    const auto nRows = static_cast<std::size_t>(dest.rows());
+    /* Under domain decomposition a rank owns only a subset of the atoms. Rows it does not own stay
+     * ZERO here and are supplied by the reduction at the end -- a missing atom is another rank's
+     * responsibility, not an error. */
+    dest.setZero();
+
+    const bool selfCheck = kenrefDdSelfCheckEnabled();
+    std::vector<KEnRef_Real_t> ownerCount;
+    if (selfCheck)
+        ownerCount.assign(nRows, KEnRef_Real_t(0));
+
+    if (atomSet.has_value()) {
+        /* Preferred path. DD maintains these two arrays for us, so no atom is looked up at all:
+         * localIndex()[k] is where the k-th atom this rank owns lives in the local coordinate array,
+         * and collectiveIndex()[k] is that atom's slot in the set's own ordering -- i.e. exactly the
+         * row it belongs in.
+         *
+         * TRAP: both underlying vectors are cleared and re-push_back()ed at every repartition, so the
+         * ArrayRefs are re-fetched here on every step. Hoisting them out of the step would leave them
+         * dangling the moment DD repartitions. */
+        const gmx::ArrayRef<const int> localIndex = atomSet->localIndex();
+        const gmx::ArrayRef<const int> collectiveIndex = atomSet->collectiveIndex();
+        for (std::size_t k = 0; k < localIndex.size(); ++k) {
+            const auto row = static_cast<Eigen::Index>(collectiveIndex[k]);
+            const gmx::RVec atom_x = forceProviderInput.x_[localIndex[k]];
+            for (int j = 0; j < 3; ++j)
+                dest(row, j) = static_cast<KEnRef_Real_t>(atom_x[j]);
+            if (selfCheck)
+                ownerCount[static_cast<std::size_t>(row)] += KEnRef_Real_t(1);
+        }
+    } else {
+        // Fallback when no LocalAtomSetManager was delivered: ask ga2la about every atom in the set
+        // and skip the ones that are not home on this rank.
+        for (std::size_t i = 0; i < nRows; ++i) {
+            const int *piLocal = kenrefDd(forceProviderInput)->ga2la->findHome(global0Ids[i]);
+            if (piLocal == nullptr)
+                continue;         // not this rank's atom; another rank contributes this row
+            const gmx::RVec atom_x = forceProviderInput.x_[*piLocal];
+            for (int j = 0; j < 3; ++j)
+                dest(static_cast<Eigen::Index>(i), j) = static_cast<KEnRef_Real_t>(atom_x[j]);
+            if (selfCheck)
+                ownerCount[i] += KEnRef_Real_t(1);
         }
     }
-    // Combine the per-rank contributions BEFORE scaling: every row now has exactly one non-zero
+
+    if (selfCheck)
+        kenrefCheckExactlyOneWriter(forceProviderInput, ownerCount, what, forceProviderInput.step_);
+
+    // Combine the per-rank contributions BEFORE any scaling: every row has exactly one non-zero
     // contributor, so the sum is exact and rank-count independent. No-op at one rank per replica.
-    kenrefSumOverSimRanks(forceProviderInput, subAtomsX.data(),
-                          static_cast<std::size_t>(subAtomsX.rows()) * 3u);
+    kenrefSumOverSimRanks(forceProviderInput, dest.data(), nRows * 3u);
+}
+
+void KEnRefForceProvider::fillSubAtomsX(CoordsMatrixType<KEnRef_Real_t> &subAtomsX,
+                                        const gmx::ForceProviderInput &forceProviderInput,
+                                        const bool toAngstrom) const {
+    fillOwnedRows(subAtomsX, subAtomSet_, subGlobal0Ids_, forceProviderInput, "sub");
     if (toAngstrom)
         subAtomsX *= 10;
 }
 
-CoordsMatrixType<KEnRef_Real_t> KEnRefForceProvider::getGuideAtomsX(const std::vector<int> &guideAtom0Indices,
-                                                                    const gmx::ForceProviderInput &forceProviderInput,
-                                                                    const bool toAngstrom) {
-    long guideAtom0IndicesSize = static_cast<long>(guideAtom0Indices.size());
+CoordsMatrixType<KEnRef_Real_t> KEnRefForceProvider::getGuideAtomsX(const gmx::ForceProviderInput &forceProviderInput,
+                                                                    const bool toAngstrom) const {
+    const auto guideAtom0IndicesSize = static_cast<Eigen::Index>(this->guideAtom0Indices_->size());
     auto guideAtomsX_ZEROIndexed = CoordsMatrixType<KEnRef_Real_t>(guideAtom0IndicesSize, 3);
-    KEnRef_Real_t *guideAtomsX_ZEROIndexed_buffer = guideAtomsX_ZEROIndexed.data();
-    // Same zero-fill convention as fillSubAtomsX: rows this rank does not own stay zero and are
-    // supplied by the reduction below. findHome() returning null is expected under DD, not an error.
-    guideAtomsX_ZEROIndexed.setZero();
-    for (auto i = 0; i < guideAtom0IndicesSize; i++) {
-        const int *pi = &guideAtom0Indices[i];
-        const int *piLocal = kenrefDd(forceProviderInput)->ga2la->findHome(*pi);
-        if (piLocal == nullptr)
-            continue;             // not this rank's atom
-        const gmx::RVec atom_x = forceProviderInput.x_[*piLocal];
-
-        auto rvec = atom_x.as_vec();
-        std::copy_n(rvec, 3, &guideAtomsX_ZEROIndexed_buffer[i * 3]);
-    }
-    kenrefSumOverSimRanks(forceProviderInput, guideAtomsX_ZEROIndexed.data(),
-                          static_cast<std::size_t>(guideAtom0IndicesSize) * 3u);
-    //TODO make a unit test to validate that the value coming in rvec is equal to the value in guideAtomsX_ZEROIndexed
+    fillOwnedRows(guideAtomsX_ZEROIndexed, guideAtomSet_, *this->guideAtom0Indices_,
+                  forceProviderInput, "guide");
 #if VERBOSE
     std::cout << "guideAtomsX_ZEROIndexed shape is (" << guideAtomsX_ZEROIndexed.rows() << ", " << guideAtomsX_ZEROIndexed.cols() << ")" << std::endl;
     std::cout << "guideAtomsX_ZEROIndexed" << std::endl << guideAtomsX_ZEROIndexed << std::endl;
@@ -545,15 +632,16 @@ void KEnRefForceProvider::initParamsAtSetup() {
      *
      * Both sets are built from ZERO-based global indices: LocalAtomSet speaks GROMACS's global atom
      * numbering, whereas sub0Id_to_global1Id_ holds ONE-based serials from the mapping PDB. */
+    this->subGlobal0Ids_.clear();
+    this->subGlobal0Ids_.reserve(this->sub0Id_to_global1Id_->size());
+    for (const int global1Id : *this->sub0Id_to_global1Id_)
+        this->subGlobal0Ids_.push_back(global1Id - 1);
+
     if (localAtomSetManager_ != nullptr) {
-        std::vector<int> subGlobal0Ids;
-        subGlobal0Ids.reserve(this->sub0Id_to_global1Id_->size());
-        for (const int global1Id : *this->sub0Id_to_global1Id_)
-            subGlobal0Ids.push_back(global1Id - 1);
-        subAtomSet_ = localAtomSetManager_->add(subGlobal0Ids);
+        subAtomSet_ = localAtomSetManager_->add(this->subGlobal0Ids_);
         guideAtomSet_ = localAtomSetManager_->add(*this->guideAtom0Indices_); // already zero-based
-        std::cout << "KEnRef: registered LocalAtomSets -- " << subGlobal0Ids.size() << " sub atoms, "
-                  << this->guideAtom0Indices_->size() << " guide atoms" << std::endl;
+        std::cout << "KEnRef: registered LocalAtomSets -- " << this->subGlobal0Ids_.size()
+                  << " sub atoms, " << this->guideAtom0Indices_->size() << " guide atoms" << std::endl;
     } else {
         std::cout << "KEnRef: no LocalAtomSetManager available; falling back to ga2la lookups"
                   << std::endl;

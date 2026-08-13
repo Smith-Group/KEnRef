@@ -45,6 +45,12 @@ private:
 	std::shared_ptr<std::map<std::string, int> const> atomName_to_atomGlobalId_map_; //built from the mapping PDB, passed to buildModelIndexing
 	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t> > subAtomsX_; //per-step scratch for this replica's restrained atoms
 	std::shared_ptr<std::vector<int> > sub0Id_to_global1Id_; //Global ID is ONE based, subId is a small subset and is ZERO based (from buildModelIndexing)
+	/*! \brief The same sub-atom list as sub0Id_to_global1Id_, but ZERO-based.
+	 *
+	 * GROMACS numbers atoms from 0 everywhere (ga2la, LocalAtomSet), while the mapping PDB gives
+	 * 1-based serials. Converting once at setup keeps the "-1" out of the per-step loops and gives
+	 * both the LocalAtomSet registration and the ga2la fallback a single source of truth. */
+	std::vector<int> subGlobal0Ids_;
 	// (atomName_to_atomSub0Id_map_ + global1Id_to_sub0Id_ removed: the sub-indexing now lives in
 	//  kenref::buildModelIndexing, and neither was used at step time.)
 	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t> > allSimulationsSubAtomsX_; //allocated once, used every step (MPI gather buffer)
@@ -130,12 +136,28 @@ public:
 	 * context: the old signature took `homenr` and `ForceProviderInput` but used neither. */
 	void initParamsAtSetup();
 
-	static CoordsMatrixType<KEnRef_Real_t>
-	getGuideAtomsX(const std::vector<int> &guideAtom0Indices,
-                    const gmx::ForceProviderInput &forceProviderInput, bool toAngstrom);
+	/*! \brief Fill the rows of \p dest owned by THIS rank, leave the rest zero, then reduce.
+	 *
+	 * The zero-fill convention that makes this exact is described on kenrefSumOverSimRanks(). Two
+	 * equivalent ways to decide ownership:
+	 *  - \p atomSet present: iterate the set's localIndex()/collectiveIndex(), which DD maintains.
+	 *    O(atoms this rank owns), and no ga2la lookups at all.
+	 *  - \p atomSet absent: look every global index up in ga2la and skip the ones not home here.
+	 *    O(all atoms in the set) per rank, and the only path available when no manager was delivered.
+	 * Both write each row on exactly one rank, which KENREF_DD_SELFCHECK=1 verifies at runtime.
+	 *
+	 * \param[in]  global0Ids ZERO-based global index of each row, used only by the fallback path. */
+	void fillOwnedRows(CoordsMatrixType<KEnRef_Real_t> &dest,
+	                   const std::optional<gmx::LocalAtomSet> &atomSet,
+	                   const std::vector<int> &global0Ids,
+	                   const gmx::ForceProviderInput &forceProviderInput,
+	                   const char *what) const;
 
-    static void fillSubAtomsX(CoordsMatrixType<KEnRef_Real_t> &subAtomsX, const std::vector<int> &sub0Id_to_global1Id,
-                              const gmx::ForceProviderInput &forceProviderInput, bool toAngstrom);
+	[[nodiscard]] CoordsMatrixType<KEnRef_Real_t>
+	getGuideAtomsX(const gmx::ForceProviderInput &forceProviderInput, bool toAngstrom) const;
+
+    void fillSubAtomsX(CoordsMatrixType<KEnRef_Real_t> &subAtomsX,
+                       const gmx::ForceProviderInput &forceProviderInput, bool toAngstrom) const;
 
 	void set_selected_energy_model(std::string selected_energy_model) {
 		selectedEnergyModel = std::move(selected_energy_model);
