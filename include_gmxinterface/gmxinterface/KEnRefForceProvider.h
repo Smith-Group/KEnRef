@@ -181,20 +181,40 @@ public:
 	 * model and drive the cross-replica collectives. Reporting a non-master value on a non-main rank
 	 * keeps that test meaning exactly what EngineAdapter documents it to mean. Unchanged at one rank
 	 * per replica, where every rank is its simulation's main rank. */
-	[[nodiscard]] int simulationIndex() const override { return isSimMainRank_ ? simulationIndex_ : -1; }
+	[[nodiscard]] int simulationIndex() const override { return isReplicaMasterRank() ? simulationIndex_ : -1; }
 
-	/*! \brief Whether this is THE ONE rank in the whole run that speaks for the ensemble.
+	// ----------------------------------------------------------------------------------------------
+	//  The two rank predicates. There are exactly two meaningful "am I in charge?" questions here, and
+	//  confusing them is the characteristic domain-decomposition bug, so both are named.
+	//
+	//  Both are defined inside the class body, which makes them IMPLICITLY inline ([class.mfct]/1) --
+	//  writing `inline` would be redundant. They must NOT be macros: a macro cannot read `this`, is
+	//  invisible to the type system and the debugger, cannot be [[nodiscard]], and would generate
+	//  exactly the same two loads and an AND. The named function is strictly better at equal cost.
+	// ----------------------------------------------------------------------------------------------
+
+	/*! \brief Whether this rank is the main rank of ITS OWN replica (one such rank per replica).
 	 *
-	 * True on exactly one rank of the entire job: the main rank of replica 0. That rank is the one
-	 * that assembles every replica's coordinates, runs the energy model, and therefore holds the only
-	 * meaningful energy value -- every other rank gets 0 back from the driver.
+	 * The rank that owns this replica's slot in `mainRanksComm_`, and therefore the only one that may
+	 * take part in the cross-replica exchange or be the root of a broadcast down the replica. With
+	 * `-multidir` there is one of these per replica; without domain decomposition every rank is one. */
+	[[nodiscard]] bool isReplicaMasterRank() const { return isSimMainRank_; }
+
+	/*! \brief Whether this is THE ONE rank in the whole job that speaks for the entire ensemble.
+	 *
+	 * True on exactly one rank of the entire run: the main rank of replica 0. That rank assembles
+	 * every replica's coordinates, runs the energy model, and holds the only meaningful energy --
+	 * every other rank gets 0 back from the driver.
 	 *
 	 * BOTH halves are needed, and each fails differently on its own:
 	 *  - `simulationIndex_ == 0` alone is true on EVERY rank of replica 0 under domain decomposition,
-	 *    so per-domain duplicates appear (and, in the driver, the model would run once per domain).
-	 *  - `isSimMainRank_` alone is true on the main rank of EVERY replica, so each replica reports.
-	 * Keeping the pair in one named place stops the two copies drifting apart. */
-	[[nodiscard]] bool isEnsembleMasterRank() const { return simulationIndex_ == 0 && isSimMainRank_; }
+	 *    so per-domain duplicates appear (and the model would run once per domain).
+	 *  - replica-master alone is true on the main rank of EVERY replica, so each replica reports.
+	 *
+	 * Use this for "who computes / who owns the ensemble-wide answer", and isReplicaMasterRank() for
+	 * "who may speak on a communicator". They coincide when there is a single replica, which is why
+	 * mixing them up survives testing. */
+	[[nodiscard]] bool isEnsembleMasterRank() const { return simulationIndex_ == 0 && isReplicaMasterRank(); }
 	void gatherFittedSubAtomsX(const std::vector<CoordsMatrixType<KEnRef_Real_t>> &localFitted,
 	                           std::vector<CoordsMatrixType<KEnRef_Real_t>> &all) const override;
 	void scatterModelDerivatives(const std::vector<CoordsMatrixType<KEnRef_Real_t>> &allPerModel,

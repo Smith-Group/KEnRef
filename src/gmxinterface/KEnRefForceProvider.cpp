@@ -279,7 +279,9 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     // (the stdout redirection and the whole of the one-time setup now happen in initParamsAtSetup(),
     //  called from KEnRefMDModule::initForceProviders -- see the comment on its declaration)
 
-    if (step % 10 == 0)
+    /* Diagnostics, one line per replica rather than one per domain: under domain decomposition every
+     * rank would otherwise print this every 10 steps. */
+    if (step % 10 == 0 && isReplicaMasterRank())
         std::cout
                 << "--> numSimulations " << numSimulations_ << "\n"
                 << "--> rank " << kenrefDiagnosticRank(forceProviderInput) << " " << (isMultiSimulation_ ? simulationIndex_ : -1) << "\n"
@@ -295,35 +297,67 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     if (!paramsInitialized) {
         GMX_ASSERT(check_box(PbcType::Unset, forceProviderInput.box_) == nullptr, "Invalid box.");
 
-        /* KEnRef supports exactly ONE RANK PER SIMULATION, and refuses anything else here rather than
-         * producing wrong numbers.
+        /* Domain decomposition IS supported. It used to be refused here, because the code resolved every
+         * sub-atom and guide atom through ga2la->findHome() and dereferenced the result unchecked, and
+         * ran the per-replica MPI_Gather/MPI_Scatter on mainRanksComm_ from every rank. Both assumptions
+         * ("every atom is home", "every rank is a main rank") only hold at one rank per simulation.
          *
-         * Under domain decomposition each rank owns only a subset of the atoms, and the local ordering is
-         * re-sorted at every repartition. This code assumes the opposite: it resolves every sub-atom and
-         * guide atom through ga2la->findHome() and dereferences the result without checking, and the
-         * per-replica MPI_Gather/MPI_Scatter below run on mainRanksComm_, which is only a valid
-         * communicator on a simulation's main rank. With one rank per simulation both assumptions hold --
-         * every atom is home, and every rank is a main rank -- which is why this has never been hit.
+         * What replaced them: the atoms of each set are located through a gmx::LocalAtomSet that DD keeps
+         * up to date across repartitions; each rank fills only the rows it owns and a sum over the
+         * simulation's ranks reconstructs the whole set exactly (see kenrefSumOverSimRanks); the
+         * cross-replica collectives are restricted to replica master ranks and the result is broadcast
+         * down each replica. KENREF_DD_SELFCHECK=1 verifies the one property all of that rests on --
+         * that every row has exactly one owning rank. */
+        /* Domain decomposition is IMPLEMENTED but still refused, because it does not yet give the same
+         * answer as a serial run -- see below. Set KENREF_ALLOW_DD=1 to run it anyway (for development
+         * and for the validation harness); the numbers will be wrong for any molecule that straddles a
+         * periodic boundary.
          *
-         * Left unguarded the failure is silent then fatal: the energy comes out `nan` at step 0, the box
-         * follows, and the run dies later inside MPI or on an illegal instruction, with nothing in the
-         * output naming KEnRef. Refuse up front instead. Removing this guard is the acceptance test for
-         * real DD support, not an optimisation. */
-        if (kenrefHavePPDomainDecomposition(forceProviderInput))
-        {
-            gmx_fatal(FARGS,
-                      "KEnRef does not support domain decomposition: this simulation has %d PP ranks. "
-                      "Run KEnRef with ONE RANK PER SIMULATION -- e.g. `mpirun -np <N> ... -multidir "
-                      "<N directories>`, which gives each replica a single rank -- or add `-ntmpi 1` / "
-                      "reduce the rank count so no simulation is decomposed. Threads are unaffected: "
-                      "-ntomp is free to use.",
-                      kenrefDd(forceProviderInput)->nnodes);
+         * The parallel machinery itself is correct and rank-count independent: 2, 4 and 3-with-`-npme 1`
+         * ranks all give bit-identical step-0 energies, and KENREF_DD_SELFCHECK=1 confirms every atom has
+         * exactly one owning rank. What differs is the COORDINATE CONVENTION. Under DD, GROMACS puts
+         * atoms in the box, so an atom can be handed to us one box vector away from where the serial run
+         * has it (measured: 4011 of 16203 coordinates in the very first frame; atom 175 at x=0.0140
+         * serially and x=6.1364 under DD, with box_x=6.1224). A restrained molecule spanning the boundary
+         * is therefore BROKEN, the Kabsch fit sees a distorted structure, and the energy changes -- on
+         * res/sigma/md_single, 0.00125246 serial versus 3.65155e-05 decomposed.
+         *
+         * Fixing this needs a make-whole / minimum-image step before fitting and before the pair
+         * distances are taken (PLUMED's WHOLEMOLECULES does the equivalent). restoreNoJump() cannot
+         * stand in for it: it corrects frame-to-frame jumps and does nothing on the first frame. */
+        const bool ddRequested = kenrefHavePPDomainDecomposition(forceProviderInput);
+        if (ddRequested) {
+            const char *allow = std::getenv("KENREF_ALLOW_DD");
+            const bool allowed = allow != nullptr && allow[0] != '\0' && allow[0] != '0';
+            if (!allowed) {
+                gmx_fatal(FARGS,
+                          "KEnRef does not yet support domain decomposition: this simulation has %d PP "
+                          "ranks. The parallel data flow is implemented and rank-count independent, but "
+                          "coordinates handed out under domain decomposition are wrapped into the box, so "
+                          "a restrained molecule crossing a periodic boundary is broken and the restraint "
+                          "is computed on a distorted structure. Run ONE RANK PER SIMULATION -- e.g. "
+                          "`mpirun -np <N> ... -multidir <N directories>` -- or reduce the rank count so "
+                          "no simulation is decomposed. Threads are unaffected: -ntomp is free to use. "
+                          "Set KENREF_ALLOW_DD=1 to override for development; results will be wrong.",
+                          kenrefDd(forceProviderInput)->nnodes);
+            }
+            if (isReplicaMasterRank()) {
+                std::cout << "KEnRef: WARNING -- running under domain decomposition because "
+                             "KENREF_ALLOW_DD is set. Coordinates are box-wrapped and molecules "
+                             "crossing a periodic boundary will give WRONG energies and forces."
+                          << std::endl;
+            }
         }
 
-        std::cout << "Number of atoms = " << homenr << std::endl;
-        std::cout << "havePPDomainDecomposition: " << kenrefHavePPDomainDecomposition(forceProviderInput) << std::endl;
-        std::cout << "haveDDAtomOrdering: " << kenrefHaveDDAtomOrdering(forceProviderInput) << std::endl;
-        std::cout << "dd->nnodes: " << kenrefDd(forceProviderInput)->nnodes << std::endl;
+        if (isReplicaMasterRank()) {
+            const gmx_domdec_t *dd = kenrefDd(forceProviderInput);
+            std::cout << "Number of atoms = " << homenr << std::endl;
+            std::cout << "havePPDomainDecomposition: " << kenrefHavePPDomainDecomposition(forceProviderInput) << std::endl;
+            std::cout << "haveDDAtomOrdering: " << kenrefHaveDDAtomOrdering(forceProviderInput) << std::endl;
+            // dd is null when domain decomposition is not in use at all, so do not dereference blindly.
+            std::cout << "dd->nnodes: " << (dd != nullptr ? dd->nnodes : 0) << std::endl;
+            std::cout << "ranks in this simulation: " << kenrefSimCommSize(forceProviderInput) << std::endl;
+        }
         paramsInitialized = true;
     }
 
@@ -388,10 +422,12 @@ void KEnRefForceProvider::getLocalModelX(int /*localModel*/, CoordsMatrixType<KE
 }
 
 void KEnRefForceProvider::addLocalModelDerivatives(int /*localModel*/, const CoordsMatrixType<KEnRef_Real_t> &derivs) {
-    // N.B. this assumes all ranks hit this line; mirrors the original pre-apply barrier.
-    if (isMultiSimulation_ && kenrefHaveDDAtomOrdering(*currentInput_)) {
-        gmx_barrier(kenrefGroupComm(*currentInput_));
-    }
+    /* The pre-apply barrier that used to be here is gone. It was a no-op in disguise: every rank
+     * reaches this function through scatterModelDerivatives(), which now ends in a broadcast down the
+     * simulation's own communicator (or, at one rank per simulation, in nothing at all). A broadcast
+     * already orders every rank of the simulation against the root, so the barrier added a full
+     * synchronisation per step and bought nothing. Forces are written to disjoint local atoms, so
+     * there is nothing to order between ranks here anyway. */
     const auto &force = currentOutput_->forceWithVirial_.force_;
     //Finally, add them to corresponding atoms
     /* Each rank applies forces ONLY to the atoms it owns. There is no reduction here and there must
@@ -442,7 +478,7 @@ void KEnRefForceProvider::gatherFittedSubAtomsX(const std::vector<CoordsMatrixTy
      * a non-main rank is undefined. With one rank per replica every rank is a main rank, which is why
      * this has always worked and why the guard below changes nothing there. */
     const int subAtomsXSize = static_cast<int>(fitted.size());
-    if (!isSimMainRank_)
+    if (!isReplicaMasterRank())
         return;                   // this rank's atoms already reached the main rank via the reduction
     MPI_Gather(const_cast<KEnRef_Real_t *>(fitted.data()), subAtomsXSize, KENREF_MPI_REAL,
                this->allSimulationsSubAtomsX_->data(), subAtomsXSize, KENREF_MPI_REAL, 0, mainRanksComm_);
@@ -468,8 +504,13 @@ void KEnRefForceProvider::scatterModelDerivatives(const std::vector<CoordsMatrix
          *
          * No-op at one rank per simulation: that rank is its own main rank, the copy below is the
          * whole operation and the broadcast short-circuits on a size-1 communicator. */
+        /* The rank that fills the buffer MUST be the rank the broadcast is rooted at, which is the
+         * replica master. With a single replica that is also the rank the driver let compute, so
+         * allPerModel is populated exactly there -- assert it rather than rely on the coincidence. */
+        GMX_ASSERT(isReplicaMasterRank() == isEnsembleMasterRank(),
+                   "With one replica the replica master and the ensemble master must be the same rank");
         localPerModel.resize(1);
-        if (isSimMainRank_) {
+        if (isReplicaMasterRank()) {
             localPerModel[0] = allPerModel[0];
         } else {
             localPerModel[0].resize(nSub, 3);
@@ -483,7 +524,7 @@ void KEnRefForceProvider::scatterModelDerivatives(const std::vector<CoordsMatrix
     auto derivatives_buffer = this->derivatives_buffer_.get();
     // Master packs the per-model derivatives contiguously, then scatters one block to each replica.
     // As in gatherFittedSubAtomsX, only main ranks may use mainRanksComm_.
-    if (isSimMainRank_) {
+    if (isReplicaMasterRank()) {
         if (isEnsembleMasterRank()) {
             for (int m = 0; m < numSimulations_; ++m)
                 std::copy_n(allPerModel[m].data(), subAtomsXSize, &allDerivatives_buffer[m * subAtomsXSize]);
