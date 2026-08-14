@@ -331,13 +331,16 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     // -> model.compute -> scatter -> inverse-fit -> unit-scale -> saturate -> addLocalModelDerivatives.
     const KEnRef_Real_t energy = driver_->step(*this, /*printStatistics*/ (step % 10 == 0));
 
-    if ((step % 10 == 0) && simulationIndex_ == 0)
+    /* Report from ONE rank only. `energy` is returned by the driver on the rank that actually ran the
+     * model; every other rank gets 0, so gating on simulationIndex_ alone would print a spurious
+     * "Energy: 0" once per domain. */
+    if ((step % 10 == 0) && isEnsembleMasterRank())
         std::cout << "Step: " << step << " Energy: " << energy << std::endl;
 
     auto end = std::chrono::high_resolution_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin);
     this->calculateForces_time += elapsed.count();
-    if (!(step % 10) && simulationIndex_ == 0) {
+    if (!(step % 10) && isEnsembleMasterRank()) {
         printf("This iteration (%ld): %.5f seconds. All walltime %.3f seconds\n", step,
                static_cast<double>(elapsed.count()) * 1e-9,
                static_cast<double>(calculateForces_time) * 1e-9);
@@ -443,7 +446,7 @@ void KEnRefForceProvider::gatherFittedSubAtomsX(const std::vector<CoordsMatrixTy
         return;                   // this rank's atoms already reached the main rank via the reduction
     MPI_Gather(const_cast<KEnRef_Real_t *>(fitted.data()), subAtomsXSize, KENREF_MPI_REAL,
                this->allSimulationsSubAtomsX_->data(), subAtomsXSize, KENREF_MPI_REAL, 0, mainRanksComm_);
-    if (simulationIndex_ == 0) {
+    if (isEnsembleMasterRank()) {
         const Eigen::Index nSub = fitted.rows();
         all.resize(numSimulations_);
         for (int m = 0; m < numSimulations_; ++m) // zero-copy view of each model's slice, materialised by the copy
@@ -453,18 +456,35 @@ void KEnRefForceProvider::gatherFittedSubAtomsX(const std::vector<CoordsMatrixTy
 
 void KEnRefForceProvider::scatterModelDerivatives(const std::vector<CoordsMatrixType<KEnRef_Real_t>> &allPerModel,
                                                   std::vector<CoordsMatrixType<KEnRef_Real_t>> &localPerModel) const {
-    if (!isMultiSimulation_) {
-        localPerModel = allPerModel; // single replica
-        return;
-    }
     const int nSub = static_cast<int>(this->subAtomsX_->rows());
     const int subAtomsXSize = nSub * 3;
+    if (!isMultiSimulation_) {
+        /* Single replica. There is no cross-replica exchange, but under domain decomposition there is
+         * still more than one rank here, and only the simulation's MAIN rank ran the model: the driver
+         * gates that on simulationIndex()==0, which we deliberately report as -1 off the main rank so
+         * the ensemble is assembled exactly once. So `allPerModel` is populated on the main rank and
+         * EMPTY everywhere else, and simply copying it would leave the other ranks indexing an empty
+         * vector. Size the destination and broadcast the main rank's result down the simulation.
+         *
+         * No-op at one rank per simulation: that rank is its own main rank, the copy below is the
+         * whole operation and the broadcast short-circuits on a size-1 communicator. */
+        localPerModel.resize(1);
+        if (isSimMainRank_) {
+            localPerModel[0] = allPerModel[0];
+        } else {
+            localPerModel[0].resize(nSub, 3);
+            localPerModel[0].setZero();
+        }
+        kenrefBcastFromSimMain(*currentInput_, localPerModel[0].data(),
+                               static_cast<std::size_t>(subAtomsXSize));
+        return;
+    }
     auto allDerivatives_buffer = this->allDerivatives_buffer_.get();
     auto derivatives_buffer = this->derivatives_buffer_.get();
     // Master packs the per-model derivatives contiguously, then scatters one block to each replica.
     // As in gatherFittedSubAtomsX, only main ranks may use mainRanksComm_.
     if (isSimMainRank_) {
-        if (simulationIndex_ == 0) {
+        if (isEnsembleMasterRank()) {
             for (int m = 0; m < numSimulations_; ++m)
                 std::copy_n(allPerModel[m].data(), subAtomsXSize, &allDerivatives_buffer[m * subAtomsXSize]);
         }

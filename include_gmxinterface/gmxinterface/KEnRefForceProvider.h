@@ -182,6 +182,19 @@ public:
 	 * keeps that test meaning exactly what EngineAdapter documents it to mean. Unchanged at one rank
 	 * per replica, where every rank is its simulation's main rank. */
 	[[nodiscard]] int simulationIndex() const override { return isSimMainRank_ ? simulationIndex_ : -1; }
+
+	/*! \brief Whether this is THE ONE rank in the whole run that speaks for the ensemble.
+	 *
+	 * True on exactly one rank of the entire job: the main rank of replica 0. That rank is the one
+	 * that assembles every replica's coordinates, runs the energy model, and therefore holds the only
+	 * meaningful energy value -- every other rank gets 0 back from the driver.
+	 *
+	 * BOTH halves are needed, and each fails differently on its own:
+	 *  - `simulationIndex_ == 0` alone is true on EVERY rank of replica 0 under domain decomposition,
+	 *    so per-domain duplicates appear (and, in the driver, the model would run once per domain).
+	 *  - `isSimMainRank_` alone is true on the main rank of EVERY replica, so each replica reports.
+	 * Keeping the pair in one named place stops the two copies drifting apart. */
+	[[nodiscard]] bool isEnsembleMasterRank() const { return simulationIndex_ == 0 && isSimMainRank_; }
 	void gatherFittedSubAtomsX(const std::vector<CoordsMatrixType<KEnRef_Real_t>> &localFitted,
 	                           std::vector<CoordsMatrixType<KEnRef_Real_t>> &all) const override;
 	void scatterModelDerivatives(const std::vector<CoordsMatrixType<KEnRef_Real_t>> &allPerModel,
