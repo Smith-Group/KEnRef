@@ -7,7 +7,9 @@
 #include <iostream>
 //#include <typeinfo>
 #include <cmath>
+#include <algorithm>    // std::min, in the make-whole plausibility check
 #include <cstdlib>      // std::getenv, for the KENREF_DD_SELFCHECK switch
+#include <limits>       // std::numeric_limits, same
 #include <filesystem>   // std::filesystem::absolute — pulled in transitively by libc++, NOT by libstdc++
 #include <memory>
 #include <vector>
@@ -173,6 +175,105 @@ inline void kenrefBcastFromSimMain(const gmx::ForceProviderInput &in, KEnRef_Rea
     MPI_Bcast(data, static_cast<int>(count), KENREF_MPI_REAL, 0, comm);
 }
 
+/*! \brief Re-image an assembled atom set so it is CONTIGUOUS ("whole") across periodic boundaries.
+ *
+ * Why this is needed at all: under domain decomposition GROMACS wraps atoms into the box, so it can
+ * hand us an atom a whole box vector away from where a serial run has it (measured on
+ * res/sigma/md_single: 4011 of 16203 coordinates in the first frame, e.g. atom 175 at x=0.0140 serial
+ * versus x=6.1364 decomposed with box_x=6.1224). A restrained molecule straddling a boundary is then
+ * BROKEN, and both the Kabsch fit and the pair distances are computed on a distorted structure -- a
+ * silently wrong answer, not a crash.
+ *
+ * The method places every atom at the periodic image nearest a single ANCHOR POINT, rather than
+ * nearest its predecessor in the list. The predecessor rule is what PLUMED's WHOLEMOLECULES does, and
+ * it is wrong here: these sets are SELECTED atoms, not a contiguous chain. The guide set for
+ * res/sigma/md_single runs 38, 59, 81, 100, 116, 233, ... -- a 117-atom jump -- so consecutive entries
+ * can be nanometres apart and "nearest image to my predecessor" re-images atoms that were perfectly
+ * placed. Measured: the chain rule changed the SERIAL energy from 0.00125246 to 3.65155e-05.
+ *
+ * Anchoring works because the restrained atoms belong to one compact molecule: every atom is within
+ * the molecule's radius of the anchor, and as long as that radius is below half the smallest box
+ * vector the nearest image is unambiguous and is the correct one.
+ * kenrefCheckWholeSetIsPlausible() tests exactly that condition rather than assuming it.
+ *
+ * On input that is ALREADY whole this is a bit-for-bit no-op: every atom is already its own nearest
+ * image to the anchor, so no shift is computed and no coordinate is rewritten. That is what lets it run
+ * unconditionally rather than only under DD -- one code path, and a serial run whose molecule wrapped
+ * gets fixed too.
+ *
+ * \p box is GROMACS's lower-triangular normal form (box[0]={xx,0,0}, box[1]={yx,yy,0},
+ * box[2]={zx,zy,zz}), so images are reduced highest dimension first: the standard triclinic reduction.
+ * Coordinates, anchor and box must be in the SAME units (nm here -- this runs before the conversion to
+ * Angstrom). */
+inline void kenrefMakeSetWhole(CoordsMatrixType<KEnRef_Real_t> &x, const matrix box,
+                               const KEnRef_Real_t anchor[3]) {
+    for (Eigen::Index i = 0; i < x.rows(); ++i) {
+        KEnRef_Real_t d[3];
+        for (int k = 0; k < 3; ++k)
+            d[k] = x(i, k) - anchor[k];
+
+        bool shifted = false;
+        for (int k = 2; k >= 0; --k) {           // highest dimension first: triclinic reduction
+            const auto boxkk = static_cast<KEnRef_Real_t>(box[k][k]);
+            if (boxkk <= KEnRef_Real_t(0))
+                continue;                         // degenerate/absent dimension
+            const KEnRef_Real_t half = boxkk / KEnRef_Real_t(2);
+            while (d[k] > half) {
+                for (int j = 0; j <= k; ++j)
+                    d[j] -= static_cast<KEnRef_Real_t>(box[k][j]);
+                shifted = true;
+            }
+            while (d[k] < -half) {
+                for (int j = 0; j <= k; ++j)
+                    d[j] += static_cast<KEnRef_Real_t>(box[k][j]);
+                shifted = true;
+            }
+        }
+        // Only rewrite when a shift was actually needed, so already-whole input is untouched bitwise.
+        if (shifted)
+            for (int k = 0; k < 3; ++k)
+                x(i, k) = anchor[k] + d[k];
+    }
+}
+
+//! Centroid of an assembled set, used as the anchor for make-whole.
+inline void kenrefSetCentroid(const CoordsMatrixType<KEnRef_Real_t> &x, KEnRef_Real_t centroid[3]) {
+    for (int k = 0; k < 3; ++k)
+        centroid[k] = x.rows() > 0 ? x.col(k).mean() : KEnRef_Real_t(0);
+}
+
+/*! \brief Check the condition kenrefMakeSetWhole() rests on: the set is COMPACT around its anchor.
+ *
+ * The nearest image is only unambiguous while every atom lies within half a box vector of the anchor.
+ * Beyond that the rule can place an atom in the wrong cell and quietly distort the structure, which
+ * nothing downstream would notice -- so it is refused here instead. Runs under KENREF_DD_SELFCHECK=1
+ * alongside the ownership check. */
+inline void kenrefCheckWholeSetIsPlausible(const CoordsMatrixType<KEnRef_Real_t> &x, const matrix box,
+                                           const KEnRef_Real_t anchor[3], const char *what) {
+    KEnRef_Real_t smallestBoxVector = std::numeric_limits<KEnRef_Real_t>::max();
+    for (int k = 0; k < 3; ++k)
+        if (box[k][k] > 0)
+            smallestBoxVector = std::min(smallestBoxVector, static_cast<KEnRef_Real_t>(box[k][k]));
+    const KEnRef_Real_t limit = smallestBoxVector / KEnRef_Real_t(2);
+
+    for (Eigen::Index i = 0; i < x.rows(); ++i) {
+        const KEnRef_Real_t dx = x(i, 0) - anchor[0];
+        const KEnRef_Real_t dy = x(i, 1) - anchor[1];
+        const KEnRef_Real_t dz = x(i, 2) - anchor[2];
+        const KEnRef_Real_t dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (dist > limit) {
+            gmx_fatal(FARGS,
+                      "KEnRef make-whole is not reliable for the '%s' atom set: atom %ld sits %g nm "
+                      "from the set's anchor, which exceeds half the smallest box vector (%g nm). "
+                      "Atoms are placed at the periodic image nearest that anchor, which is only "
+                      "unambiguous while the restrained atoms are compact relative to the box. This "
+                      "selection is too extended for that, and needs a connectivity-aware make-whole.",
+                      what, static_cast<long>(i), static_cast<double>(dist),
+                      static_cast<double>(limit));
+        }
+    }
+}
+
 /*! \brief Whether the domain-decomposition self-check is switched on (KENREF_DD_SELFCHECK=1).
  *
  * Off by default: the check costs an extra allreduce per atom set per step. Read once. */
@@ -297,17 +398,6 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     if (!paramsInitialized) {
         GMX_ASSERT(check_box(PbcType::Unset, forceProviderInput.box_) == nullptr, "Invalid box.");
 
-        /* Domain decomposition IS supported. It used to be refused here, because the code resolved every
-         * sub-atom and guide atom through ga2la->findHome() and dereferenced the result unchecked, and
-         * ran the per-replica MPI_Gather/MPI_Scatter on mainRanksComm_ from every rank. Both assumptions
-         * ("every atom is home", "every rank is a main rank") only hold at one rank per simulation.
-         *
-         * What replaced them: the atoms of each set are located through a gmx::LocalAtomSet that DD keeps
-         * up to date across repartitions; each rank fills only the rows it owns and a sum over the
-         * simulation's ranks reconstructs the whole set exactly (see kenrefSumOverSimRanks); the
-         * cross-replica collectives are restricted to replica master ranks and the result is broadcast
-         * down each replica. KENREF_DD_SELFCHECK=1 verifies the one property all of that rests on --
-         * that every row has exactly one owning rank. */
         /* Domain decomposition is IMPLEMENTED but still refused, because it does not yet give the same
          * answer as a serial run -- see below. Set KENREF_ALLOW_DD=1 to run it anyway (for development
          * and for the validation harness); the numbers will be wrong for any molecule that straddles a
@@ -411,9 +501,50 @@ int KEnRefForceProvider::numOmpThreads() const {
 void KEnRefForceProvider::getLocalModelX(int /*localModel*/, CoordsMatrixType<KEnRef_Real_t> &guideX,
                                          CoordsMatrixType<KEnRef_Real_t> &subX,
                                          Eigen::Matrix<KEnRef_Real_t, 3, 3> &box) const {
-    guideX = getGuideAtomsX(*currentInput_, true);
+    /* Assemble both sets UNSCALED (nm), because make-whole needs the coordinates and the box in the
+     * same units; the conversion to Angstrom happens once both are whole. */
+    guideX = getGuideAtomsX(*currentInput_, /*toAngstrom*/ false);
     subX.resize(static_cast<Eigen::Index>(this->sub0Id_to_global1Id_->size()), 3);
-    fillSubAtomsX(subX, *currentInput_, true);
+    fillSubAtomsX(subX, *currentInput_, /*toAngstrom*/ false);
+
+    /* Make both sets whole, in ONE shared frame.
+     *
+     * The guide set is anchored first on its own atom 0 and then re-anchored on the resulting centroid.
+     * Two passes because atom 0 may sit at one end of the molecule, which would leave the far end close
+     * to the half-box limit; the centroid is the most forgiving anchor available.
+     *
+     * The sub set is then anchored on that SAME guide centroid rather than on its own. This matters:
+     * the Kabsch transform is derived from the guide atoms and applied to the sub atoms, so if the two
+     * sets landed in different periodic images the fit would be applied to a structure displaced by a
+     * box vector -- a large, entirely silent error. Sharing the anchor makes that impossible.
+     *
+     * ONLY under domain decomposition. Without DD the coordinates arrive exactly as the tpr holds them,
+     * already whole, and re-imaging them is not merely unnecessary but actively harmful whenever the
+     * molecule approaches the size of the box -- measured on res/sigma/md_single, applying it in serial
+     * changed the energy from 0.00125246 to 3.65155e-05 by pulling the far end of the protein across the
+     * boundary. So the supported configuration keeps the coordinates it always had, and this runs only
+     * where GROMACS has actually wrapped them.
+     *
+     * The plausibility check is NOT optional here: whenever re-imaging happens it must be verified,
+     * because a wrong image is silent. It is deliberately not tied to KENREF_DD_SELFCHECK. */
+    if (kenrefHavePPDomainDecomposition(*currentInput_)) {
+        KEnRef_Real_t anchor[3];
+        if (guideX.rows() > 0) {
+            for (int k = 0; k < 3; ++k)
+                anchor[k] = guideX(0, k);
+            kenrefMakeSetWhole(guideX, currentInput_->box_, anchor);
+            kenrefSetCentroid(guideX, anchor);
+            kenrefMakeSetWhole(guideX, currentInput_->box_, anchor);
+        } else {
+            kenrefSetCentroid(subX, anchor);
+        }
+        kenrefMakeSetWhole(subX, currentInput_->box_, anchor);
+        kenrefCheckWholeSetIsPlausible(guideX, currentInput_->box_, anchor, "guide");
+        kenrefCheckWholeSetIsPlausible(subX, currentInput_->box_, anchor, "sub");
+    }
+
+    guideX *= 10;   // nm -> Angstrom, deferred until after make-whole
+    subX *= 10;
     // GROMACS box (nm, real[3][3]) -> Eigen 3x3 (raw; the driver scales it to Angstrom via toAngstrom).
     const matrix &b = currentInput_->box_;
     for (int i = 0; i < 3; ++i)
@@ -596,6 +727,8 @@ void KEnRefForceProvider::fillOwnedRows(CoordsMatrixType<KEnRef_Real_t> &dest,
     // Combine the per-rank contributions BEFORE any scaling: every row has exactly one non-zero
     // contributor, so the sum is exact and rank-count independent. No-op at one rank per replica.
     kenrefSumOverSimRanks(forceProviderInput, dest.data(), nRows * 3u);
+    /* Periodic re-imaging is NOT done here. Both sets must be made whole in one shared frame, so that
+     * happens once in getLocalModelX() after both have been assembled -- see the comment there. */
 }
 
 void KEnRefForceProvider::fillSubAtomsX(CoordsMatrixType<KEnRef_Real_t> &subAtomsX,
