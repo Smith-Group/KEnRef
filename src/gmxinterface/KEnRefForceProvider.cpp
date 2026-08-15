@@ -314,9 +314,17 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
                       "this simulation has %d PP ranks, and no bond connectivity is available. Under "
                       "domain decomposition coordinates are wrapped into the box, so a restrained "
                       "molecule crossing a periodic boundary must be repaired using its bonds before "
-                      "the restraint is computed. Run ONE RANK PER SIMULATION -- e.g. `mpirun -np <N> "
-                      "... -multidir <N directories>` -- or reduce the rank count so no simulation is "
-                      "decomposed. Threads are unaffected: -ntomp is free to use.",
+                      "the restraint is computed.\n"
+                      "This is unusual and probably a WIRING problem rather than a user error: the "
+                      "topology normally arrives via the simulation-setup notification, and KEnRef "
+                      "subscribes to it itself from its own mdrun.cpp (GROMACS does not deliver "
+                      "notifications to externally added modules). If the line 'KEnRef: topology "
+                      "received' is missing from the output, that subscription has regressed.\n"
+                      "To proceed meanwhile, run ONE RANK PER SIMULATION -- e.g. `mpirun -np <N> ... "
+                      "-multidir <N directories>` -- or reduce the rank count so no simulation is "
+                      "decomposed. Threads are unaffected: -ntomp is free to use. Note that this only "
+                      "avoids the decomposition; if the molecule is split across a periodic boundary "
+                      "the run will still be refused, because the restraint would be wrong either way.",
                       kenrefDd(forceProviderInput)->nnodes);
         }
 

@@ -62,6 +62,32 @@ coordinate frames directly and never pass through the GROMACS force provider, so
 apply to them. They still agree with R, which reads the same frames. Whether those *frames* are
 themselves periodically broken is a separate, still-open question about the offline path.
 
+## The reference PDB is broken too — but its guide atoms are not
+
+`GB3_27_10us.pdb` is byte-identical in all five sets (md5 `693ea2af8dc920348450c52cd61843d2`): there is
+one reference structure, copied five times. It is **split in the same way as the tpr** — the same 28.6 A
+void in x. Exactly **12 atoms** are on the wrong side, all side-chain atoms of LYS 10 and THR 11
+(including THR 11's methyl `CG2`/`HG2x`, the kind of proton the restraint data uses).
+
+The 33 guide C-alphas are **not** among them: they span 19.5 / 14.0 / 19.9 A with a largest gap of
+3.2 A, i.e. whole. That is the only reason the Kabsch fit survived — the fit reads guide atoms only. It
+is luck, not design: had one guide atom been in that wrapped fragment, the superposition itself would
+have been garbage rather than merely the pair distances.
+
+**Would a whole reference PDB be enough?** It depends which engine:
+
+* **GROMACS — irrelevant.** The live coordinates come from the tpr and are repaired from the topology.
+  The reference is used only for the guide atoms, which are already whole.
+* **PLUMED — yes, and it is the enabler.** PLUMED cannot repair today because
+  `ActionAtomistic::makeWhole()` builds its spanning tree from the MOLINFO *reference* coordinates; with
+  a broken reference the wrapped fragment is linked by a 29.17 A edge against a 30.61 A half-box, so
+  minimum-image does nothing. Give it a **whole** reference and every tree edge becomes short and the
+  repair works. So making this PDB whole is the prerequisite for a real PLUMED-side fix, not a cosmetic
+  tidy-up.
+
+Regenerate with `gmx trjconv -pbc mol` (or `-pbc whole`) using the tpr for connectivity. Keep the broken
+copy under a name that says so, as was done for the tpr.
+
 ## Consequence for the PLUMED side (open)
 
 `KEnRefBias` takes coordinates from `getPositions()` and never calls `makeWhole()`

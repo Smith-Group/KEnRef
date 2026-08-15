@@ -39,6 +39,51 @@ package is at `/home/amr/PycharmProjects/ke` (load with `pkgload::load_all(...)`
 The `port-ke-function` skill documents the full porting + fixture-generation + test workflow. Do not
 optimize or refactor a kernel in a way that breaks the bit-for-bit match with R.
 
+## Periodic boundaries: the restrained molecule must be WHOLE
+KEnRef restrains a *whole* molecule — the Kabsch superposition and the pair distances are global and
+have **no cutoff**. A molecule split across a periodic boundary therefore does not fail; it quietly
+returns a different energy and different forces. This is the project's characteristic failure mode and
+it was live until 2026-08: every serial run against the committed GB3 sets was refining a torn protein
+(`res/PBC-BROKEN.md` has the measurements).
+
+- **The GROMACS engine repairs it** from the topology's bond connectivity (`KEnRefMoleculeGraph`,
+  a BFS spanning tree; bonds are ~0.1 nm so the periodic image is never ambiguous). It runs
+  unconditionally and is a **bitwise no-op** on already-whole input — so it must stay that way; any
+  change that perturbs whole input is a bug. `KENREF_NO_MAKEWHOLE=1` turns the repair off, so the same
+  binary can be run twice — once repairing, once not — to see exactly what the repair changed, and to
+  reproduce pre-2026-08 numbers.
+- **No distance-only heuristic works.** Both were implemented and measured, and both broke
+  already-whole structures. "Nearest image to my predecessor" fails because the restrained selections
+  are *sparse*: the guide list holds selected C-alphas, so two entries that are adjacent **in the list**
+  can be far apart **in the molecule** — entries 5 and 6 are atoms 116 and 233, 117 atoms apart — and the
+  rule then re-images atoms that were correctly placed. "Nearest image to a shared anchor" fails because
+  GB3 reaches marginally further from its centroid (2.171 nm) than half its shortest box vector
+  (2.165 nm), past which the nearest image is simply the wrong one. Connectivity is not optional.
+- **PLUMED cannot repair it** — it is never given a topology — so `KEnRefDriver` refuses instead
+  (`enablePeriodicSplitCheck`, enabled by both engines). PLUMED's own `makeWhole()` is *not* a
+  substitute: with MOLINFO it walks a spanning tree built from the *reference* coordinates, and when
+  the reference is broken the same way as the frames the fragment is linked by an edge shorter than
+  half the box, so minimum-image leaves it in place (measured: 29.17 Å against a 30.61 Å half-box).
+- **Check the reference file too.** `GB3_27_10us.pdb` is itself split. Its *guide* atoms happen to be
+  whole, which is the only reason the fit survived.
+
+**Testing rule:** never validate on the broken fixture alone. Every test contrasts
+`md-00_PBC-BROKEN.tpr` against a known-whole system (ubiquitin: `res/10nsstart+fitting/t000.00.tpr`).
+Agreement between two computations sharing one broken input looks exactly like correctness — which is
+how this survived engine-vs-engine, byte-identity and R-ground-truth checks for so long.
+
+## Domain decomposition (GROMACS)
+Supported **when the topology is available**, which is how the coordinates get repaired; refused
+otherwise. "Topology" here means GROMACS's in-memory `gmx_mtop_t`, which it builds from the **tpr** —
+no separate `.top` is needed at run time, and it is therefore present in any normal run. KEnRef gets it
+by subscribing to the simulation-setup notification *itself* from its own `mdrun.cpp`, because GROMACS
+does not deliver notifications to externally added modules; so "topology unavailable" in practice means
+that subscription has regressed, not that the user did anything wrong. PLUMED is different: it receives
+positions and the box, never a topology, which is why it cannot repair and must refuse. `KENREF_DD_SELFCHECK=1` verifies the property the parallel design rests on — that every row
+of a gathered set is written by exactly one rank — and is validated by fault injection, not just by
+passing. Verified rank-count independent: 1, 2, 4 and `-npme 1` give bit-identical step-0 energies.
+Note `mpi_comm_mygroup` excludes PME-only ranks, so the reductions never involve them.
+
 ## Hot-kernel / OpenMP conventions
 KEnRef kernels run inside MD refinement (per step, over many atom pairs × models), so inner kernels
 in `KEnRef.cpp` are hot. Optimize them — but only after a correct, R-validated baseline exists.
