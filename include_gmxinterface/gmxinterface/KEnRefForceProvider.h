@@ -25,6 +25,7 @@
 #include <chrono>
 
 #include "gmxwrapper.h"
+#include "gmxinterface/KEnRefMoleculeGraph.h"
 #include "core/KEnRef.h"
 #include "core/DefaultEngineAdapter.h"
 #include "core/KEnRefDriver.h"
@@ -91,6 +92,22 @@ private:
 	std::optional<gmx::LocalAtomSet> subAtomSet_;
 	std::optional<gmx::LocalAtomSet> guideAtomSet_;
 
+	// ---- periodic make-whole: the full molecule, its connectivity, and the per-step scratch ----
+	//! Global topology; source of the bond connectivity. Null when the notification never arrived.
+	const gmx_mtop_t *mtop_ = nullptr;
+	//! Bond graph + spanning tree over every molecule containing a restrained atom.
+	KEnRefMoleculeGraph moleculeGraph_;
+	/*! \brief The graph's atoms as a LocalAtomSet, so the full molecule can be gathered under DD.
+	 *
+	 * This is the whole molecule (~850 atoms for GB3), not the restrained subset: connectivity is what
+	 * makes the image unambiguous, and the sparse selections have none of their own. */
+	std::optional<gmx::LocalAtomSet> moleculeAtomSet_;
+	//! Per-step scratch holding the gathered, made-whole molecule. Allocated once at setup.
+	mutable CoordsMatrixType<KEnRef_Real_t> moleculeX_;
+	//! Row within moleculeX_ of each guide / sub atom, so the sets can be sliced back out.
+	std::vector<int> guideRowInMolecule_;
+	std::vector<int> subRowInMolecule_;
+
 public:
 	EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
@@ -116,6 +133,12 @@ public:
 	 * Must be called before initParamsAtSetup(), which does the registering. Passing nullptr is
 	 * allowed and simply leaves KEnRef on its ga2la fallback. */
 	void setLocalAtomSetManager(gmx::LocalAtomSetManager *manager);
+
+	/*! \brief Hand over the global topology, before initParamsAtSetup() builds the bond graph.
+	 *
+	 * Passing nullptr is allowed: make-whole is then unavailable, which is refused under domain
+	 * decomposition (where it is required) and irrelevant without it. */
+	void setTopology(const gmx_mtop_t *mtop);
 
 	void setGuideAtom0Indices(std::shared_ptr<std::vector<int> const> targetAtoms0Indices);
 

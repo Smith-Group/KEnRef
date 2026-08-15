@@ -86,7 +86,9 @@ runlog() { local label=$1; shift
 do_set() {
   local MODEL=$1 SET=$2 NREP=$3 EXPKIND=$4 EXPVAL=$5 K=$6
   local name=$(basename "$SET"); local tag="${MODEL,,}_${name}"
-  local d="$WORK/$tag"; local NDX="$SET/KEnRefAtomIndex.ndx" TPR="$SET/md-00.tpr"
+  # md-00_PBC-BROKEN.tpr: the protein is SPLIT across a periodic boundary (see res/PBC-BROKEN.md).
+  # Deliberate: it makes this smoke test cover the make-whole path on real data.
+  local d="$WORK/$tag"; local NDX="$SET/KEnRefAtomIndex.ndx" TPR="$SET/md-00_PBC-BROKEN.tpr"
   local reps=""; for i in $(seq 1 "$NREP"); do r=$(printf "repl_%02d" "$i"); mkdir -p "$d/$r"; cp "$TPR" "$d/$r/md.tpr"; reps="$reps $r"; done
   local MULTI=""; [ "$NREP" -gt 1 ] && MULTI="-multidir$reps"
   local wd="$d"; [ "$NREP" -eq 1 ] && wd="$d/repl_01"

@@ -44,7 +44,7 @@ target_include_directories(Google_tests_kenref_core_exe PRIVATE
 gtest_discover_tests(Google_tests_kenref_core_exe)
 
 if(BUILD_KENREF_GMX OR TARGET kenref_gmxinterface)
-	add_executable(Google_tests_kenref_gmxinterface_exe testKEnRefForceProvider.cpp testSimdSignature.cpp)
+	add_executable(Google_tests_kenref_gmxinterface_exe testKEnRefForceProvider.cpp testSimdSignature.cpp testMoleculeGraph.cpp)
 	if(TARGET KENREF::CORE)
 		target_link_libraries(Google_tests_kenref_gmxinterface_exe gtest gtest_main KENREF::CORE kenref_gmxinterface)
 	else()
@@ -54,6 +54,7 @@ if(BUILD_KENREF_GMX OR TARGET kenref_gmxinterface)
 		${gtest_SOURCE_DIR}/include
 		${gtest_SOURCE_DIR}
 		${CMAKE_CURRENT_SOURCE_DIR}/../include_core
+		${CMAKE_CURRENT_SOURCE_DIR}/../include_gmxinterface
 	)
 	gtest_discover_tests(Google_tests_kenref_gmxinterface_exe)
 endif()

@@ -67,6 +67,7 @@ void KEnRefMDModule::initForceProviders(gmx::ForceProviders* forceProviders) {
 	 * the manager, and well before the MD loop's first dd_partition_system(), which is the last moment
 	 * an atom set may be registered and still be indexed correctly from the first partition on. */
 	forceProvider_->setLocalAtomSetManager(localAtomSetManager_);
+	forceProvider_->setTopology(mtop_);
 	forceProvider_->initParamsAtSetup();
 	forceProviders->addForceProvider(forceProvider_.get());
 }
@@ -98,6 +99,17 @@ void KEnRefMDModule::subscribeToSimulationSetupNotifications(gmx::MDModulesNotif
 		          << ") — simulation-setup notification reached the module" << std::endl;
 	};
 	notifiers->simulationSetupNotifier_.subscribe(storeLocalAtomSetManager);
+
+	/* The global topology, which is where the BOND CONNECTIVITY comes from. It is the only way to
+	 * repair periodic images correctly: a protein can be wider than half the box, so no purely
+	 * distance-based rule can decide the right image, whereas a bond is ~0.1 nm and never ambiguous.
+	 * Emitted on the same notifier, so it arrives before initForceProviders() builds the graph. */
+	const auto storeTopology = [this](const gmx_mtop_t &mtop) {
+		this->mtop_ = &mtop;
+		std::cout << "KEnRef: topology received (" << mtop.natoms << " atoms, "
+		          << mtop.moltype.size() << " molecule types)" << std::endl;
+	};
+	notifiers->simulationSetupNotifier_.subscribe(storeTopology);
 }
 
 //! Subscribe to pre processing notifications

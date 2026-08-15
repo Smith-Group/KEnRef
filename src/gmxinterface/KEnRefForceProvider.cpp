@@ -175,104 +175,6 @@ inline void kenrefBcastFromSimMain(const gmx::ForceProviderInput &in, KEnRef_Rea
     MPI_Bcast(data, static_cast<int>(count), KENREF_MPI_REAL, 0, comm);
 }
 
-/*! \brief Re-image an assembled atom set so it is CONTIGUOUS ("whole") across periodic boundaries.
- *
- * Why this is needed at all: under domain decomposition GROMACS wraps atoms into the box, so it can
- * hand us an atom a whole box vector away from where a serial run has it (measured on
- * res/sigma/md_single: 4011 of 16203 coordinates in the first frame, e.g. atom 175 at x=0.0140 serial
- * versus x=6.1364 decomposed with box_x=6.1224). A restrained molecule straddling a boundary is then
- * BROKEN, and both the Kabsch fit and the pair distances are computed on a distorted structure -- a
- * silently wrong answer, not a crash.
- *
- * The method places every atom at the periodic image nearest a single ANCHOR POINT, rather than
- * nearest its predecessor in the list. The predecessor rule is what PLUMED's WHOLEMOLECULES does, and
- * it is wrong here: these sets are SELECTED atoms, not a contiguous chain. The guide set for
- * res/sigma/md_single runs 38, 59, 81, 100, 116, 233, ... -- a 117-atom jump -- so consecutive entries
- * can be nanometres apart and "nearest image to my predecessor" re-images atoms that were perfectly
- * placed. Measured: the chain rule changed the SERIAL energy from 0.00125246 to 3.65155e-05.
- *
- * Anchoring works because the restrained atoms belong to one compact molecule: every atom is within
- * the molecule's radius of the anchor, and as long as that radius is below half the smallest box
- * vector the nearest image is unambiguous and is the correct one.
- * kenrefCheckWholeSetIsPlausible() tests exactly that condition rather than assuming it.
- *
- * On input that is ALREADY whole this is a bit-for-bit no-op: every atom is already its own nearest
- * image to the anchor, so no shift is computed and no coordinate is rewritten. That is what lets it run
- * unconditionally rather than only under DD -- one code path, and a serial run whose molecule wrapped
- * gets fixed too.
- *
- * \p box is GROMACS's lower-triangular normal form (box[0]={xx,0,0}, box[1]={yx,yy,0},
- * box[2]={zx,zy,zz}), so images are reduced highest dimension first: the standard triclinic reduction.
- * Coordinates, anchor and box must be in the SAME units (nm here -- this runs before the conversion to
- * Angstrom). */
-inline void kenrefMakeSetWhole(CoordsMatrixType<KEnRef_Real_t> &x, const matrix box,
-                               const KEnRef_Real_t anchor[3]) {
-    for (Eigen::Index i = 0; i < x.rows(); ++i) {
-        KEnRef_Real_t d[3];
-        for (int k = 0; k < 3; ++k)
-            d[k] = x(i, k) - anchor[k];
-
-        bool shifted = false;
-        for (int k = 2; k >= 0; --k) {           // highest dimension first: triclinic reduction
-            const auto boxkk = static_cast<KEnRef_Real_t>(box[k][k]);
-            if (boxkk <= KEnRef_Real_t(0))
-                continue;                         // degenerate/absent dimension
-            const KEnRef_Real_t half = boxkk / KEnRef_Real_t(2);
-            while (d[k] > half) {
-                for (int j = 0; j <= k; ++j)
-                    d[j] -= static_cast<KEnRef_Real_t>(box[k][j]);
-                shifted = true;
-            }
-            while (d[k] < -half) {
-                for (int j = 0; j <= k; ++j)
-                    d[j] += static_cast<KEnRef_Real_t>(box[k][j]);
-                shifted = true;
-            }
-        }
-        // Only rewrite when a shift was actually needed, so already-whole input is untouched bitwise.
-        if (shifted)
-            for (int k = 0; k < 3; ++k)
-                x(i, k) = anchor[k] + d[k];
-    }
-}
-
-//! Centroid of an assembled set, used as the anchor for make-whole.
-inline void kenrefSetCentroid(const CoordsMatrixType<KEnRef_Real_t> &x, KEnRef_Real_t centroid[3]) {
-    for (int k = 0; k < 3; ++k)
-        centroid[k] = x.rows() > 0 ? x.col(k).mean() : KEnRef_Real_t(0);
-}
-
-/*! \brief Check the condition kenrefMakeSetWhole() rests on: the set is COMPACT around its anchor.
- *
- * The nearest image is only unambiguous while every atom lies within half a box vector of the anchor.
- * Beyond that the rule can place an atom in the wrong cell and quietly distort the structure, which
- * nothing downstream would notice -- so it is refused here instead. Runs under KENREF_DD_SELFCHECK=1
- * alongside the ownership check. */
-inline void kenrefCheckWholeSetIsPlausible(const CoordsMatrixType<KEnRef_Real_t> &x, const matrix box,
-                                           const KEnRef_Real_t anchor[3], const char *what) {
-    KEnRef_Real_t smallestBoxVector = std::numeric_limits<KEnRef_Real_t>::max();
-    for (int k = 0; k < 3; ++k)
-        if (box[k][k] > 0)
-            smallestBoxVector = std::min(smallestBoxVector, static_cast<KEnRef_Real_t>(box[k][k]));
-    const KEnRef_Real_t limit = smallestBoxVector / KEnRef_Real_t(2);
-
-    for (Eigen::Index i = 0; i < x.rows(); ++i) {
-        const KEnRef_Real_t dx = x(i, 0) - anchor[0];
-        const KEnRef_Real_t dy = x(i, 1) - anchor[1];
-        const KEnRef_Real_t dz = x(i, 2) - anchor[2];
-        const KEnRef_Real_t dist = std::sqrt(dx * dx + dy * dy + dz * dz);
-        if (dist > limit) {
-            gmx_fatal(FARGS,
-                      "KEnRef make-whole is not reliable for the '%s' atom set: atom %ld sits %g nm "
-                      "from the set's anchor, which exceeds half the smallest box vector (%g nm). "
-                      "Atoms are placed at the periodic image nearest that anchor, which is only "
-                      "unambiguous while the restrained atoms are compact relative to the box. This "
-                      "selection is too extended for that, and needs a connectivity-aware make-whole.",
-                      what, static_cast<long>(i), static_cast<double>(dist),
-                      static_cast<double>(limit));
-        }
-    }
-}
 
 /*! \brief Whether the domain-decomposition self-check is switched on (KENREF_DD_SELFCHECK=1).
  *
@@ -398,45 +300,24 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
     if (!paramsInitialized) {
         GMX_ASSERT(check_box(PbcType::Unset, forceProviderInput.box_) == nullptr, "Invalid box.");
 
-        /* Domain decomposition is IMPLEMENTED but still refused, because it does not yet give the same
-         * answer as a serial run -- see below. Set KENREF_ALLOW_DD=1 to run it anyway (for development
-         * and for the validation harness); the numbers will be wrong for any molecule that straddles a
-         * periodic boundary.
+        /* Domain decomposition is supported, but ONLY with bond connectivity available.
          *
-         * The parallel machinery itself is correct and rank-count independent: 2, 4 and 3-with-`-npme 1`
-         * ranks all give bit-identical step-0 energies, and KENREF_DD_SELFCHECK=1 confirms every atom has
-         * exactly one owning rank. What differs is the COORDINATE CONVENTION. Under DD, GROMACS puts
-         * atoms in the box, so an atom can be handed to us one box vector away from where the serial run
-         * has it (measured: 4011 of 16203 coordinates in the very first frame; atom 175 at x=0.0140
-         * serially and x=6.1364 under DD, with box_x=6.1224). A restrained molecule spanning the boundary
-         * is therefore BROKEN, the Kabsch fit sees a distorted structure, and the energy changes -- on
-         * res/sigma/md_single, 0.00125246 serial versus 3.65155e-05 decomposed.
-         *
-         * Fixing this needs a make-whole / minimum-image step before fitting and before the pair
-         * distances are taken (PLUMED's WHOLEMOLECULES does the equivalent). restoreNoJump() cannot
-         * stand in for it: it corrects frame-to-frame jumps and does nothing on the first frame. */
-        const bool ddRequested = kenrefHavePPDomainDecomposition(forceProviderInput);
-        if (ddRequested) {
-            const char *allow = std::getenv("KENREF_ALLOW_DD");
-            const bool allowed = allow != nullptr && allow[0] != '\0' && allow[0] != '0';
-            if (!allowed) {
-                gmx_fatal(FARGS,
-                          "KEnRef does not yet support domain decomposition: this simulation has %d PP "
-                          "ranks. The parallel data flow is implemented and rank-count independent, but "
-                          "coordinates handed out under domain decomposition are wrapped into the box, so "
-                          "a restrained molecule crossing a periodic boundary is broken and the restraint "
-                          "is computed on a distorted structure. Run ONE RANK PER SIMULATION -- e.g. "
-                          "`mpirun -np <N> ... -multidir <N directories>` -- or reduce the rank count so "
-                          "no simulation is decomposed. Threads are unaffected: -ntomp is free to use. "
-                          "Set KENREF_ALLOW_DD=1 to override for development; results will be wrong.",
-                          kenrefDd(forceProviderInput)->nnodes);
-            }
-            if (isReplicaMasterRank()) {
-                std::cout << "KEnRef: WARNING -- running under domain decomposition because "
-                             "KENREF_ALLOW_DD is set. Coordinates are box-wrapped and molecules "
-                             "crossing a periodic boundary will give WRONG energies and forces."
-                          << std::endl;
-            }
+         * Under DD GROMACS hands out coordinates wrapped into the box, so a restrained molecule
+         * crossing a periodic boundary arrives broken and the restraint would be computed on a
+         * distorted structure -- silently. Repairing that requires the topology: walking bonds is the
+         * only unambiguous way to choose an image for a molecule that can be wider than half the box.
+         * Without the topology there is no way to repair it, so refuse rather than return wrong
+         * numbers. This mirrors GROMACS's own stance for whole-molecule-requiring features. */
+        if (kenrefHavePPDomainDecomposition(forceProviderInput) && !moleculeGraph_.isBuilt()) {
+            gmx_fatal(FARGS,
+                      "KEnRef cannot run under domain decomposition without the molecular topology: "
+                      "this simulation has %d PP ranks, and no bond connectivity is available. Under "
+                      "domain decomposition coordinates are wrapped into the box, so a restrained "
+                      "molecule crossing a periodic boundary must be repaired using its bonds before "
+                      "the restraint is computed. Run ONE RANK PER SIMULATION -- e.g. `mpirun -np <N> "
+                      "... -multidir <N directories>` -- or reduce the rank count so no simulation is "
+                      "decomposed. Threads are unaffected: -ntomp is free to use.",
+                      kenrefDd(forceProviderInput)->nnodes);
         }
 
         if (isReplicaMasterRank()) {
@@ -501,46 +382,58 @@ int KEnRefForceProvider::numOmpThreads() const {
 void KEnRefForceProvider::getLocalModelX(int /*localModel*/, CoordsMatrixType<KEnRef_Real_t> &guideX,
                                          CoordsMatrixType<KEnRef_Real_t> &subX,
                                          Eigen::Matrix<KEnRef_Real_t, 3, 3> &box) const {
-    /* Assemble both sets UNSCALED (nm), because make-whole needs the coordinates and the box in the
-     * same units; the conversion to Angstrom happens once both are whole. */
-    guideX = getGuideAtomsX(*currentInput_, /*toAngstrom*/ false);
-    subX.resize(static_cast<Eigen::Index>(this->sub0Id_to_global1Id_->size()), 3);
-    fillSubAtomsX(subX, *currentInput_, /*toAngstrom*/ false);
-
-    /* Make both sets whole, in ONE shared frame.
+    /* Two ways to obtain the restrained coordinates.
      *
-     * The guide set is anchored first on its own atom 0 and then re-anchored on the resulting centroid.
-     * Two passes because atom 0 may sit at one end of the molecule, which would leave the far end close
-     * to the half-box limit; the centroid is the most forgiving anchor available.
+     * (a) Via the WHOLE MOLECULE, when connectivity is available. Gather every atom of the molecules
+     *     that carry restrained atoms, repair the periodic images by walking the bond spanning tree,
+     *     then slice the guide and sub sets out of the result. This is what makes domain decomposition
+     *     correct: GROMACS hands out box-wrapped coordinates, so a molecule crossing a boundary arrives
+     *     broken, and only connectivity can say which image each atom belongs in. Both sets come out of
+     *     ONE repaired coordinate array, so they are necessarily in the same frame -- which the Kabsch
+     *     fit requires, since its transform is derived from the guide atoms and applied to the sub ones.
      *
-     * The sub set is then anchored on that SAME guide centroid rather than on its own. This matters:
-     * the Kabsch transform is derived from the guide atoms and applied to the sub atoms, so if the two
-     * sets landed in different periodic images the fit would be applied to a structure displaced by a
-     * box vector -- a large, entirely silent error. Sharing the anchor makes that impossible.
+     * (b) Directly, when there is no topology. Correct without domain decomposition, where coordinates
+     *     arrive exactly as the tpr holds them.
      *
-     * ONLY under domain decomposition. Without DD the coordinates arrive exactly as the tpr holds them,
-     * already whole, and re-imaging them is not merely unnecessary but actively harmful whenever the
-     * molecule approaches the size of the box -- measured on res/sigma/md_single, applying it in serial
-     * changed the energy from 0.00125246 to 3.65155e-05 by pulling the far end of the protein across the
-     * boundary. So the supported configuration keeps the coordinates it always had, and this runs only
-     * where GROMACS has actually wrapped them.
-     *
-     * The plausibility check is NOT optional here: whenever re-imaging happens it must be verified,
-     * because a wrong image is silent. It is deliberately not tied to KENREF_DD_SELFCHECK. */
-    if (kenrefHavePPDomainDecomposition(*currentInput_)) {
-        KEnRef_Real_t anchor[3];
-        if (guideX.rows() > 0) {
-            for (int k = 0; k < 3; ++k)
-                anchor[k] = guideX(0, k);
-            kenrefMakeSetWhole(guideX, currentInput_->box_, anchor);
-            kenrefSetCentroid(guideX, anchor);
-            kenrefMakeSetWhole(guideX, currentInput_->box_, anchor);
-        } else {
-            kenrefSetCentroid(subX, anchor);
+     * Path (a) is a bit-for-bit no-op on already-whole input -- every bond difference is already the
+     * minimum image, so nothing is rewritten -- which is why it can run unconditionally rather than only
+     * under DD, and why it does not perturb the serial results. */
+    if (moleculeGraph_.isBuilt()) {
+        fillOwnedRows(moleculeX_, moleculeAtomSet_, moleculeGraph_.atoms(), *currentInput_, "molecule");
+        /* Report at step 0 whether the input was actually broken. This is worth saying out loud: a
+         * molecule split across a periodic boundary is invisible in the output otherwise, and it
+         * silently changes the restraint. All five committed GB3 test sets are split this way. */
+        const KEnRef_Real_t longestBefore = moleculeGraph_.checkBondLengths(moleculeX_);
+        moleculeGraph_.makeWhole(moleculeX_, currentInput_->box_);
+        if (currentInput_->step_ == 0 && isReplicaMasterRank() && longestBefore > KEnRef_Real_t(0.5)) {
+            std::cout << "KEnRef: input molecule was SPLIT across a periodic boundary (longest bond "
+                      << longestBefore << " nm); repaired to " << moleculeGraph_.checkBondLengths(moleculeX_)
+                      << " nm using the topology's connectivity." << std::endl;
         }
-        kenrefMakeSetWhole(subX, currentInput_->box_, anchor);
-        kenrefCheckWholeSetIsPlausible(guideX, currentInput_->box_, anchor, "guide");
-        kenrefCheckWholeSetIsPlausible(subX, currentInput_->box_, anchor, "sub");
+
+        guideX.resize(static_cast<Eigen::Index>(guideRowInMolecule_.size()), 3);
+        for (std::size_t i = 0; i < guideRowInMolecule_.size(); ++i)
+            guideX.row(static_cast<Eigen::Index>(i)) = moleculeX_.row(guideRowInMolecule_[i]);
+        subX.resize(static_cast<Eigen::Index>(subRowInMolecule_.size()), 3);
+        for (std::size_t i = 0; i < subRowInMolecule_.size(); ++i)
+            subX.row(static_cast<Eigen::Index>(i)) = moleculeX_.row(subRowInMolecule_[i]);
+
+        if (kenrefDdSelfCheckEnabled()) {
+            /* A bond far longer than a chemical bond is the one way this construction fails, and it
+             * would otherwise be silent. 0.5 nm is generous for any bond or constraint. */
+            const KEnRef_Real_t longest = moleculeGraph_.checkBondLengths(moleculeX_);
+            if (longest > KEnRef_Real_t(0.5)) {
+                gmx_fatal(FARGS,
+                          "KEnRef make-whole left a bond of %g nm, which is far longer than any "
+                          "chemical bond. The connectivity and the coordinates disagree, so the "
+                          "restrained structure is not correctly re-imaged.",
+                          static_cast<double>(longest));
+            }
+        }
+    } else {
+        guideX = getGuideAtomsX(*currentInput_, /*toAngstrom*/ false);
+        subX.resize(static_cast<Eigen::Index>(this->sub0Id_to_global1Id_->size()), 3);
+        fillSubAtomsX(subX, *currentInput_, /*toAngstrom*/ false);
     }
 
     guideX *= 10;   // nm -> Angstrom, deferred until after make-whole
@@ -758,6 +651,10 @@ void KEnRefForceProvider::setLocalAtomSetManager(gmx::LocalAtomSetManager *manag
     this->localAtomSetManager_ = manager;
 }
 
+void KEnRefForceProvider::setTopology(const gmx_mtop_t *mtop) {
+    this->mtop_ = mtop;
+}
+
 void KEnRefForceProvider::initParamsAtSetup() {
     auto begin = std::chrono::high_resolution_clock::now();
 
@@ -831,9 +728,39 @@ void KEnRefForceProvider::initParamsAtSetup() {
     for (const int global1Id : *this->sub0Id_to_global1Id_)
         this->subGlobal0Ids_.push_back(global1Id - 1);
 
+    /* ---- bond connectivity for periodic make-whole ----
+     * Built over every molecule containing a restrained atom, from the global topology. This is what
+     * lets a molecule broken across a periodic boundary be repaired: walking bonds is unambiguous at
+     * any molecule size, whereas every distance-based rule fails once the molecule approaches half the
+     * box (measured here: 2.171 nm reach versus a 2.165 nm half-box). */
+    if (mtop_ != nullptr) {
+        std::vector<int> restrained = this->subGlobal0Ids_;
+        restrained.insert(restrained.end(), this->guideAtom0Indices_->begin(),
+                          this->guideAtom0Indices_->end());
+        moleculeGraph_.build(*mtop_, restrained);
+
+        if (moleculeGraph_.isBuilt()) {
+            moleculeX_.resize(static_cast<Eigen::Index>(moleculeGraph_.atoms().size()), 3);
+            guideRowInMolecule_.clear();
+            guideRowInMolecule_.reserve(this->guideAtom0Indices_->size());
+            for (const int g : *this->guideAtom0Indices_)
+                guideRowInMolecule_.push_back(moleculeGraph_.rowOf(g));
+            subRowInMolecule_.clear();
+            subRowInMolecule_.reserve(this->subGlobal0Ids_.size());
+            for (const int g : this->subGlobal0Ids_)
+                subRowInMolecule_.push_back(moleculeGraph_.rowOf(g));
+            std::cout << "KEnRef: molecule connectivity built -- " << moleculeGraph_.atoms().size()
+                      << " atoms in " << moleculeGraph_.numFragments() << " fragment(s)" << std::endl;
+        }
+    } else {
+        std::cout << "KEnRef: no topology available; periodic make-whole is disabled" << std::endl;
+    }
+
     if (localAtomSetManager_ != nullptr) {
         subAtomSet_ = localAtomSetManager_->add(this->subGlobal0Ids_);
         guideAtomSet_ = localAtomSetManager_->add(*this->guideAtom0Indices_); // already zero-based
+        if (moleculeGraph_.isBuilt())
+            moleculeAtomSet_ = localAtomSetManager_->add(moleculeGraph_.atoms());
         std::cout << "KEnRef: registered LocalAtomSets -- " << this->subGlobal0Ids_.size()
                   << " sub atoms, " << this->guideAtom0Indices_->size() << " guide atoms" << std::endl;
     } else {

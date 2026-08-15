@@ -88,7 +88,9 @@ EXP="$SET/singleton_data_GB3_3-5_all.csv"
 GUIDE_ATOMS=39,60,82,101,117,234,241,256,270,284,358,368,383,397,407,422,444,454,474,496,513,534,544,558,626,642,666,680,701,771,785
 
 prepare_case() {                           # prepare_case <dir>
-    local d="$1"; mkdir -p "$d"; cp "$SET/md-00.tpr" "$d/md.tpr" || return 1
+    # md-00_PBC-BROKEN.tpr: the protein is SPLIT across a periodic boundary in this input (see
+    # res/PBC-BROKEN.md). That is deliberate -- it exercises KEnRef's make-whole on real data.
+    local d="$1"; mkdir -p "$d"; cp "$SET/md-00_PBC-BROKEN.tpr" "$d/md.tpr" || return 1
     { echo "model = PLATEAUS"; echo 'guide = "guideC-alpha"'
       echo "index = \"$SET/KEnRefAtomIndex.ndx\""; echo "exp-data-file = \"$EXP\""
       echo "atomname-mapping = \"$REF\""; echo "ref = \"$REF\""; } > "$d/kenref.toml"

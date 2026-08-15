@@ -102,6 +102,11 @@ class KEnRefMDModule final: public gmx::IMDModule {
      * definition), so KEnRef arranges the call itself in its own mdrun.cpp. Treat null as "no manager
      * available" rather than as an error, so a build that has not been wired up still runs. */
     gmx::LocalAtomSetManager* localAtomSetManager_ = nullptr;
+    /*! \brief The global topology, delivered by the same simulation-setup notifier.
+     *
+     * Needed for the bond connectivity that drives make-whole. Null when the notification did not
+     * arrive, which the force provider treats as "no make-whole available" rather than as an error. */
+    const gmx_mtop_t* mtop_ = nullptr;
     std::shared_ptr<std::vector<int> const> guideAtoms0Indexed; //ZERO indexed
     std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> guideAtomsReferenceCoords_;
 
