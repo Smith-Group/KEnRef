@@ -398,7 +398,15 @@ void KEnRefForceProvider::getLocalModelX(int /*localModel*/, CoordsMatrixType<KE
      * Path (a) is a bit-for-bit no-op on already-whole input -- every bond difference is already the
      * minimum image, so nothing is rewritten -- which is why it can run unconditionally rather than only
      * under DD, and why it does not perturb the serial results. */
-    if (moleculeGraph_.isBuilt()) {
+    /* Escape hatch, for reproducing pre-repair results and for testing the driver's refusal check.
+     * Safe to offer only because that check exists: with the repair off, a torn structure is refused
+     * rather than silently refined. Read once. */
+    static const bool makeWholeDisabled = [] {
+        const char *e = std::getenv("KENREF_NO_MAKEWHOLE");
+        return e != nullptr && e[0] != '\0' && e[0] != '0';
+    }();
+
+    if (moleculeGraph_.isBuilt() && !makeWholeDisabled) {
         fillOwnedRows(moleculeX_, moleculeAtomSet_, moleculeGraph_.atoms(), *currentInput_, "molecule");
         /* Report at step 0 whether the input was actually broken. This is worth saying out loud: a
          * molecule split across a periodic boundary is invisible in the output otherwise, and it
@@ -784,6 +792,9 @@ void KEnRefForceProvider::initParamsAtSetup() {
     // ---- construct the driver that owns the model + the shared per-step pipeline ----
     this->driver_ = std::make_unique<kenref::KEnRefDriver<KEnRef_Real_t> >(
         std::move(mi.model), k, n, maxForceSquared, *this->guideAtomsReferenceCoordsCentered_);
+    // Live MD: the box really is the periodic box, so the split check is meaningful. It should never
+    // fire here, because make-whole runs first -- it is the backstop for when that fails or is off.
+    this->driver_->enablePeriodicSplitCheck();
 
     auto end = std::chrono::high_resolution_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin);

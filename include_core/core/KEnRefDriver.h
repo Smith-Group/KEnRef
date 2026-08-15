@@ -42,6 +42,17 @@ public:
         : model_(std::move(model)), k_(k), n_(n), maxForceSquared_(maxForceSquared),
           referenceGuideAtomsCoordsCentered_(std::move(guideAtomsReferenceCoordsCentered)) {}
 
+    /*! \brief Enable the periodic-split refusal (see the check in KEnRefDriver.cpp).
+     *
+     * OFF by default, and deliberately opt-in rather than automatic: the check compares the spread of
+     * the restrained atoms against the box, so it is only meaningful when the box really is the
+     * simulation's periodic box. A live engine knows that; a unit test feeding synthetic coordinates
+     * with a placeholder box does not, and would be failed spuriously by it.
+     *
+     * Both live engines turn it on -- GROMACS in initParamsAtSetup(), PLUMED in the KEnRefBias
+     * constructor -- so any real refinement is covered. */
+    void enablePeriodicSplitCheck(bool enable = true) { checkPeriodicSplit_ = enable; }
+
     // Run one MD step. Returns the total energy (valid on the master, simulationIndex()==0; 0 elsewhere).
     Real step(EngineAdapter<Real>& adapter, bool printStatistics = false);
 
@@ -54,6 +65,8 @@ private:
     Real n_;
     Real maxForceSquared_;
     CoordsMatrixType<Real> referenceGuideAtomsCoordsCentered_;
+    //! Whether to refuse structures split across a periodic boundary; see enablePeriodicSplitCheck().
+    bool checkPeriodicSplit_ = false;
 
     // Per-step scratch, reused across steps (one entry per model held by THIS process).
     std::vector<Eigen::Transform<Real, 3, Eigen::Affine>> affines_;

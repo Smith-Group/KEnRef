@@ -145,6 +145,19 @@ namespace PLMD::kenref {
                 ? maxForce_ * maxForce_ : std::numeric_limits<KEnRef_Real_t>::infinity();
         driver_ = std::make_unique<::kenref::KEnRefDriver<KEnRef_Real_t>>(
             std::move(mi.model), k_, n_, maxForceSquared, guideAtomsReferenceCoordsCentered_);
+        /* Refuse a molecule split across a periodic boundary rather than refining a torn structure.
+         *
+         * This matters MORE on the PLUMED side than on the GROMACS one. GROMACS repairs the
+         * coordinates from the topology before the driver sees them; PLUMED has no topology here and
+         * cannot, so this check is the only thing standing between a wrapped input and a silently
+         * wrong bias. PLUMED's own makeWhole() is not a substitute: it walks a spanning tree built
+         * from the MOLINFO *reference* coordinates, so when the reference is broken in the same way as
+         * the frames -- the usual case, both coming from one trajectory -- the fragment is linked by
+         * an edge shorter than half the box and minimum-image leaves it exactly where it was.
+         *
+         * Enabled here, in the KEnRef-side constructor, so it needs no change to the stable frame in
+         * the PLUMED repository (see the H3 split). */
+        driver_->enablePeriodicSplitCheck();
 
         // ---- gather/scatter scratch (allocated once) ----
         const size_t subSize = static_cast<size_t>(numSubAtoms_) * 3;
