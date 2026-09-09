@@ -59,18 +59,46 @@ it was live until 2026-08: every serial run against the committed GB3 sets was r
   rule then re-images atoms that were correctly placed. "Nearest image to a shared anchor" fails because
   GB3 reaches marginally further from its centroid (2.171 nm) than half its shortest box vector
   (2.165 nm), past which the nearest image is simply the wrong one. Connectivity is not optional.
-- **PLUMED cannot repair it** — it is never given a topology — so `KEnRefDriver` refuses instead
-  (`enablePeriodicSplitCheck`, enabled by both engines). PLUMED's own `makeWhole()` is *not* a
-  substitute: with MOLINFO it walks a spanning tree built from the *reference* coordinates, and when
-  the reference is broken the same way as the frames the fragment is linked by an edge shorter than
-  half the box, so minimum-image leaves it in place (measured: 29.17 Å against a 30.61 Å half-box).
-- **Check the reference file too.** `GB3_27_10us.pdb` is itself split. Its *guide* atoms happen to be
-  whole, which is the only reason the fit survived.
+- **PLUMED repairs it from the REFERENCE**, because it is never given a topology. `KEnRefBias` builds a
+  Euclidean minimum spanning tree over the requested atoms once, from the reference structure, and each
+  step walks it parents-before-children placing every atom at the image nearest its parent
+  (`makeRequestedAtomsWhole`). Like the GROMACS repair it is a **bitwise no-op** on whole input. An MST,
+  not a distance heuristic, for the reason above: its edges join genuine spatial neighbours, so each
+  minimum image is unambiguous.
+- **That makes the reference load-bearing on the PLUMED side.** A reference that is itself split has no
+  near neighbour for its wrapped fragment, so the tree reaches across the box to link it and every frame
+  is then walked through that bad edge. `KEnRefBias` therefore **refuses** at the first step if the
+  longest tree edge is not less than half the smallest box width. PLUMED's own `makeWhole()` has the
+  same weakness and no such guard: with MOLINFO it walks a tree over the *reference* too, and when the
+  reference is broken the same way as the frames the fragment is linked by an edge shorter than half the
+  box, so minimum-image leaves it in place (measured: 29.17 Å against a 30.61 Å half-box).
+- **`KEnRefDriver` still refuses as the backstop** (`enablePeriodicSplitCheck`, enabled by both
+  engines): repair first, refuse second. It tests for a **tear**, not a size — per lattice direction it
+  compares the extent as delivered against the smallest extent any choice of images could give (1 minus
+  the largest *cyclic* gap in fractional coordinates). These are equal exactly for a whole set, and
+  differ only when the largest gap is an interior void. The earlier version compared each atom's
+  distance from the centroid against half the smallest box vector, which is a test of SIZE and aborted
+  whole GB3 at ~step 120 of a 500-step run (21.657 vs a 21.6561 Å half-box).
+- **The reference files are now whole.** `GB3_27_10us.pdb` was split — 12 LYS10/THR11 side-chain atoms —
+  and was repaired 2026-08-23; the original is preserved beside it as `GB3_27_10us_PBC-BROKEN.pdb` in
+  all five sets. Its *guide* atoms happened to be whole, which is the only reason the fit ever survived.
+  Check any new reference the same way.
 
 **Testing rule:** never validate on the broken fixture alone. Every test contrasts
 `md-00_PBC-BROKEN.tpr` against a known-whole system (ubiquitin: `res/10nsstart+fitting/t000.00.tpr`).
 Agreement between two computations sharing one broken input looks exactly like correctness — which is
 how this survived engine-vs-engine, byte-identity and R-ground-truth checks for so long.
+
+**The two runtime gates** do exactly that, one per engine, both self-contained on committed fixtures:
+`./rt_validate.sh` (GROMACS: repaired → 3.65155e-05, ubiquitin → 7.18869e-08, `KENREF_NO_MAKEWHOLE=1`
+→ refuses) and `PLUMED=<plumed> ./rt_validate_plumed.sh` (the same two energies through PLUMED, plus a
+broken *reference* → refuses). The energies matching across the two scripts is the engine-agreement
+check. Run the PLUMED one at 500 steps too, not 10: the step-120 abort above was invisible below ~120.
+
+**Feed `plumed driver` a `.trr`, never a `.gro`.** GRO carries 0.001 nm. On these fixtures the step-0
+SIGMA energy is a near-zero residual, and that rounding alone moves 3.65155e-05 to 3.4e-03 — a factor
+of 90, with nothing actually wrong. `rt_validate_plumed.sh` emits the frame by running the tpr for zero
+steps for this reason.
 
 ## Domain decomposition (GROMACS)
 Supported **when the topology is available**, which is how the coordinates get repaired; refused
@@ -79,9 +107,20 @@ no separate `.top` is needed at run time, and it is therefore present in any nor
 by subscribing to the simulation-setup notification *itself* from its own `mdrun.cpp`, because GROMACS
 does not deliver notifications to externally added modules; so "topology unavailable" in practice means
 that subscription has regressed, not that the user did anything wrong. PLUMED is different: it receives
-positions and the box, never a topology, which is why it cannot repair and must refuse. `KENREF_DD_SELFCHECK=1` verifies the property the parallel design rests on — that every row
-of a gathered set is written by exactly one rank — and is validated by fault injection, not just by
-passing. Verified rank-count independent: 1, 2, 4 and `-npme 1` give bit-identical step-0 energies.
+positions and the box, never a topology, which is why it repairs from the reference structure instead
+(and refuses when that reference is itself unusable). `KENREF_DD_SELFCHECK=1` verifies the property the parallel design rests on — that every row
+of a gathered set is written by exactly one rank. That check was proven to actually FIRE, once, by
+fault injection — but **that mechanism is no longer in the tree**, so today "the self-check passed"
+rests on a demonstration you cannot repeat. Check it with
+`git grep KENREF_DD_FAULT -- 'src/*' 'include_*/*' 'google_tests/*'`, which is empty; a bare
+`git grep KENREF_DD_FAULT` matches *this sentence* and reads as if the hook were still there. A deterministic
+replacement is planned: split the pure decision out of `kenrefCheckExactlyOneWriter` and drive it with
+hand-built owner-count vectors. Until then, do not cite the self-check as evidence without saying that.
+The scratch `run_fault.sh` is worse than stale — it still sets `KENREF_DD_FAULT`, which is now silently
+ignored, so the run succeeds and it prints "(NO self-check failure reported!)". That reads as the
+self-check being broken when the self-check is fine; anyone re-deriving this from that script reaches
+the opposite of the truth.
+Verified rank-count independent: 1, 2, 4 and `-npme 1` give bit-identical step-0 energies.
 Note `mpi_comm_mygroup` excludes PME-only ranks, so the reductions never involve them.
 
 ## Hot-kernel / OpenMP conventions
