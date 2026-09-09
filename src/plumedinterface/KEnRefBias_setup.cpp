@@ -51,7 +51,17 @@ namespace PLMD::kenref {
          *
          * Removing this guard is the acceptance test for real DD support, not an optimisation; the
          * fix is to gate every multi_sim_comm access on comm.Get_rank()==0 and propagate down `comm`
-         * (see PLMD::function::Ensemble). Mirrors the gmx_fatal in KEnRefForceProvider.cpp. */
+         * (see PLMD::function::Ensemble). Mirrors the gmx_fatal in KEnRefForceProvider.cpp.
+         *
+         * THIS GUARD IS LOAD-BEARING FOR CODE THAT IS NOT HERE. KEnRefBias::calculate() reads
+         * multi_sim_comm.Get_size() UNCONDITIONALLY (KEnRefBias.cpp, the "refresh per-step replica
+         * state" line). That read is correct ONLY because this guard holds: one rank per replica
+         * means every rank IS its replica's main rank, so multi_sim_comm is always set wherever that
+         * line runs. Delete this guard and that line starts reading an unset communicator, which
+         * reports "replica 0 of 1" in silence rather than failing -- the exact defect this guard was
+         * written to prevent, reintroduced at a different site. Whoever lifts the guard owns that
+         * line too. (The remaining multi_sim_comm uses -- the Gather and Scatter -- are already
+         * gated behind `if (!isMultiSim_) return`, so this is the only unconditional one.) */
         if (comm.Get_size() > 1)
             error("KENREF does not support domain decomposition: this replica spans "
                   + std::to_string(comm.Get_size()) + " ranks. Run KEnRef with ONE RANK PER REPLICA "
