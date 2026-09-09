@@ -31,6 +31,31 @@
 
 namespace kenref {
 
+namespace detail {
+
+/*! \brief Throw unless \p x describes a set that is whole under periodicity.
+ *
+ * Declared here, rather than kept private to KEnRefDriver.cpp, so the rule can be pinned on synthetic
+ * data: a molecule LARGER than half the box must pass, one with a single atom wrapped must not, and no
+ * fixture file should be needed to say so. The full rationale -- and why this is a tear test rather
+ * than the size test it replaced -- is with the definition in KEnRefDriver.cpp.
+ *
+ * \param[in] x       one row per atom, in Angstrom (the working units the adapters hand over)
+ * \param[in] box_nm  lattice vectors as ROWS, in nm (the units the adapters hand over)
+ * \param[in] what    the name of the set, for the message ("guide" / "sub")
+ *
+ * \throws std::runtime_error naming the offending box vector and the size of the tear. */
+template<typename Real>
+void refuseIfSplitByPeriodicity(const CoordsMatrixType<Real>& x,
+                                const Eigen::Matrix<Real, 3, 3>& box_nm, const char* what);
+
+extern template void refuseIfSplitByPeriodicity<double>(const CoordsMatrixType<double>&,
+                                                        const Eigen::Matrix<double, 3, 3>&, const char*);
+extern template void refuseIfSplitByPeriodicity<float>(const CoordsMatrixType<float>&,
+                                                       const Eigen::Matrix<float, 3, 3>&, const char*);
+
+} // namespace detail
+
 template<typename Real>
 class KEnRefDriver {
 public:
@@ -42,12 +67,12 @@ public:
         : model_(std::move(model)), k_(k), n_(n), maxForceSquared_(maxForceSquared),
           referenceGuideAtomsCoordsCentered_(std::move(guideAtomsReferenceCoordsCentered)) {}
 
-    /*! \brief Enable the periodic-split refusal (see the check in KEnRefDriver.cpp).
+    /*! \brief Enable the periodic-split refusal (see detail::refuseIfSplitByPeriodicity).
      *
-     * OFF by default, and deliberately opt-in rather than automatic: the check compares the spread of
-     * the restrained atoms against the box, so it is only meaningful when the box really is the
-     * simulation's periodic box. A live engine knows that; a unit test feeding synthetic coordinates
-     * with a placeholder box does not, and would be failed spuriously by it.
+     * OFF by default, and deliberately opt-in rather than automatic: the check asks whether re-imaging
+     * the restrained atoms would make them materially more compact, so it is only meaningful when the
+     * box really is the simulation's periodic box. A live engine knows that; a unit test feeding
+     * synthetic coordinates with a placeholder box does not, and would be failed spuriously by it.
      *
      * Both live engines turn it on -- GROMACS in initParamsAtSetup(), PLUMED in the KEnRefBias
      * constructor -- so any real refinement is covered. */
