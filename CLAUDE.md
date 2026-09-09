@@ -111,9 +111,15 @@ positions and the box, never a topology, which is why it repairs from the refere
 (and refuses when that reference is itself unusable). `KENREF_DD_SELFCHECK=1` verifies the property the parallel design rests on — that every row
 of a gathered set is written by exactly one rank. It was proven to actually FIRE, once, by fault
 injection — but **that hook was never committed**: it lived only as a working-tree edit carrying the
-comment *"Remove before committing"*, which is exactly why. `git log -S KENREF_DD_FAULT --all` finds it
-in no commit that introduced code (the one hit is *this file*, added 2026-09-09), and
-`git log -S KENREF_DD_SELFCHECK --all` finding several is the positive control that says so.
+comment *"Remove before committing"*, which is exactly why. The check that stays true:
+
+```
+git log -S KENREF_DD_FAULT --all -- '*.cpp' '*.h'   # empty: never in any compiled source
+git log -S KENREF_DD_SELFCHECK --all               # non-empty: the positive control
+```
+
+Scope it to source. Unscoped, the only hit is *this file* — the paragraph you are reading, added
+2026-09-09 — which reads as if the hook were still there.
 
 **Repeating the demonstration therefore means re-applying it**, not recovering a regression. The text was
 recovered 2026-09-09 from the original DD session's transcript,
