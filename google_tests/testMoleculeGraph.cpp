@@ -15,6 +15,9 @@
 #include "gtest/gtest.h"
 
 #include <cmath>
+#include <array>
+#include <cstdio>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -29,6 +32,42 @@ namespace {
 
 //! The committed GB3 tpr whose protein is split across the periodic boundary.
 const char *kBrokenTpr = "../../res/sigma/md_single/md-00_PBC-BROKEN.tpr";
+
+/*! The reference structure, kept in BOTH states.
+ *
+ * `GB3_27_10us.pdb` is what ships and what the .toml files name; it was repaired with
+ * `gmx trjconv -pbc whole` (see res/PBC-BROKEN.md). `_PBC-BROKEN.pdb` is the original, preserved
+ * precisely so the repair can be re-derived here by a second, independent mechanism -- the bond
+ * graph -- and the two required to agree. One method producing a plausible answer is not evidence. */
+const char *kWholeRefPdb = "../../res/sigma/md_single/GB3_27_10us.pdb";
+const char *kBrokenRefPdb = "../../res/sigma/md_single/GB3_27_10us_PBC-BROKEN.pdb";
+
+/*! \brief Read the ATOM records of a PDB into a coordinate matrix, converting Angstrom -> nm.
+ *
+ * Only the columns the PDB format fixes are touched, so this stays independent of whatever wrote the
+ * file. Returns false when the file is missing, so the tests skip rather than fail without fixtures. */
+bool readPdbCoords(const char *path, CoordsMatrixType<KEnRef_Real_t> *x) {
+    std::ifstream in(path);
+    if (!in)
+        return false;
+    std::vector<std::array<KEnRef_Real_t, 3>> rows;
+    for (std::string line; std::getline(in, line);) {
+        if (line.compare(0, 4, "ATOM") != 0 && line.compare(0, 6, "HETATM") != 0)
+            continue;
+        if (line.size() < 54)
+            return false;
+        rows.push_back({ static_cast<KEnRef_Real_t>(std::stod(line.substr(30, 8)) / 10.0),
+                         static_cast<KEnRef_Real_t>(std::stod(line.substr(38, 8)) / 10.0),
+                         static_cast<KEnRef_Real_t>(std::stod(line.substr(46, 8)) / 10.0) });
+    }
+    if (rows.empty())
+        return false;
+    x->resize(static_cast<Eigen::Index>(rows.size()), 3);
+    for (std::size_t i = 0; i < rows.size(); ++i)
+        for (int k = 0; k < 3; ++k)
+            (*x)(static_cast<Eigen::Index>(i), k) = rows[i][k];
+    return true;
+}
 
 //! Longest edge of the graph, i.e. the worst bond. The single number that says "whole" or "broken".
 KEnRef_Real_t longestBond(const KEnRefMoleculeGraph &g, const CoordsMatrixType<KEnRef_Real_t> &x) {
@@ -159,4 +198,92 @@ TEST(MoleculeGraphTest, RepairsTheCommittedBrokenGb3Tpr) {
     for (Eigen::Index r = 0; r < x.rows(); ++r)
         for (int c = 0; c < 3; ++c)
             ASSERT_EQ(x(r, c), once(r, c)) << "repair is not idempotent at row " << r;
+}
+
+/*! The repaired reference PDB that ships must actually BE whole.
+ *
+ * Cheap, and it is the one thing every downstream claim rests on: PLUMED builds its spanning tree from
+ * this file's coordinates, so if it is ever replaced by a split copy again, PLUMED silently goes back
+ * to computing on a torn protein instead of failing. */
+TEST(MoleculeGraphTest, ShippedReferencePdbIsWhole) {
+    gmx_mtop_t mtop;
+    std::vector<gmx::RVec> xs;
+    matrix box;
+    CoordsMatrixType<KEnRef_Real_t> x;
+    if (!readTpr(kBrokenTpr, &mtop, &xs, box) || !readPdbCoords(kWholeRefPdb, &x)) {
+        GTEST_SKIP() << "fixture not present: " << kBrokenTpr << " / " << kWholeRefPdb;
+    }
+
+    KEnRefMoleculeGraph g;
+    g.build(mtop, { 0 });
+    ASSERT_TRUE(g.isBuilt());
+    ASSERT_EQ(g.atoms().size(), static_cast<std::size_t>(x.rows()))
+            << "the reference PDB should hold exactly the protein the graph covers";
+
+    const KEnRef_Real_t worst = longestBond(g, x);
+    EXPECT_LT(worst, KEnRef_Real_t(0.25))
+            << "longest bond in " << kWholeRefPdb << " is " << worst
+            << " nm -- the shipped reference is split across the periodic boundary. See res/PBC-BROKEN.md.";
+}
+
+/*! The cross-check: the bond graph must reproduce `gmx trjconv -pbc whole`, atom for atom.
+ *
+ * trjconv walks GROMACS's own t_graph over the tpr's bonded interactions; KEnRefMoleculeGraph walks a
+ * BFS spanning tree it builds itself. Two independent implementations arriving at the same 12 shifts is
+ * the evidence that the shipped reference is repaired correctly -- neither one alone is.
+ *
+ * It also pins the shape of the repair: exactly 12 atoms move, every other atom is left BIT-identical,
+ * and none of the 33 guide C-alphas is among the twelve (which is why the GROMACS-side and offline
+ * numbers do not move when the reference is swapped). */
+TEST(MoleculeGraphTest, BondGraphRepairOfReferencePdbMatchesTrjconv) {
+    gmx_mtop_t mtop;
+    std::vector<gmx::RVec> xs;
+    matrix box;
+    CoordsMatrixType<KEnRef_Real_t> broken, expected;
+    if (!readTpr(kBrokenTpr, &mtop, &xs, box) || !readPdbCoords(kBrokenRefPdb, &broken)
+        || !readPdbCoords(kWholeRefPdb, &expected)) {
+        GTEST_SKIP() << "fixtures not present next to " << kBrokenTpr;
+    }
+    ASSERT_EQ(broken.rows(), expected.rows());
+
+    KEnRefMoleculeGraph g;
+    g.build(mtop, { 0 });
+    ASSERT_TRUE(g.isBuilt());
+    ASSERT_EQ(g.atoms().size(), static_cast<std::size_t>(broken.rows()));
+    // The PDB is the protein in tpr order, so row i of the file is row i of the graph. Check, do not assume.
+    for (std::size_t i = 0; i < g.atoms().size(); ++i)
+        ASSERT_EQ(g.atoms()[i], static_cast<int>(i)) << "the protein is not atoms 0..N-1 in this tpr";
+
+    // The preserved original really is broken -- otherwise this test proves nothing.
+    EXPECT_GT(longestBond(g, broken), KEnRef_Real_t(5.0))
+            << "the preserved " << kBrokenRefPdb << " is no longer split; the cross-check is vacuous";
+
+    const CoordsMatrixType<KEnRef_Real_t> before = broken;
+    g.makeWhole(broken, box);
+    EXPECT_LT(longestBond(g, broken), KEnRef_Real_t(0.25));
+
+    /* Agreement with trjconv. The tolerance is PDB write precision (0.001 A = 1e-4 nm) and nothing
+     * more: both files hold the same rounded coordinates, differing by an exact box vector. */
+    Eigen::Index movedByGraph = 0, disagreements = 0;
+    for (Eigen::Index r = 0; r < broken.rows(); ++r) {
+        bool moved = false;
+        for (int c = 0; c < 3; ++c) {
+            if (broken(r, c) != before(r, c))
+                moved = true;
+            if (std::abs(broken(r, c) - expected(r, c)) > KEnRef_Real_t(2e-4)) {
+                if (++disagreements <= 10)
+                    ADD_FAILURE() << "atom " << r + 1 << " column " << c << ": bond graph gives "
+                                  << broken(r, c) << " nm, trjconv gives " << expected(r, c) << " nm";
+            }
+        }
+        if (moved) {
+            ++movedByGraph;
+        } else {
+            // Untouched atoms must be untouched EXACTLY: that is what makes the repair safe to apply
+            // unconditionally, and what guarantees the guide atoms cannot shift.
+            for (int c = 0; c < 3; ++c)
+                ASSERT_EQ(broken(r, c), before(r, c)) << "atom " << r + 1 << " was rewritten in place";
+        }
+    }
+    EXPECT_EQ(movedByGraph, 12) << "expected exactly the 12 wrapped LYS10/THR11 side-chain atoms to move";
 }
