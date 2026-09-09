@@ -14,6 +14,8 @@
 #include "tools/Communicator.h"
 #include "tools/OpenMP.h"
 #include "tools/PDB.h"
+#include "tools/Pbc.h"
+#include "tools/Tensor.h"
 #include "tools/Vector.h"
 
 #include "core/kabsch.h"             // Kabsch_Umeyama
@@ -22,7 +24,10 @@
 
 #include "plumedinterface/KEnRefBias.h"
 
+#include <algorithm>
+#include <cmath>
 #include <limits>
+#include <utility>
 
 namespace PLMD::kenref {
 
@@ -138,6 +143,71 @@ namespace PLMD::kenref {
             }
             guideAtomsReferenceCoordsCentered_ =
                     Kabsch_Umeyama<KEnRef_Real_t>::translateCenterOfMassToOrigin(guideAtomsReferenceCoords_);
+
+            /* ---- the spanning tree that makeRequestedAtomsWhole() walks ----
+             *
+             * Same reference PDB, but now for ALL of atoms_ (guide + sub), not just the guide set: the
+             * repair has to place every atom the restraint reads.
+             *
+             * Why a Euclidean minimum spanning tree and not "nearest image to my predecessor in the
+             * list" or "nearest image to a shared anchor": both of those were implemented on the
+             * GROMACS side and both BROKE already-whole structures. The requested atoms are SPARSE --
+             * consecutive entries of the guide list are 117 atoms apart in the molecule -- so list
+             * order says nothing about proximity; and GB3 reaches further from its centroid (2.171 nm)
+             * than half its shortest box vector (2.165 nm), past which "nearest image to an anchor" is
+             * simply the wrong image. An MST has neither failure: every edge joins genuine spatial
+             * neighbours, so every edge is short, so every minimum image along it is unambiguous.
+             *
+             * Prim's algorithm, O(n^2) over a few hundred atoms, once, at setup. */
+            const int nAtoms = static_cast<int>(atoms_.size());
+            std::vector<Vector> refPos(nAtoms);
+            for (int i = 0; i < nAtoms; ++i)
+                refPos[i] = pdb.getPosition(atoms_[i]); // nm
+
+            referenceTree_.clear();
+            longestReferenceTreeEdge_ = 0.0;
+            if (nAtoms > 1) {
+                referenceTree_.reserve(static_cast<size_t>(nAtoms) - 1);
+                std::vector<char> inTree(nAtoms, 0);
+                std::vector<double> best(nAtoms, std::numeric_limits<double>::max());
+                std::vector<int> bestParent(nAtoms, 0);
+                inTree[0] = 1;
+                for (int j = 1; j < nAtoms; ++j)
+                    best[j] = modulo2(delta(refPos[0], refPos[j]));
+                for (int added = 1; added < nAtoms; ++added) {
+                    // The unattached atom closest to the tree joins next; that keeps every edge short.
+                    int next = -1;
+                    for (int j = 0; j < nAtoms; ++j)
+                        if (!inTree[j] && (next < 0 || best[j] < best[next]))
+                            next = j;
+                    inTree[next] = 1;
+                    /* Emitted in attachment order, which is exactly parents-before-children: `next`
+                     * attaches to bestParent[next], already in the tree and therefore already emitted
+                     * (or the root). makeRequestedAtomsWhole() relies on that ordering. */
+                    referenceTree_.emplace_back(bestParent[next], next);
+                    longestReferenceTreeEdge_ = std::max(longestReferenceTreeEdge_, std::sqrt(best[next]));
+                    for (int j = 0; j < nAtoms; ++j) {
+                        if (inTree[j])
+                            continue;
+                        const double d2 = modulo2(delta(refPos[next], refPos[j]));
+                        if (d2 < best[j]) {
+                            best[j] = d2;
+                            bestParent[j] = next;
+                        }
+                    }
+                }
+            }
+            wholePositions_.assign(static_cast<size_t>(nAtoms), Vector(0.0, 0.0, 0.0));
+
+            /* The health check on the reference. Every edge should join spatial neighbours, so a few
+             * Angstrom is normal. A value approaching half the box means the reference is ITSELF split
+             * across the boundary, in which case this tree links the wrapped fragment by a long edge,
+             * minimum-image finds nothing to correct, and the repair below silently does nothing. That
+             * is precisely the state res/PBC-BROKEN.md describes for the un-repaired GB3_27_10us.pdb
+             * (29.17 A edge against a 30.61 A half-box), and it is why that file was made whole. */
+            std::cout << "  KEnRef periodic repair: spanning tree over " << nAtoms
+                      << " requested atoms, longest reference edge " << longestReferenceTreeEdge_ * 10
+                      << " Angstrom" << std::endl;
         }
 
         // ---- construct the driver (saturate only if requested; else an infinite threshold = no clamp) ----
@@ -179,6 +249,92 @@ namespace PLMD::kenref {
 
         cite("Restraining interproton angular and distance dynamics with KEnRef. "
             "Amr Alhossary & Colin Smith, J Phys Chem B. 130, 11 (2026) DOI: 10.1021/acs.jpcb.5c08554");
+    }
+
+    /* Rebuild wholePositions_ for the current step. See the header for why this exists at all.
+     *
+     * Hosted here, beside the tree that drives it, rather than in the fork's frozen frame: the frame
+     * only needs to CALL it (getLocalModelX) and read the result (getGuideAtomsX/fillSubAtomsX). */
+    void KEnRefBias::makeRequestedAtomsWhole() const {
+        const long step = getStep();
+        if (wholePositionsStep_ == step)
+            return;   // already rebuilt this step; getGuideAtomsX() also runs after the driver, for rmsd
+        const bool firstWholePositions = wholePositionsStep_ < 0;
+        wholePositionsStep_ = step;
+
+        /* The reference tree is only USABLE if every one of its edges is shorter than the reach of
+         * minimum-image reasoning -- half the smallest box width. Past that the nearest image of a
+         * child to its parent is simply not the right one, and the walk below re-images atoms that
+         * were correctly placed instead of repairing the ones that were not.
+         *
+         * That is exactly what a BROKEN reference produces: its wrapped fragment has no near
+         * neighbour, so the tree reaches across the box to link it, and every frame is then walked
+         * through that one bad edge.
+         *
+         * THIS GUARD IS NOT REDUNDANT, AND THE REASON IS COUNTERINTUITIVE. A bad edge does not
+         * reliably give a wrong answer -- it gives an arbitrary one, and on the committed GB3 sets it
+         * happens to give the RIGHT one. Measured:
+         *
+         *   this tree, over the 458 REQUESTED atoms   longest edge 31.49 A  -> re-images, CORRECT
+         *   PLUMED makeWhole(), over all 862 atoms    longest edge 29.17 A  -> no-op,     TORN
+         *
+         * Both against the same 30.61 A half-box-vector: one lands either side of it. The sparser set
+         * has to reach further to link the fragment, and reaching further is what accidentally saved
+         * it. So with a broken reference this code silently returned the correct energy -- and nothing
+         * downstream could have told us otherwise, because the driver's split-check sees a whole
+         * structure and passes. The next fixture, or the next box, flips the coin the other way.
+         *
+         * Refusing on the EDGE, rather than trusting the outcome, is what makes the repair honest:
+         * it stops when its own precondition is violated instead of when the result happens to look
+         * wrong. PLUMED's own makeWhole() has the same weakness and no such guard.
+         *
+         * The box is not known until a step runs -- PLUMED hands it over per step, never at setup --
+         * so the setup-time log records the edge and this is where it is judged. Checked once: the
+         * reference does not change, and the box would have to shrink by a factor of several for a
+         * healthy structure to reach this (the repaired GB3 reference gives 2.73 A against a 21.65 A
+         * half-width, a factor of 7.9 of margin). */
+        if (firstWholePositions) {
+            const Tensor &b = getPbc().getBox();
+            double smallestWidth = std::numeric_limits<double>::max();
+            for (int k = 0; k < 3; ++k)
+                if (b[k][k] > 0)
+                    smallestWidth = std::min(smallestWidth, b[k][k]);
+            if (smallestWidth < std::numeric_limits<double>::max()
+                && longestReferenceTreeEdge_ >= smallestWidth / 2) {
+                error("the REFERENCE structure (" + reference_pdb_ + ") cannot be used to repair "
+                      "periodic images: the spanning tree over the requested atoms has an edge of "
+                      + std::to_string(longestReferenceTreeEdge_ * 10) + " Angstrom, which is not less "
+                      "than half the smallest box width (" + std::to_string(smallestWidth * 10 / 2)
+                      + " Angstrom), so the minimum image along it is not unambiguous.\n"
+                      "This almost always means the REFERENCE is itself split across a periodic "
+                      "boundary: a wrapped fragment has no near neighbour, so the tree reaches across "
+                      "the box to link it. Make the reference whole -- `gmx trjconv -pbc whole` with a "
+                      "topology -- and check the frames too. KEnRef restrains a WHOLE molecule (global "
+                      "fit, pair distances with no cutoff), so continuing would silently give a "
+                      "different energy rather than fail.");
+            }
+        }
+
+        const std::vector<Vector> &pos = getPositions();
+        /* Start from the raw positions and only ever overwrite an atom that genuinely needs a
+         * different image. Whole input therefore comes back bit-for-bit identical, which is what makes
+         * it safe to run this unconditionally instead of trying to detect breakage first. */
+        wholePositions_.assign(pos.begin(), pos.end());
+
+        for (const auto &[parent, child]: referenceTree_) {
+            const Vector &anchor = wholePositions_[parent];   // already placed: parents come first
+            /* PLUMED's own minimum-image, so triclinic boxes are handled by the code that owns that
+             * problem rather than by hand-rolled arithmetic here. pbcDistance(a, b) is the shortest
+             * b - a, and it is invariant to which image of b we hand it. */
+            const Vector shortest = pbcDistance(anchor, pos[child]);
+            const Vector raw = delta(anchor, pos[child]);
+            /* shortest - raw is exactly a lattice vector: zero when the atom is already in the right
+             * image, and otherwise at least a box vector long. The tolerance below sits many orders of
+             * magnitude above the round-off in that subtraction and below any real box, so this is a
+             * decision about lattice vectors, not a floating-point threshold in disguise. */
+            if (modulo2(shortest - raw) > 1e-12)
+                wholePositions_[child] = anchor + shortest;
+        }
     }
 
 } // namespace PLMD::kenref

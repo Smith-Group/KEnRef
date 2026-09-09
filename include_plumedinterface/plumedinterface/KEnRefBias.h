@@ -17,6 +17,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "core/KEnRef.h"          // CoordsMatrixType<>, KEnRef_Real_t
@@ -68,6 +69,32 @@ namespace PLMD::kenref {
         int simulationIndex_ = 0;
         bool isMultiSim_ = false;
 
+        /* ---- periodic repair of the requested atoms ----
+         *
+         * KEnRef restrains a WHOLE molecule: the Kabsch fit and the pair distances are global and have
+         * no cutoff, so a molecule split across a periodic boundary does not fail -- it silently gives a
+         * different energy and different forces. GROMACS repairs its coordinates from the topology's
+         * bond graph; PLUMED is never handed a topology, so the tree is built instead from the REFERENCE
+         * structure, which is a Euclidean minimum spanning tree over exactly the atoms we requested.
+         *
+         * That is only sound because the reference is itself whole -- see res/PBC-BROKEN.md. A broken
+         * reference has no near neighbour for its wrapped fragment, so the tree reaches across the box
+         * to link it and every frame is walked through that one bad edge. Whether the result is then
+         * wrong is a COIN FLIP, not a certainty -- on the committed GB3 sets a broken reference happens
+         * to give the correct answer -- so makeRequestedAtomsWhole() refuses on the EDGE rather than
+         * trusting the outcome. The full measurement is with that refusal in KEnRefBias_setup.cpp.
+         *
+         * The driver's split-check still stands behind all of this: repair first, refuse second. */
+
+        //! Spanning tree over atoms_, as (parent, child) LOCAL indices, parents always before children.
+        std::vector<std::pair<int, int>> referenceTree_;
+        //! Longest edge of referenceTree_ in the reference structure, nm. A few A is healthy.
+        double longestReferenceTreeEdge_ = 0.0;
+        //! getPositions(), with every atom moved to the image nearest its tree parent. Rebuilt per step.
+        mutable std::vector<Vector> wholePositions_;
+        //! The step wholePositions_ was last rebuilt for; -1 = never. Makes the rebuild idempotent.
+        mutable long wholePositionsStep_ = -1;
+
         // ---- gather/scatter scratch (mutable: written by the const EngineAdapter callbacks) ----
         mutable std::vector<KEnRef_Real_t> allSimulationsSubAtomsX_buffer_;
         mutable std::vector<KEnRef_Real_t> allDerivatives_buffer_;
@@ -78,6 +105,16 @@ namespace PLMD::kenref {
         // ---- private helpers (current PLUMED positions -> Angstrom Eigen) ----
         [[nodiscard]] CoordsMatrixType<KEnRef_Real_t> getGuideAtomsX() const;
         void fillSubAtomsX(CoordsMatrixType<KEnRef_Real_t>& out) const;
+
+        /*! \brief Refresh wholePositions_ for the current step: every requested atom at the image
+         *         nearest its parent in referenceTree_.
+         *
+         * Walks parents-before-children, so each atom is placed relative to one already-placed
+         * neighbour and the minimum image is unambiguous. A BIT-FOR-BIT no-op on input that is already
+         * whole -- no tree edge then needs a shift, and nothing is written -- which is what lets it run
+         * unconditionally, exactly as the GROMACS-side repair does. Cheap to call more than once in a
+         * step: it remembers which step it built. */
+        void makeRequestedAtomsWhole() const;
 
     public:
         EIGEN_MAKE_ALIGNED_OPERATOR_NEW
