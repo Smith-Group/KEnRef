@@ -109,17 +109,28 @@ does not deliver notifications to externally added modules; so "topology unavail
 that subscription has regressed, not that the user did anything wrong. PLUMED is different: it receives
 positions and the box, never a topology, which is why it repairs from the reference structure instead
 (and refuses when that reference is itself unusable). `KENREF_DD_SELFCHECK=1` verifies the property the parallel design rests on — that every row
-of a gathered set is written by exactly one rank. That check was proven to actually FIRE, once, by
-fault injection — but **that mechanism is no longer in the tree**, so today "the self-check passed"
-rests on a demonstration you cannot repeat. Check it with
-`git grep KENREF_DD_FAULT -- 'src/*' 'include_*/*' 'google_tests/*'`, which is empty; a bare
-`git grep KENREF_DD_FAULT` matches *this sentence* and reads as if the hook were still there. A deterministic
-replacement is planned: split the pure decision out of `kenrefCheckExactlyOneWriter` and drive it with
-hand-built owner-count vectors. Until then, do not cite the self-check as evidence without saying that.
-The scratch `run_fault.sh` is worse than stale — it still sets `KENREF_DD_FAULT`, which is now silently
-ignored, so the run succeeds and it prints "(NO self-check failure reported!)". That reads as the
-self-check being broken when the self-check is fine; anyone re-deriving this from that script reaches
-the opposite of the truth.
+of a gathered set is written by exactly one rank. It was proven to actually FIRE, once, by fault
+injection — but **that hook was never committed**: it lived only as a working-tree edit carrying the
+comment *"Remove before committing"*, which is exactly why. `git log -S KENREF_DD_FAULT --all` finds it
+in no commit that introduced code (the one hit is *this file*, added 2026-09-09), and
+`git log -S KENREF_DD_SELFCHECK --all` finding several is the positive control that says so.
+
+**Repeating the demonstration therefore means re-applying it**, not recovering a regression. The text was
+recovered 2026-09-09 from the original DD session's transcript,
+`~/.claude/projects/-home-amr-CLionProjects-KEnRef--claude-worktrees-kenref-dd-support/929a4df1-*.jsonl`:
+two `getenv("KENREF_DD_FAULT")` branches wrapped around the `kenrefCheckExactlyOneWriter` call, mode `2`
+double-claiming a row and mode `0` leaving one unowned. Note today's call site is **braceless**
+(`KEnRefForceProvider.cpp:633-634`), so re-applying means restoring the braces. About a minute's work.
+
+A deterministic replacement would remove the need entirely: split the pure decision out of
+`kenrefCheckExactlyOneWriter` (owner-count vector in, `{unowned, contested, firstBad}` out) and drive it
+with hand-built vectors, where it lives in `google_tests/` and cannot rot unnoticed.
+
+Until then, do not cite the self-check as evidence without saying that the demonstration behind it has to
+be re-applied by hand. And the scratch `run_fault.sh` is worse than stale — it still sets
+`KENREF_DD_FAULT`, which is silently ignored against an unpatched tree, so the run succeeds and it prints
+"(NO self-check failure reported!)". That reads as the self-check being broken when the self-check is
+fine; anyone re-deriving this from that script reaches the opposite of the truth.
 Verified rank-count independent: 1, 2, 4 and `-npme 1` give bit-identical step-0 energies.
 Note `mpi_comm_mygroup` excludes PME-only ranks, so the reductions never involve them.
 
