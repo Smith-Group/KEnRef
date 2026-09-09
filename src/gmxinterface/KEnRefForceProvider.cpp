@@ -39,6 +39,7 @@
 #include <gromacs/mdrunutility/mdmodulesnotifiers.h>
 
 #include "gmxinterface/KEnRefMDModule.h"
+#include "gmxinterface/KEnRefOwnership.h"   // the pure half of the DD self-check, unit-tested
 #include "gmxinterface/gmxwrapper.h"
 
 #define VERBOSE false
@@ -199,35 +200,27 @@ inline bool kenrefDdSelfCheckEnabled() {
  * \p ownerCount holds 1 for each row this rank wrote; the same reduction used for the coordinates
  * turns it into a global writer count per row.
  *
- * Collective over the simulation's ranks: every rank calls it, from the same place, every step. */
+ * Collective over the simulation's ranks: every rank calls it, from the same place, every step.
+ *
+ * The reduction is the only part that needs MPI. Everything after it is pure arithmetic on the
+ * counts, and lives in kenref::verifyExactlyOneWriter (gmxinterface/KEnRefOwnership.h) so that
+ * google_tests/testOwnershipCheck.cpp can drive it with hand-built vectors -- including the two
+ * fault modes the original, never-committed KENREF_DD_FAULT hook injected. See that header for why
+ * that history matters. This function keeps the collective and the diagnostic; it delegates the
+ * decision. */
 inline void kenrefCheckExactlyOneWriter(const gmx::ForceProviderInput &in,
                                         std::vector<KEnRef_Real_t> &ownerCount,
                                         const char *what, int64_t step) {
     kenrefSumOverSimRanks(in, ownerCount.data(), ownerCount.size());
-    std::size_t unowned = 0;
-    std::size_t contested = 0;
-    std::size_t firstBad = 0;
-    bool haveBad = false;
-    for (std::size_t i = 0; i < ownerCount.size(); ++i) {
-        const KEnRef_Real_t c = ownerCount[i];
-        if (c == KEnRef_Real_t(0))
-            ++unowned;
-        else if (c != KEnRef_Real_t(1))
-            ++contested;
-        else
-            continue;
-        if (!haveBad) {
-            firstBad = i;
-            haveBad = true;
-        }
-    }
-    if (unowned != 0 || contested != 0) {
+    const kenref::OwnershipVerdict verdict = kenref::verifyExactlyOneWriter(ownerCount);
+    if (!verdict.ok()) {
         gmx_fatal(FARGS,
                   "KEnRef domain-decomposition self-check FAILED for the '%s' atom set at step %lld: "
                   "of %zu rows, %zu had NO owning rank and %zu were claimed by more than one "
                   "(first offending row: %zu). The zero-fill reduction is exact only when every row "
                   "is written exactly once, so the coordinates this step are wrong.",
-                  what, static_cast<long long>(step), ownerCount.size(), unowned, contested, firstBad);
+                  what, static_cast<long long>(step), ownerCount.size(),
+                  verdict.unowned, verdict.contested, verdict.firstBad);
     }
 }
 

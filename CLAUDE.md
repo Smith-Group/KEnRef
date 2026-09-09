@@ -121,16 +121,15 @@ git log -S KENREF_DD_SELFCHECK --all               # non-empty: the positive con
 Scope it to source. Unscoped, the only hit is *this file* — the paragraph you are reading, added
 2026-09-09 — which reads as if the hook were still there.
 
-**Repeating the demonstration therefore means re-applying it**, not recovering a regression. The text was
-recovered 2026-09-09 from the original DD session's transcript,
-`~/.claude/projects/-home-amr-CLionProjects-KEnRef--claude-worktrees-kenref-dd-support/929a4df1-*.jsonl`:
-two `getenv("KENREF_DD_FAULT")` branches wrapped around the `kenrefCheckExactlyOneWriter` call, mode `2`
-double-claiming a row and mode `0` leaving one unowned. Note today's call site is **braceless**
-(`KEnRefForceProvider.cpp:633-634`), so re-applying means restoring the braces. About a minute's work.
-
-A deterministic replacement would remove the need entirely: split the pure decision out of
-`kenrefCheckExactlyOneWriter` (owner-count vector in, `{unowned, contested, firstBad}` out) and drive it
-with hand-built vectors, where it lives in `google_tests/` and cannot rot unnoticed.
+**The property is now covered by a deterministic test.** `kenref::verifyExactlyOneWriter`
+(`gmxinterface/KEnRefOwnership.h`) holds the pure decision — owner-count vector in,
+`{unowned, contested, firstBad}` out — and `google_tests/testOwnershipCheck.cpp` drives it with
+hand-built vectors **and against the pre-extraction loop over randomly generated ones**, including the
+never-committed hook's two fault modes reproduced verbatim (`counts[0] += 1`, and
+`counts[size()-1] = 0`), so the replacement covers what the original demonstration covered rather than
+merely resembling it. The MPI reduction above it is left to `dd_validate.sh`'s real 1/2/4-rank runs.
+The hook's text was recovered 2026-09-09 and is quoted in that header's comment, so the demonstration
+no longer depends on a session transcript.
 
 Until then, do not cite the self-check as evidence without saying that the demonstration behind it has to
 be re-applied by hand. And the scratch `run_fault.sh` is worse than stale — it still sets
