@@ -1317,9 +1317,27 @@ public:
     [[nodiscard]] int numOmpThreads() const override { return 1; }
 };
 
-static std::unique_ptr<kenref::KEnRefDriver<KEnRef_Real_t>> makeGB3SigmaDriver(
-    const GB3SigmaEnergySetup& s, const TestEngineAdapter& initAdapter, const CoordsMatrixType<KEnRef_Real_t>& guide) {
-    auto model = kenref::ModelRegistry<KEnRef_Real_t>::create("SIGMA");
+// A model the tests below run under domain decomposition, with what its init reads and the energy it must
+// give. Both run on the GB3 fixture's three models; RELAX needs at least two members, SIGMA does not.
+struct DriverCase {
+    std::string model;
+    std::map<std::string, std::string> params;
+    KEnRef_Real_t energy;
+};
+
+static DriverCase sigmaDriverCase() {  // testKEnRefDriverSigma's ground truth
+    return {"SIGMA", {{"EXP_DATA_FOLDER", GB3_SPEC_DEN_DIR}, {"PROTON_MHZ", std::to_string(GB3_PROTON_MHZ)}},
+            124.8785};
+}
+
+static DriverCase relaxDriverCase() {  // testRelaxModelViaRegistry's: R, isotropic diffusion, default rates
+    return {"RELAX", {{"EXP_DATA_FOLDER", "../../res/google_tests/relax/"}}, 1840.2342988885609};
+}
+
+static std::unique_ptr<kenref::KEnRefDriver<KEnRef_Real_t>> makeGB3Driver(
+    const DriverCase& c, const GB3SigmaEnergySetup& s, const TestEngineAdapter& initAdapter,
+    const CoordsMatrixType<KEnRef_Real_t>& guide) {
+    auto model = kenref::ModelRegistry<KEnRef_Real_t>::create(c.model);
     kenref::ParamSchema emptySchema;
     kenref::InitContext<KEnRef_Real_t> initCtx{initAdapter, emptySchema, s.atomNameMapping, s.handleNames,
                                               static_cast<int>(s.coord_array.size())};
@@ -1331,9 +1349,10 @@ static std::unique_ptr<kenref::KEnRefDriver<KEnRef_Real_t>> makeGB3SigmaDriver(
                                                                  bigMaxForceSq, guide);
 }
 
-/* Bit-for-bit. Every adapter below asks for one thread and every kernel on the SIGMA path honours that,
- * so each rank must get exactly the derivatives the single-process run gives its model, whatever
- * OMP_NUM_THREADS is (testSigmaGradientReproducibleOnOneThread pins the kernel side of that). */
+/* Bit-for-bit. Every adapter below asks for one thread and every kernel on the SIGMA and RELAX paths
+ * honours that, so each rank must get exactly the derivatives the single-process run gives its model,
+ * whatever OMP_NUM_THREADS is (testSigmaGradientReproducibleOnOneThread and
+ * testRelaxGradientReproducibleOnOneThread pin the kernel side of that). */
 static ::testing::AssertionResult agrees(const CoordsMatrixType<KEnRef_Real_t>& a,
                                          const CoordsMatrixType<KEnRef_Real_t>& b) {
     if (a.rows() != b.rows() || a.cols() != b.cols())
@@ -1353,11 +1372,11 @@ struct RankOutcome {
 };
 
 // Runs every replica of the GB3 fixture on ranksPerReplica ranks; returns [replica][rank].
-static std::vector<std::vector<RankOutcome>> runGB3SigmaOnRanks(int ranksPerReplica, int steps, bool broadcast) {
+static std::vector<std::vector<RankOutcome>> runGB3OnRanks(const DriverCase& c, int ranksPerReplica, int steps,
+                                                           bool broadcast) {
     kenref::bootstrapModels();
     const auto s = makeGB3SigmaEnergySetup();
-    const TestEngineAdapter initAdapter({{"EXP_DATA_FOLDER", GB3_SPEC_DEN_DIR},
-                                         {"PROTON_MHZ", std::to_string(GB3_PROTON_MHZ)}});
+    const TestEngineAdapter initAdapter(c.params);
     const CoordsMatrixType<KEnRef_Real_t> guide = s.coord_array[0].topRows(10);
     const int numReplicas = static_cast<int>(s.coord_array.size());
 
@@ -1367,7 +1386,7 @@ static std::vector<std::vector<RankOutcome>> runGB3SigmaOnRanks(int ranksPerRepl
     std::vector<std::unique_ptr<RankAdapter>> adapters;
     for (int r = 0; r < numReplicas; ++r)
         for (int k = 0; k < ranksPerReplica; ++k) {
-            drivers.push_back(makeGB3SigmaDriver(s, initAdapter, guide));
+            drivers.push_back(makeGB3Driver(c, s, initAdapter, guide));
             adapters.push_back(std::make_unique<RankAdapter>(grid, r, k, guide, s.coord_array[r], broadcast));
         }
     std::vector<std::thread> threads;
@@ -1390,26 +1409,27 @@ static std::vector<std::vector<RankOutcome>> runGB3SigmaOnRanks(int ranksPerRepl
 }
 
 // The same fixture in one process, all models local: the path the offline tools take.
-static std::pair<KEnRef_Real_t, std::vector<CoordsMatrixType<KEnRef_Real_t>>> runGB3SigmaInOneProcess() {
+static std::pair<KEnRef_Real_t, std::vector<CoordsMatrixType<KEnRef_Real_t>>> runGB3InOneProcess(
+    const DriverCase& c) {
     kenref::bootstrapModels();
     const auto s = makeGB3SigmaEnergySetup();
-    const TestEngineAdapter initAdapter({{"EXP_DATA_FOLDER", GB3_SPEC_DEN_DIR},
-                                         {"PROTON_MHZ", std::to_string(GB3_PROTON_MHZ)}});
+    const TestEngineAdapter initAdapter(c.params);
     const CoordsMatrixType<KEnRef_Real_t> guide = s.coord_array[0].topRows(10);
-    auto driver = makeGB3SigmaDriver(s, initAdapter, guide);
+    auto driver = makeGB3Driver(c, s, initAdapter, guide);
     SerialDriverTestAdapter adapter(guide, s.coord_array);
     const KEnRef_Real_t energy = driver->step(adapter);
     return {energy, adapter.derivs_};
 }
 
-// Every rank of every replica must get the derivatives the single-process run gives that model, and the energy must be computed by exactly one rank in the job. Two steps, so the second
-// reuses the exchange slots of the first.
-TEST(KEnRefTestSuite, testKEnRefDriverSeveralRanksPerReplica) {
-    const auto [refEnergy, refDerivs] = runGB3SigmaInOneProcess();
-    EXPECT_NEAR(refEnergy, 124.8785, 1e-4);  // testKEnRefDriverSigma's ground truth
+// Every rank of every replica must get the derivatives the single-process run gives that model, and the
+// energy must be computed by exactly one rank in the job. Two steps, so the second reuses the exchange
+// slots of the first.
+static void expectSeveralRanksPerReplicaAgree(const DriverCase& c) {
+    const auto [refEnergy, refDerivs] = runGB3InOneProcess(c);
+    EXPECT_NEAR(refEnergy, c.energy, 1e-4);
     for (const int ranksPerReplica : {1, 2, 3}) {
         SCOPED_TRACE("ranks per replica: " + std::to_string(ranksPerReplica));
-        const auto out = runGB3SigmaOnRanks(ranksPerReplica, /*steps*/ 2, /*broadcast*/ true);
+        const auto out = runGB3OnRanks(c, ranksPerReplica, /*steps*/ 2, /*broadcast*/ true);
         ASSERT_EQ(out.size(), refDerivs.size());
         int computingRanks = 0;
         for (size_t r = 0; r < out.size(); ++r)
@@ -1433,11 +1453,19 @@ TEST(KEnRefTestSuite, testKEnRefDriverSeveralRanksPerReplica) {
     }
 }
 
+TEST(KEnRefTestSuite, testKEnRefDriverSeveralRanksPerReplica) {
+    expectSeveralRanksPerReplicaAgree(sigmaDriverCase());
+}
+
+TEST(KEnRefTestSuite, testKEnRefDriverSeveralRanksPerReplicaRelax) {
+    expectSeveralRanksPerReplicaAgree(relaxDriverCase());
+}
+
 // Without the broadcast, only the first rank of each replica has derivatives; every other rank
 // applies none to the atoms it owns. This is what the comparison above catches.
 TEST(KEnRefTestSuite, testKEnRefDriverRanksNeedTheBroadcast) {
-    const auto [refEnergy, refDerivs] = runGB3SigmaInOneProcess();
-    const auto out = runGB3SigmaOnRanks(/*ranksPerReplica*/ 2, /*steps*/ 1, /*broadcast*/ false);
+    const auto [refEnergy, refDerivs] = runGB3InOneProcess(sigmaDriverCase());
+    const auto out = runGB3OnRanks(sigmaDriverCase(), /*ranksPerReplica*/ 2, /*steps*/ 1, /*broadcast*/ false);
     for (size_t r = 0; r < out.size(); ++r) {
         SCOPED_TRACE("replica " + std::to_string(r));
         ASSERT_EQ(out[r][0].error, "");
