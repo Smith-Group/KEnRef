@@ -1239,6 +1239,38 @@ TEST(KEnRefTestSuite, testCoordArrayToRelaxEnergy) {
     }
 }
 
+// RELAX shares the pair-to-atom backprop and had the same literal 0; see testSigmaGradientReproducibleOnOneThread.
+TEST(KEnRefTestSuite, testRelaxGradientReproducibleOnOneThread) {
+    constexpr const char* RELAX_DIR = "../../res/google_tests/relax/";
+    const NamedRowVector<double> rates = Table(
+        {{"5.0e+08", "1.0e+12", "1.0e+04", "2.5e+08", "2.5e+08", "2.5e+08"}},
+        {{"kens", "kmethyl", "karo", "Dx", "Dy", "Dz"}}
+    ).toNamedRowVector<double>();
+    const auto atomNameMapping_to1 = IoUtils::getAtomMappingFromPdb<std::string, int>(
+        GB3_PROTON_FILENAME, IoUtils::fill_atomId_to_index_Map);
+    const bool handleNames = IoUtils::should_handleNames(atomNameMapping_to1);
+    const auto atomNameMapping = get_atomNameMapping<double>(atomNameMapping_to1, handleNames);
+    const auto relax_data_list = IoUtils::load_spec_den_relax_data(RELAX_DIR, handleNames);
+    const auto models = getAllModels_allAtomCoordsMatrix<double>(GB3_PROTON_FILENAME, {0, 2, 4});
+
+    const int savedThreads = omp_get_max_threads();
+    omp_set_num_threads(8);
+    auto run = [&] {
+        auto coord_array = models;
+        auto [energy, grad] = KEnRef<double>::coord_array_to_relax_energy(
+            coord_array, rates, relax_data_list, 1, 1, atomNameMapping, true, 1);
+        return std::make_pair(energy, grad.value());
+    };
+    const auto [e0, g0] = run();
+    for (int rep = 1; rep <= 5; ++rep) {
+        const auto [e, g] = run();
+        EXPECT_EQ(e, e0) << "repeat " << rep;
+        for (size_t m = 0; m < g.size(); ++m)
+            EXPECT_EQ((g[m] - g0[m]).cwiseAbs().maxCoeff(), 0.0) << "repeat " << rep << ", model " << m;
+    }
+    omp_set_num_threads(savedThreads);
+}
+
 // Drive the RELAX model through the registry and confirm it reproduces the R-validated energy
 // (1840.2342988885609) of testCoordArrayToRelaxEnergy. Same data + the model's DEFAULT rates (which
 // must equal the R reference's kens/kmethyl/karo/Dx/Dy/Dz set). Exercises the wrapper end-to-end:

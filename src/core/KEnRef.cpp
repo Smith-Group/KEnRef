@@ -1978,14 +1978,14 @@ KEnRef<KEnRef_Real>::coord_array_to_relax_energy(
             }
 
             const auto &d_energy_d_g_matrix = g_matrix_to_a_matrix_backprop(relaxData.get_a_coef(), d_energy_d_a_int);
-            const auto &d_energy_d_d_array = d_array_to_g_matrix_backprop(g_matrix_grad_list.at(i), d_energy_d_g_matrix, 0);
-            const auto &d_energy_d_r_array = r_array_to_d_array_backprop(d_arrays_grad_list[i], d_energy_d_d_array, 0);
+            const auto &d_energy_d_d_array = d_array_to_g_matrix_backprop(g_matrix_grad_list.at(i), d_energy_d_g_matrix, numOmpThreads);
+            const auto &d_energy_d_r_array = r_array_to_d_array_backprop(d_arrays_grad_list[i], d_energy_d_d_array, numOmpThreads);
 
             const auto &cache = relaxData.get_atomIdPairs_to_sub0Atom_id_pairs_cache();
             const std::vector<std::tuple<int, int> > &atom_id_pairs =
                 cache.has_value() ? cache.value()
                                   : IoUtils::atomNamePairs_2_atomIdPairs(relaxData.get_atom_pairs(), atomNames_2_atomIds, numOmpThreads);
-            const auto &gradients = coord_array_to_r_array_backprop(coord_array, atom_id_pairs, d_energy_d_r_array, 0);
+            const auto &gradients = coord_array_to_r_array_backprop(coord_array, atom_id_pairs, d_energy_d_r_array, numOmpThreads);
             for (int m = 0; m < numModels; ++m)
                 d_energy_d_coord_array->at(m) += gradients.at(m);
         }
