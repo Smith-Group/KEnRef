@@ -5,6 +5,7 @@
  *      Author: amr
  */
 #include <string>
+#include <iostream>
 #include <map>
 #include <unistd.h>
 #include <CLI11/CLI11.hpp>
@@ -18,7 +19,9 @@
 #    include "gromacs/commandline/cmdlinemodulesettings.h"
 #endif
 #include "gromacs/commandline/cmdlinemodulemanager.h"
+#include "gromacs/utility/baseversion.h"
 #include "gmxinterface/gmxwrapper.h"
+#include "gmxinterface/KEnRefGmxVersion.h"
 #include "core/KEnRef.h"
 #include "core/ModelRegistry.h"
 // Remember to put all local imports (especially those which reference Eigen) after
@@ -64,6 +67,18 @@ ArgvPtr create_argv(int argc, char *original_argv[], const std::vector<std::stri
 
 
 int main(int argc, char *argv[]) {
+    // Refuse to run inside a GROMACS other than the one KEnRef was compiled against: the internal headers we
+    // use have no ABI promise, and a mismatch does not crash -- it misroutes notifier subscriptions without
+    // a word. First thing, before anything reaches into libgromacs. See KEnRefGmxVersion.h.
+    if (const long loaded = kenref::gmxVersionNumber(gmx_version()); loaded != GMX_VERSION) {
+        std::cerr << "KEnRef: compiled against GROMACS " << GMX_VERSION / 10000 << "." << GMX_VERSION % 10000
+                  << ", but the libgromacs loaded at run time reports '" << gmx_version() << "'.\n"
+                  << "  KEnRef uses GROMACS internals that change between releases, so it must run with the "
+                     "GROMACS it was built against.\n"
+                  << "  Check LD_LIBRARY_PATH and any loaded GROMACS module, or rebuild KEnRef against this "
+                     "GROMACS." << std::endl;
+        return 1;
+    }
     // This should be the main function that loads GMXWrapper (which should replace GROMACS main class)
     // Register every compile-time-enabled energy model NOW so --model can be validated against the
     // registry at CLI-parse time (buildModelIndexing bootstraps again later; the call is idempotent).

@@ -249,6 +249,35 @@ set(KENREF_GMX_GROMACS_FETCH_DIR "${CMAKE_BINARY_DIR}/gromacs-src"        CACHE 
 # three), OR FETCH the source and DELEGATE its compilation to GROMACS's OWN cmake, then use that. All the
 # gromacs logic lives HERE (build manager), not in build.sh; build.sh only sets -DBUILD_KENREF_GMX=ON.
 # Sets GROMACS_SRC_DIR / GROMACS_BUILD_DIR / GROMACS_INSTALL_DIR / GROMACS_DIR for KEnRefGMX.cmake.
+# The installed GROMACS (whose libgromacs and public headers we link and include) and the GROMACS SOURCE
+# tree (whose internal headers we include) must be the same release. Both are derived from one build dir, so
+# they agree by construction -- until the source checkout is moved to another tag after GROMACS was built
+# from it, which nothing else notices. The internal headers have no ABI promise: the MDModules notifier
+# layout differs between releases and a mismatch misroutes subscriptions silently (KEnRefGmxVersion.h has
+# the details). The run-time half of this check, in gmxwrapper.cpp, catches a libgromacs swapped in later.
+function(kenref_check_gromacs_versions)
+    if(NOT EXISTS "${GROMACS_SRC_DIR}/CMakeLists.txt")
+        return()    # no source tree: the gmx build reports that on its own
+    endif()
+    file(STRINGS "${GROMACS_SRC_DIR}/CMakeLists.txt" _kg_proj REGEX "^project\\(Gromacs VERSION [0-9.]+\\)" LIMIT_COUNT 1)
+    if(NOT _kg_proj MATCHES "VERSION ([0-9.]+)")
+        message(WARNING "GROMACS: cannot read the release from ${GROMACS_SRC_DIR}/CMakeLists.txt, so cannot check "
+                        "that it matches the installed GROMACS ${GROMACS_VERSION}.")
+        return()
+    endif()
+    set(_kg_src_version "${CMAKE_MATCH_1}")
+    if(NOT _kg_src_version VERSION_EQUAL GROMACS_VERSION)
+        message(FATAL_ERROR
+            "GROMACS: the source tree is release ${_kg_src_version} but the installed GROMACS is ${GROMACS_VERSION}.\n"
+            "  source:  ${GROMACS_SRC_DIR}\n"
+            "  install: ${GROMACS_DIR}\n"
+            "  KEnRef compiles against GROMACS internal headers from the source tree and links the installed "
+            "library, so both must be the same release. Check out the release GROMACS was built from, or rebuild "
+            "GROMACS from this checkout.")
+    endif()
+    message(STATUS "GROMACS: source tree and install are both release ${GROMACS_VERSION}")
+endfunction()
+
 macro(kenref_provide_gromacs)
     # "provided" = the GROMACS install CMake package is FINDABLE (find_package succeeds). That is the signal
     # to USE it — never fetch when a gromacs is already provided (a missing SRC/BUILD dir is a user setup
@@ -324,6 +353,7 @@ macro(kenref_provide_gromacs)
     endif()
     find_package(GROMACS NAMES gromacs_mpi gromacs REQUIRED)
     message(STATUS "GROMACS: ${GROMACS_VERSION} (config ${GROMACS_CONFIG}); src=${GROMACS_SRC_DIR} build=${GROMACS_BUILD_DIR}")
+    kenref_check_gromacs_versions()
     # >>>>>>>>>>>>>>>>>>>>> BEGIN KENREF-TEMP-LMFIT-WORKAROUND (call site) >>>>>>>>>>>>>>>>>>>>>>
     # Keep this call for as long as KEnRef supports ANY GROMACS 2025.x — the upstream fix is
     # 2026-only and will never be backported. See the macro definition below for the full
