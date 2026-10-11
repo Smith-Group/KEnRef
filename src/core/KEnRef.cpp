@@ -1204,7 +1204,7 @@ KEnRef<KEnRef_Real>::coord_array_to_sigma_energy(
             // std::cout << d_energy_d_g_matrix << std::endl;
 
             // back-propagate derivatives from g matrix to d array
-            const auto &d_energy_d_d_array = d_array_to_g_matrix_backprop(g_matrix_grad_list.at(i), d_energy_d_g_matrix, 0);
+            const auto &d_energy_d_d_array = d_array_to_g_matrix_backprop(g_matrix_grad_list.at(i), d_energy_d_g_matrix, numOmpThreads);
             // std::cout << "d_energy_d_d_array Iteration #"<<i<<" length = "<< d_energy_d_d_array.size() << std::endl;
             // for (int j = 0; j < d_energy_d_d_array.size(); ++j) {
             //     std::cout << "d_energy_d_d_array["<< j <<"] ("<< d_energy_d_d_array.at(j).rows() <<", " << d_energy_d_d_array.at(j).cols() << ")"<< std::endl;
@@ -1219,7 +1219,7 @@ KEnRef<KEnRef_Real>::coord_array_to_sigma_energy(
             //}
 
             // back-propagate derivatives from d array to r array
-            const auto &d_energy_d_r_array = r_array_to_d_array_backprop(d_arrays_grad_list[i], d_energy_d_d_array, 0);
+            const auto &d_energy_d_r_array = r_array_to_d_array_backprop(d_arrays_grad_list[i], d_energy_d_d_array, numOmpThreads);
             // std::cout << "d_energy_d_r_array  Iteration #" << i << " length = "<< d_energy_d_r_array.size() << std::endl;
             // for (int j = 0; j < d_energy_d_r_array.size(); ++j) {
             //     std::cout << "d_energy_d_r_array["<<j<< "] Dim =("<< d_energy_d_r_array.at(j).rows()<<", " <<d_energy_d_r_array.at(j).cols() << ")\n";
@@ -1231,7 +1231,7 @@ KEnRef<KEnRef_Real>::coord_array_to_sigma_energy(
                 cache.has_value() ? cache.value() : atomNamePairs_2_atomIdPairs(currentSpecDenData.get_atom_pairs(), atomNames_2_atomIds);
             // accumulate back-propagated derivatives from r array into coord array gradient
             const auto & gradients =
-                coord_array_to_r_array_backprop(coord_array, atom_id_pairs, d_energy_d_r_array,0);
+                coord_array_to_r_array_backprop(coord_array, atom_id_pairs, d_energy_d_r_array, numOmpThreads);
             for (int j = 0; j < numModels; ++j)
                 d_energy_d_coord_array->at(j) += gradients.at(j);
         }
