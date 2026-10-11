@@ -14,6 +14,8 @@
 #include <string>
 #include <vector>
 
+#include <omp.h>
+
 #include "core/KEnRef.h"
 #include "core/IoUtils.h"
 #include "core/EnergyModel.h"
@@ -960,6 +962,32 @@ TEST(KEnRefTestSuite, testCoordArrayToSigmaEnergy) {
                 EXPECT_NEAR(expected, actual, 1e-9);
             }
     }
+}
+
+/* A kernel called with numOmpThreads == 1 must give bitwise-identical output on every call, whatever the
+ * process-wide OpenMP thread count. coord_array_to_r_array_backprop accumulates with `omp atomic`, whose
+ * order varies from run to run, so reproducibility depends on every caller forwarding numOmpThreads. The
+ * SIGMA path used to pass a literal 0 ("all threads") to its three backprop kernels, and its gradient then
+ * differed by ~1 ulp between identical calls in one process. The team is widened explicitly so that this
+ * cannot pass by accident under OMP_NUM_THREADS=1. */
+TEST(KEnRefTestSuite, testSigmaGradientReproducibleOnOneThread) {
+    auto s = makeGB3SigmaEnergySetup();
+    const int savedThreads = omp_get_max_threads();
+    omp_set_num_threads(8);
+    auto run = [&s] {
+        auto coord_array = s.coord_array;  // copy: the kernel scales in place
+        auto [energy, grad] = KEnRef<double>::coord_array_to_sigma_energy(
+            coord_array, s.rates, s.spec_den_data_list, GB3_PROTON_MHZ, 1, 1, s.atomNameMapping, true, 1);
+        return std::make_pair(energy, grad.value());
+    };
+    const auto [e0, g0] = run();
+    for (int rep = 1; rep <= 5; ++rep) {
+        const auto [e, g] = run();
+        EXPECT_EQ(e, e0) << "repeat " << rep;
+        for (size_t m = 0; m < g.size(); ++m)
+            EXPECT_EQ((g[m] - g0[m]).cwiseAbs().maxCoeff(), 0.0) << "repeat " << rep << ", model " << m;
+    }
+    omp_set_num_threads(savedThreads);
 }
 
 // kenref::buildModelIndexing — the shared model + sub-atom indexing helper that de-duplicates the
