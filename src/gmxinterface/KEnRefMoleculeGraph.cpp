@@ -15,8 +15,26 @@
 #include <gromacs/topology/idef.h>
 #include <gromacs/topology/ifunc.h>
 #include <gromacs/utility/fatalerror.h>
+#include <gromacs/version.h>
 
 namespace {
+
+/* GROMACS 2026 turned the interaction types into `enum class InteractionFunction`, and indexes
+ * interaction_function and a molecule type's ilist by it rather than by int. These names are the
+ * only place that difference is expressed; the code below is the same for both. */
+#if GMX_VERSION >= 20260000
+using KEnRefIFunc = InteractionFunction;
+constexpr KEnRefIFunc kenrefConstr   = InteractionFunction::Constraints;
+constexpr KEnRefIFunc kenrefConstrNC = InteractionFunction::ConstraintsNoCoupling;
+constexpr KEnRefIFunc kenrefSettle   = InteractionFunction::SETTLE;
+constexpr int         kenrefNumIFunc = static_cast<int>(InteractionFunction::Count);
+#else
+using KEnRefIFunc = int;
+constexpr KEnRefIFunc kenrefConstr   = F_CONSTR;
+constexpr KEnRefIFunc kenrefConstrNC = F_CONSTRNC;
+constexpr KEnRefIFunc kenrefSettle   = F_SETTLE;
+constexpr int         kenrefNumIFunc = F_NRE;
+#endif
 
 /*! \brief Whether an interaction type connects atoms rigidly enough to walk along.
  *
@@ -24,8 +42,8 @@ namespace {
  * flagged IF_CHEMBOND, plus constraints and SETTLE. The latter two matter because a constrained or
  * rigid-water bond is a real connection that carries no IF_CHEMBOND flag, and leaving it out would
  * split a molecule into fragments that then get re-imaged independently. */
-inline bool kenrefIsConnectingInteraction(int ftype) {
-    if (ftype == F_CONSTR || ftype == F_CONSTRNC || ftype == F_SETTLE)
+inline bool kenrefIsConnectingInteraction(KEnRefIFunc ftype) {
+    if (ftype == kenrefConstr || ftype == kenrefConstrNC || ftype == kenrefSettle)
         return true;
     return (interaction_function[ftype].flags & IF_CHEMBOND) != 0;
 }
@@ -36,14 +54,14 @@ inline bool kenrefIsConnectingInteraction(int ftype) {
  * water with three atoms (O, H, H) rather than a sequence of pairs, so the generic "consecutive atoms
  * are bonded" reading would connect one water's hydrogen to the next water's oxygen and fuse every
  * water in the system into a single fragment. */
-void kenrefAppendBonds(std::vector<std::pair<int, int>> &edges, int ftype, const InteractionList &il,
+void kenrefAppendBonds(std::vector<std::pair<int, int>> &edges, KEnRefIFunc ftype, const InteractionList &il,
                        int atomOffset) {
     const int nral = NRAL(ftype);
     if (nral < 2)
         return;
     for (int i = 0; i < il.size(); i += 1 + nral) {
         const int *a = il.iatoms.data() + i + 1;
-        if (ftype == F_SETTLE) {
+        if (ftype == kenrefSettle) {
             edges.emplace_back(atomOffset + a[0], atomOffset + a[1]);
             edges.emplace_back(atomOffset + a[0], atomOffset + a[2]);
         } else {
@@ -85,9 +103,11 @@ void KEnRefMoleculeGraph::build(const gmx_mtop_t &mtop, const std::vector<int> &
 
             for (int a = 0; a < natomsPerMol; ++a)
                 atoms_.push_back(base + a);
-            for (int ftype = 0; ftype < F_NRE; ++ftype)
+            for (int i = 0; i < kenrefNumIFunc; ++i) {
+                const auto ftype = static_cast<KEnRefIFunc>(i);
                 if (kenrefIsConnectingInteraction(ftype))
                     kenrefAppendBonds(edges, ftype, molt.ilist[ftype], base);
+            }
         }
         atomOffset += molb.nmol * natomsPerMol;
     }

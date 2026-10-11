@@ -27,7 +27,13 @@
 #include <utility>
 #include <vector>
 
-#include <gromacs/math/vectypes.h>
+#include <gromacs/version.h>
+#if GMX_VERSION >= 20260000
+// GROMACS 2026 moved vectypes.h from math/ to utility/.
+#    include <gromacs/utility/vectypes.h>
+#else
+#    include <gromacs/math/vectypes.h>
+#endif
 
 #include "core/KEnRef.h"
 
