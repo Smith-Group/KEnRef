@@ -4,14 +4,20 @@
 #include <Eigen/src/Core/util/Constants.h>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <memory>
+#include <mutex>
 #include <numeric>
 #include <random>
 #include <set>
 #include <sstream>
+#include <stdexcept>
 #include <string>
+#include <thread>
+#include <utility>
 #include <vector>
 
 #include <omp.h>
@@ -1189,6 +1195,256 @@ TEST(KEnRefTestSuite, testKEnRefDriverSigma) {
     for (const auto& d : adapter.derivs_) {
         ASSERT_GT(d.rows(), 0);
         EXPECT_TRUE(d.allFinite());
+    }
+}
+
+// ── Several ranks per replica (domain decomposition) ─────────────────────────
+//
+// Under domain decomposition a replica is split over several ranks, and both engines follow one
+// convention (KEnRefBias.h, KEnRefForceProvider.h): only a replica's first rank takes part in the
+// inter-replica gather and scatter, it broadcasts its replica's derivatives to the replica's other
+// ranks, and simulationIndex() is -1 on every other rank, so the ensemble model runs once per job and
+// not once per domain. These tests run KEnRefDriver::step() under that convention, one thread per
+// rank, and compare every rank with the single-process run.
+
+// A barrier standing in for one communicator's collective. A rank that skips a collective its peers
+// enter makes the test fail on the timeout instead of hanging.
+class RankBarrier {
+public:
+    explicit RankBarrier(int n) : n_(n) {}
+    void wait() {
+        std::unique_lock<std::mutex> lock(m_);
+        const long generation = generation_;
+        if (++waiting_ == n_) {
+            waiting_ = 0;
+            ++generation_;
+            cv_.notify_all();
+            return;
+        }
+        if (!cv_.wait_for(lock, std::chrono::seconds(60), [&] { return generation_ != generation; }))
+            throw std::runtime_error("RankBarrier: timed out -- the ranks disagree on which collectives they enter");
+    }
+private:
+    const int n_;
+    int waiting_ = 0;
+    long generation_ = 0;
+    std::mutex m_;
+    std::condition_variable cv_;
+};
+
+// The two communicators: one over the first rank of every replica (multi_sim_comm in PLUMED,
+// mainRanksComm_ in GROMACS), and one per replica over its own ranks (comm / mpi_comm_mygroup).
+struct RankGrid {
+    RankGrid(int numReplicas, int ranksPerReplica)
+        : numReplicas(numReplicas), ranksPerReplica(ranksPerReplica), firstRanks(numReplicas),
+          fitted(numReplicas), derivs(numReplicas), broadcast(numReplicas) {
+        for (int r = 0; r < numReplicas; ++r)
+            replicas.push_back(std::make_unique<RankBarrier>(ranksPerReplica));
+    }
+    const int numReplicas;
+    const int ranksPerReplica;
+    RankBarrier firstRanks;
+    std::vector<std::unique_ptr<RankBarrier>> replicas;
+    // One slot per replica for each exchange.
+    std::vector<CoordsMatrixType<KEnRef_Real_t>> fitted, derivs, broadcast;
+};
+
+// One rank of one replica, with the gather/scatter of the PLUMED adapter (KEnRefBias.cpp).
+class RankAdapter : public kenref::DefaultEngineAdapter<KEnRef_Real_t> {
+public:
+    RankAdapter(RankGrid& grid, int replica, int rank, CoordsMatrixType<KEnRef_Real_t> guide,
+                CoordsMatrixType<KEnRef_Real_t> sub, bool broadcast)
+        : grid_(grid), replica_(replica), rank_(rank), guide_(std::move(guide)), sub_(std::move(sub)),
+          broadcast_(broadcast) {}
+    [[nodiscard]] std::optional<std::string> getRawParam(const std::string&) const override { return std::nullopt; }
+    [[nodiscard]] int numModelsTotal() const override { return grid_.numReplicas; }
+    [[nodiscard]] int simulationIndex() const override { return rank_ == 0 ? replica_ : -1; }
+    // One thread per kernel, so the comparisons below can be exact.
+    [[nodiscard]] int numOmpThreads() const override { return 1; }
+    // Every rank sees its replica's whole set, as PLUMED gives it.
+    void getLocalModelX(int, CoordsMatrixType<KEnRef_Real_t>& g, CoordsMatrixType<KEnRef_Real_t>& s,
+                        Eigen::Matrix<KEnRef_Real_t, 3, 3>& box) const override {
+        g = guide_; s = sub_; box = Eigen::Matrix<KEnRef_Real_t, 3, 3>::Identity();
+    }
+    void gatherFittedSubAtomsX(const std::vector<CoordsMatrixType<KEnRef_Real_t>>& localFitted,
+                               std::vector<CoordsMatrixType<KEnRef_Real_t>>& all) const override {
+        if (rank_ != 0)
+            return;
+        grid_.fitted[replica_] = localFitted[0];
+        grid_.firstRanks.wait();
+        if (replica_ == 0)
+            all = grid_.fitted;
+        grid_.firstRanks.wait();
+    }
+    void scatterModelDerivatives(const std::vector<CoordsMatrixType<KEnRef_Real_t>>& allPerModel,
+                                 std::vector<CoordsMatrixType<KEnRef_Real_t>>& localPerModel) const override {
+        // The engines rely on this: only the rank that computed holds derivatives.
+        if (simulationIndex() != 0 && !allPerModel.empty())
+            derivativesOffTheComputingRank_ = true;
+        CoordsMatrixType<KEnRef_Real_t> mine = CoordsMatrixType<KEnRef_Real_t>::Zero(sub_.rows(), 3);
+        if (rank_ == 0) {
+            if (replica_ == 0)
+                grid_.derivs = allPerModel;
+            grid_.firstRanks.wait();
+            mine = grid_.derivs[replica_];
+            grid_.firstRanks.wait();
+        }
+        if (broadcast_) {
+            RankBarrier& replica = *grid_.replicas[replica_];
+            if (rank_ == 0)
+                grid_.broadcast[replica_] = mine;
+            replica.wait();
+            if (rank_ != 0)
+                mine = grid_.broadcast[replica_];
+            replica.wait();
+        }
+        localPerModel.assign(1, mine);
+    }
+    void addLocalModelDerivatives(int, const CoordsMatrixType<KEnRef_Real_t>& d) override { derivs_ = d; }
+
+    CoordsMatrixType<KEnRef_Real_t> derivs_;
+    mutable bool derivativesOffTheComputingRank_ = false;
+private:
+    RankGrid& grid_;
+    const int replica_, rank_;
+    const CoordsMatrixType<KEnRef_Real_t> guide_, sub_;
+    const bool broadcast_;
+};
+
+class SerialDriverTestAdapter : public DriverTestAdapter {
+public:
+    using DriverTestAdapter::DriverTestAdapter;
+    [[nodiscard]] int numOmpThreads() const override { return 1; }
+};
+
+static std::unique_ptr<kenref::KEnRefDriver<KEnRef_Real_t>> makeGB3SigmaDriver(
+    const GB3SigmaEnergySetup& s, const TestEngineAdapter& initAdapter, const CoordsMatrixType<KEnRef_Real_t>& guide) {
+    auto model = kenref::ModelRegistry<KEnRef_Real_t>::create("SIGMA");
+    kenref::ParamSchema emptySchema;
+    kenref::InitContext<KEnRef_Real_t> initCtx{initAdapter, emptySchema, s.atomNameMapping, s.handleNames,
+                                              static_cast<int>(s.coord_array.size())};
+    model->buildCache(initCtx);
+    kenref::IndexingContext<KEnRef_Real_t> idxCtx{s.atomNameMapping};
+    model->finalizeIndexing(idxCtx);
+    constexpr KEnRef_Real_t bigMaxForceSq = 1e30;
+    return std::make_unique<kenref::KEnRefDriver<KEnRef_Real_t>>(std::move(model), /*k*/ 1.0, /*n*/ 1.0,
+                                                                 bigMaxForceSq, guide);
+}
+
+/* Bit-for-bit. Every adapter below asks for one thread and every kernel on the SIGMA path honours that,
+ * so each rank must get exactly the derivatives the single-process run gives its model, whatever
+ * OMP_NUM_THREADS is (testSigmaGradientReproducibleOnOneThread pins the kernel side of that). */
+static ::testing::AssertionResult agrees(const CoordsMatrixType<KEnRef_Real_t>& a,
+                                         const CoordsMatrixType<KEnRef_Real_t>& b) {
+    if (a.rows() != b.rows() || a.cols() != b.cols())
+        return ::testing::AssertionFailure() << "shape " << a.rows() << "x" << a.cols() << " vs "
+                                             << b.rows() << "x" << b.cols();
+    if (a == b)
+        return ::testing::AssertionSuccess();
+    return ::testing::AssertionFailure() << "max |difference| " << (a - b).cwiseAbs().maxCoeff()
+                                         << " against max |value| " << b.cwiseAbs().maxCoeff();
+}
+
+struct RankOutcome {
+    std::vector<KEnRef_Real_t> energies;  // one per step
+    CoordsMatrixType<KEnRef_Real_t> derivs;
+    bool derivativesOffTheComputingRank = false;
+    std::string error;
+};
+
+// Runs every replica of the GB3 fixture on ranksPerReplica ranks; returns [replica][rank].
+static std::vector<std::vector<RankOutcome>> runGB3SigmaOnRanks(int ranksPerReplica, int steps, bool broadcast) {
+    kenref::bootstrapModels();
+    const auto s = makeGB3SigmaEnergySetup();
+    const TestEngineAdapter initAdapter({{"EXP_DATA_FOLDER", GB3_SPEC_DEN_DIR},
+                                         {"PROTON_MHZ", std::to_string(GB3_PROTON_MHZ)}});
+    const CoordsMatrixType<KEnRef_Real_t> guide = s.coord_array[0].topRows(10);
+    const int numReplicas = static_cast<int>(s.coord_array.size());
+
+    RankGrid grid(numReplicas, ranksPerReplica);
+    std::vector<std::vector<RankOutcome>> out(numReplicas, std::vector<RankOutcome>(ranksPerReplica));
+    std::vector<std::unique_ptr<kenref::KEnRefDriver<KEnRef_Real_t>>> drivers;
+    std::vector<std::unique_ptr<RankAdapter>> adapters;
+    for (int r = 0; r < numReplicas; ++r)
+        for (int k = 0; k < ranksPerReplica; ++k) {
+            drivers.push_back(makeGB3SigmaDriver(s, initAdapter, guide));
+            adapters.push_back(std::make_unique<RankAdapter>(grid, r, k, guide, s.coord_array[r], broadcast));
+        }
+    std::vector<std::thread> threads;
+    for (int r = 0; r < numReplicas; ++r)
+        for (int k = 0; k < ranksPerReplica; ++k)
+            threads.emplace_back([&, r, k] {
+                const int i = r * ranksPerReplica + k;
+                try {
+                    for (int step = 0; step < steps; ++step)
+                        out[r][k].energies.push_back(drivers[i]->step(*adapters[i]));
+                } catch (const std::exception& e) {
+                    out[r][k].error = e.what();
+                }
+                out[r][k].derivs = adapters[i]->derivs_;
+                out[r][k].derivativesOffTheComputingRank = adapters[i]->derivativesOffTheComputingRank_;
+            });
+    for (auto& t : threads)
+        t.join();
+    return out;
+}
+
+// The same fixture in one process, all models local: the path the offline tools take.
+static std::pair<KEnRef_Real_t, std::vector<CoordsMatrixType<KEnRef_Real_t>>> runGB3SigmaInOneProcess() {
+    kenref::bootstrapModels();
+    const auto s = makeGB3SigmaEnergySetup();
+    const TestEngineAdapter initAdapter({{"EXP_DATA_FOLDER", GB3_SPEC_DEN_DIR},
+                                         {"PROTON_MHZ", std::to_string(GB3_PROTON_MHZ)}});
+    const CoordsMatrixType<KEnRef_Real_t> guide = s.coord_array[0].topRows(10);
+    auto driver = makeGB3SigmaDriver(s, initAdapter, guide);
+    SerialDriverTestAdapter adapter(guide, s.coord_array);
+    const KEnRef_Real_t energy = driver->step(adapter);
+    return {energy, adapter.derivs_};
+}
+
+// Every rank of every replica must get the derivatives the single-process run gives that model, and the energy must be computed by exactly one rank in the job. Two steps, so the second
+// reuses the exchange slots of the first.
+TEST(KEnRefTestSuite, testKEnRefDriverSeveralRanksPerReplica) {
+    const auto [refEnergy, refDerivs] = runGB3SigmaInOneProcess();
+    EXPECT_NEAR(refEnergy, 124.8785, 1e-4);  // testKEnRefDriverSigma's ground truth
+    for (const int ranksPerReplica : {1, 2, 3}) {
+        SCOPED_TRACE("ranks per replica: " + std::to_string(ranksPerReplica));
+        const auto out = runGB3SigmaOnRanks(ranksPerReplica, /*steps*/ 2, /*broadcast*/ true);
+        ASSERT_EQ(out.size(), refDerivs.size());
+        int computingRanks = 0;
+        for (size_t r = 0; r < out.size(); ++r)
+            for (size_t k = 0; k < out[r].size(); ++k) {
+                SCOPED_TRACE("replica " + std::to_string(r) + " rank " + std::to_string(k));
+                const RankOutcome& o = out[r][k];
+                ASSERT_EQ(o.error, "");
+                ASSERT_EQ(o.energies.size(), 2u);
+                const bool computes = r == 0 && k == 0;
+                computingRanks += computes;
+                for (const KEnRef_Real_t e : o.energies) {
+                    if (computes)
+                        EXPECT_EQ(e, refEnergy);
+                    else
+                        EXPECT_EQ(e, 0);  // the driver returns 0 wherever simulationIndex() != 0
+                }
+                EXPECT_TRUE(agrees(o.derivs, refDerivs[r]));
+                EXPECT_FALSE(o.derivativesOffTheComputingRank);
+            }
+        EXPECT_EQ(computingRanks, 1);
+    }
+}
+
+// Without the broadcast, only the first rank of each replica has derivatives; every other rank
+// applies none to the atoms it owns. This is what the comparison above catches.
+TEST(KEnRefTestSuite, testKEnRefDriverRanksNeedTheBroadcast) {
+    const auto [refEnergy, refDerivs] = runGB3SigmaInOneProcess();
+    const auto out = runGB3SigmaOnRanks(/*ranksPerReplica*/ 2, /*steps*/ 1, /*broadcast*/ false);
+    for (size_t r = 0; r < out.size(); ++r) {
+        SCOPED_TRACE("replica " + std::to_string(r));
+        ASSERT_EQ(out[r][0].error, "");
+        ASSERT_EQ(out[r][1].error, "");
+        EXPECT_TRUE(agrees(out[r][0].derivs, refDerivs[r]));
+        EXPECT_GT(refDerivs[r].cwiseAbs().maxCoeff(), 0);
+        EXPECT_EQ(out[r][1].derivs.cwiseAbs().maxCoeff(), 0);
     }
 }
 

@@ -32,42 +32,32 @@
 namespace PLMD::kenref {
 
     KEnRefBias::KEnRefBias(const ActionOptions &ao) : PLUMED_BIAS_INIT(ao), ActionAtomistic(ao) {
-        /* KEnRef supports exactly ONE RANK PER REPLICA, and refuses anything else here rather than
-         * producing wrong numbers. `comm` is the INTRA-replica communicator, so comm.Get_size() > 1
-         * means this replica's atoms are split across ranks -- GROMACS domain decomposition, or
-         * `plumed driver` without --multi, which splits atoms the same way.
+        /* ---- replica identity: correct on EVERY rank, including under domain decomposition ----
          *
-         * Why this is fatal rather than merely unsupported: the inter-replica communicator is only
-         * set on a replica's MAIN rank (PLUMED's GROMACS patch calls "GREX setMPIIntercomm" under
-         * `if (MAIN(cr))`, and GREX.cpp is what populates multi_sim_comm). An unset Communicator is
-         * MPI_COMM_SELF, whose Get_size() silently returns 1 and Get_rank() 0 -- it never errors. So
-         * every non-main rank would conclude "I am replica 0 of a 1-replica ensemble", compute a
-         * SINGLE-REPLICA restraint, and apply it to the atoms it homes, while the main rank applied
-         * the real ensemble forces to its own. The result is a spatial patchwork of two different
-         * force fields, with no crash and a plausible-looking energy.
+         * Domain decomposition USED TO BE REFUSED HERE, and that refusal was right for the code as it
+         * then stood: calculate() derived the replica state from `multi_sim_comm`, which PLUMED
+         * populates only on a replica's MAIN rank ("GREX setMPIIntercomm" runs under `if (MAIN(cr))`).
+         * An unset Communicator is MPI_COMM_SELF -- Get_size() returns 1, Get_rank() 0, and it never
+         * errors -- so every non-main rank concluded "I am replica 0 of a 1-replica ensemble",
+         * computed a SINGLE-REPLICA restraint and applied it to the atoms it homes, while the main
+         * rank applied the real ensemble forces to its own. A spatial patchwork of two force fields,
+         * no crash, a plausible energy. That is PLUMED #1443, and the guard's own comment named this
+         * as the fix: gate every multi_sim_comm access on the replica main rank and propagate down
+         * `comm`. That is now done, so the guard is lifted.
          *
-         * The supported multi-replica mode is unaffected: one rank per replica leaves comm at size 1
-         * on every rank, and `plumed driver --multi N` under `mpirun -np N` gives nintra == 1.
+         * getNumberOfReplicas() and getReplicaIndex() (PLUMED #1481) are correct on every rank and
+         * need no communication, so the replica identity no longer comes from a communicator that
+         * most ranks do not have. Being communication-free is also why this can live at setup: the
+         * values are fixed for the whole run.
          *
-         * Removing this guard is the acceptance test for real DD support, not an optimisation; the
-         * fix is to gate every multi_sim_comm access on comm.Get_rank()==0 and propagate down `comm`
-         * (see PLMD::function::Ensemble). Mirrors the gmx_fatal in KEnRefForceProvider.cpp.
-         *
-         * THIS GUARD IS LOAD-BEARING FOR CODE THAT IS NOT HERE. KEnRefBias::calculate() reads
-         * multi_sim_comm.Get_size() UNCONDITIONALLY (KEnRefBias.cpp, the "refresh per-step replica
-         * state" line). That read is correct ONLY because this guard holds: one rank per replica
-         * means every rank IS its replica's main rank, so multi_sim_comm is always set wherever that
-         * line runs. Delete this guard and that line starts reading an unset communicator, which
-         * reports "replica 0 of 1" in silence rather than failing -- the exact defect this guard was
-         * written to prevent, reintroduced at a different site. Whoever lifts the guard owns that
-         * line too. (The remaining multi_sim_comm uses -- the Gather and Scatter -- are already
-         * gated behind `if (!isMultiSim_) return`, so this is the only unconditional one.) */
-        if (comm.Get_size() > 1)
-            error("KENREF does not support domain decomposition: this replica spans "
-                  + std::to_string(comm.Get_size()) + " ranks. Run KEnRef with ONE RANK PER REPLICA "
-                  "-- e.g. `mpirun -np <N> ... -multidir <N directories>`, which gives each replica a "
-                  "single rank -- or reduce the rank count so no replica is decomposed. Threads are "
-                  "unaffected: -ntomp / PLUMED_NUM_THREADS are free to use.");
+         * `comm` is the INTRA-replica communicator, so comm.Get_rank() == 0 is "I am this replica's
+         * main rank", which is exactly the set of ranks that may touch multi_sim_comm. Keep that
+         * distinct from "did I compute the ensemble answer" -- see simulationIndex() in the header;
+         * conflating the two makes the ensemble model run once per domain. */
+        numSimulations_   = getNumberOfReplicas();
+        replicaIndex_     = getReplicaIndex();
+        isMultiSim_       = numSimulations_ > 1;
+        isReplicaMainRank_ = comm.Get_rank() == 0;
 
         // ---- general parameters ----
         parse("MODEL", modelName_);
@@ -108,15 +98,19 @@ namespace PLMD::kenref {
             error("No atom mapping found in ATOMNAME_MAPPING file: " + atomname_mapping_file_);
         const bool handleNames = IoUtils::should_handleNames(atomName_to_globalSerial_map_);
 
-        // Replica count for the model's grouping (PLATEAUS). multi_sim_comm is set before construction.
-        const int numSimulations = (Communicator::plumedHasMPI() && Communicator::initialized())
-                                       ? multi_sim_comm.Get_size() : 1;
+        /* Replica count for the model's grouping (PLATEAUS) and for the SIGMA/RELAX ensemble-member
+         * check. This USED TO re-read multi_sim_comm.Get_size() here, with a comment claiming the
+         * communicator is set before construction -- true only on a replica's MAIN rank. Every other
+         * rank read 1 and handed 1 to buildModelIndexing, so under domain decomposition the member
+         * check aborted with "number of input models (1) does not match ... (2)". Third site of the
+         * same defect, after calculate()'s per-step refresh and simulationIndex(); use the member,
+         * which comes from getNumberOfReplicas() and is correct on every rank. */
 
         // ---- shared model + sub-atom indexing via kenref::buildModelIndexing (the SAME path GROMACS
         //      and the offline tools use). The 1-based PDB serials come back as 1-based subAtomGlobalIds;
         //      buildCache + finalizeIndexing happen inside, so the model is ready after this call. ----
         auto mi = ::kenref::buildModelIndexing<KEnRef_Real_t>(
-            modelName_, *this, atomName_to_globalSerial_map_, handleNames, numSimulations,
+            modelName_, *this, atomName_to_globalSerial_map_, handleNames, numSimulations_,
             static_cast<int>(OpenMP::getNumThreads()));
         sub0Id_to_global1Serial_ = std::move(mi.subAtomGlobalIds);
         numSubAtoms_ = static_cast<int>(sub0Id_to_global1Serial_.size());
@@ -241,7 +235,9 @@ namespace PLMD::kenref {
 
         // ---- gather/scatter scratch (allocated once) ----
         const size_t subSize = static_cast<size_t>(numSubAtoms_) * 3;
-        const size_t nSims = static_cast<size_t>(std::max(1, numSimulations));
+        /* Sized from the member, not a local re-read of multi_sim_comm: a non-main rank reading that
+         * communicator sees 1 and would under-allocate the two cross-replica buffers. */
+        const size_t nSims = static_cast<size_t>(std::max(1, numSimulations_));
         allSimulationsSubAtomsX_buffer_.assign(subSize * nSims, 0);
         allDerivatives_buffer_.assign(subSize * nSims, 0);
         derivatives_buffer_.assign(subSize, 0);

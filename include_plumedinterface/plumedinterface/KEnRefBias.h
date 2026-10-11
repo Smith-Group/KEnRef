@@ -64,10 +64,25 @@ namespace PLMD::kenref {
         std::unique_ptr<::kenref::KEnRefDriver<KEnRef_Real_t>> driver_;
         int numSubAtoms_ = 0;
 
-        // ---- per-step replica state (refreshed at the top of calculate()) ----
+        /* ---- replica state, fixed for the whole run and set ONCE at setup ----
+         *
+         * These used to be refreshed every step from `multi_sim_comm`, which was only correct while
+         * domain decomposition was refused: that communicator is populated only on a replica's MAIN
+         * rank (PLUMED's GROMACS patch calls "GREX setMPIIntercomm" under `if (MAIN(cr))`), and an
+         * unset Communicator is MPI_COMM_SELF -- Get_size() returns 1 and Get_rank() 0 without ever
+         * erroring. Every non-main rank therefore concluded "replica 0 of 1" and restrained its own
+         * domain against a single-replica ensemble. PLUMED #1443.
+         *
+         * They now come from Action::getNumberOfReplicas() / getReplicaIndex() (PLUMED #1481), which
+         * are correct on EVERY rank and need no communication, so they can be read at setup. */
         int numSimulations_ = 1;
-        int simulationIndex_ = 0;
+        int replicaIndex_ = 0;
         bool isMultiSim_ = false;
+        /*! \brief Whether this rank may use `multi_sim_comm` -- true on exactly one rank per replica.
+         *
+         * `multi_sim_comm` is valid only on a replica's main rank, so every collective over it is
+         * gated on this. Distinct from "did I compute the ensemble answer": see simulationIndex(). */
+        bool isReplicaMainRank_ = true;
 
         /* ---- periodic repair of the requested atoms ----
          *
@@ -137,7 +152,26 @@ namespace PLMD::kenref {
                             Eigen::Matrix<KEnRef_Real_t, 3, 3>& box) const override;
         void addLocalModelDerivatives(int localModel, const CoordsMatrixType<KEnRef_Real_t>& derivs) override;
         [[nodiscard]] int numModelsTotal()  const override { return numSimulations_; }
-        [[nodiscard]] int simulationIndex() const override { return simulationIndex_; }
+
+        /*! \brief Which replica's slot this rank owns, or -1 if it owns none.
+         *
+         * THE -1 IS LOAD-BEARING AND IT IS NOT A STYLE CHOICE. KEnRefDriver::step() decides who runs
+         * the whole-ensemble model with `adapter.simulationIndex() == 0`. getReplicaIndex() is valid
+         * on every rank, so returning it unconditionally makes that test true on EVERY RANK OF
+         * REPLICA 0 -- under domain decomposition the ensemble model would run once per domain
+         * instead of once per job, and each of those ranks would need the gathered `all`, which a
+         * Gather rooted on the replica's main rank does not give it.
+         *
+         * So two different questions get two different answers, and conflating them is the
+         * characteristic domain-decomposition bug in this code base (KEnRefForceProvider.h says the
+         * same thing for the GROMACS engine, where the predicates are named isReplicaMasterRank and
+         * isEnsembleMasterRank):
+         *   isReplicaMainRank_            -- "may I use multi_sim_comm", one rank per replica
+         *   simulationIndex() == 0        -- "did I compute the answer", one rank per job
+         * They coincide at one rank per replica, which is why mixing them up survives testing. */
+        [[nodiscard]] int simulationIndex() const override {
+            return isReplicaMainRank_ ? replicaIndex_ : -1;
+        }
         void gatherFittedSubAtomsX(const std::vector<CoordsMatrixType<KEnRef_Real_t>>& localFitted,
                                    std::vector<CoordsMatrixType<KEnRef_Real_t>>& all) const override;
         void scatterModelDerivatives(const std::vector<CoordsMatrixType<KEnRef_Real_t>>& allPerModel,
