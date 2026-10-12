@@ -14,9 +14,12 @@
 # ============================================================================
 find_package(Git REQUIRED)
 
-set(KENREF_PLUMED_GIT_URL     "https://github.com/Smith-Group/kenref-plumed2" CACHE STRING
-    "PLUMED git URL to clone for the delegated build (TEMPORARY PR fork; upstream once merged)")
-set(KENREF_PLUMED_GIT_TAG     "kenref-plumed-master" CACHE STRING "PLUMED branch/tag carrying the kenref module")
+# Upstream PLUMED: the kenref module is part of it since plumed/plumed2#1436, and #1490 (domain decomposition)
+# is on its master. The fork branch this used to name, Smith-Group/kenref-plumed2@kenref-plumed-master, no longer
+# exists, so the default clone failed.
+set(KENREF_PLUMED_GIT_URL     "https://github.com/plumed/plumed2.git" CACHE STRING
+    "PLUMED git URL to clone for the delegated build")
+set(KENREF_PLUMED_GIT_TAG     "master" CACHE STRING "PLUMED branch/tag carrying the kenref module")
 set(KENREF_PLUMED_SRC_DIR     ""  CACHE PATH   "Local PLUMED tree (else cloned into the build dir)")
 set(KENREF_PLUMED_INSTALL_DIR ""  CACHE PATH   "PLUMED install prefix (else the plumed script's default)")
 # for --with-plumed-gromacs: a provided GROMACS 2026.x source (else the plumed side fetches one)

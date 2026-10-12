@@ -23,8 +23,8 @@
 # uninstall.
 #
 # PASSES
-#   0. `kenref-plumed-master` builds at all           (one-off; that branch is
-#      PR-minimal and needs --kenref-src, so it is checked once, not in the loop)
+#   0. PLUMED_BRANCH_MIN builds at all                (one-off, with --kenref-src,
+#      so it is checked once, not in the loop)
 #   1. KEnRef side alone, clean system   -> smoke -> REMOVED again
 #   2. PLUMED side alone, clean system   -> must BUILD its own kenref -> smoke -> kept
 #   3. KEnRef side ON TOP of #2          -> smoke native AND re-smoke plumed
@@ -45,9 +45,11 @@
 set -uo pipefail
 
 KENREF_SRC="${KENREF_SRC:-/home/amr/CLionProjects/KEnRef}"
-PLUMED_GIT="${PLUMED_GIT:-https://github.com/Smith-Group/kenref-plumed2.git}"
-PLUMED_BRANCH_MIN="${PLUMED_BRANCH_MIN:-kenref-plumed-master}"      # PR-minimal, needs --kenref-src
-PLUMED_BRANCH_DEF="${PLUMED_BRANCH_DEF:-kenref-plumed-downloads}"   # the zero-option branch
+# Upstream PLUMED master carries the kenref module and its auto-fetch, so one branch serves both roles. They were
+# Smith-Group/kenref-plumed2's kenref-plumed-master (PR-minimal) and kenref-plumed-downloads; the former no longer exists.
+PLUMED_GIT="${PLUMED_GIT:-https://github.com/plumed/plumed2.git}"
+PLUMED_BRANCH_MIN="${PLUMED_BRANCH_MIN:-master}"      # built with --kenref-src
+PLUMED_BRANCH_DEF="${PLUMED_BRANCH_DEF:-master}"      # the zero-option build
 KENREF_PREFIX=/usr/local/kenref
 KENREF_GMX_PREFIX=/usr/local/kenref-gmx
 PLUMED_PREFIX=/usr/local
