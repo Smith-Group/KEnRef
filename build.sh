@@ -14,7 +14,7 @@
 #   (default)                 kenref_core (the library)
 #   --with-gmx[=ON|OFF|AUTO]   kenref-gmx force provider (executables), consuming the core
 #   --with-plumed[=ON|OFF|AUTO] + PLUMED (kenref module) — DELEGATES to <plumed>/src/kenref/build-only.sh
-#   --with-plumed-gromacs      + PLUMED + a batched GROMACS — DELEGATES to build-and-batch.sh
+#   --with-plumed-gromacs      + PLUMED + a patched GROMACS — DELEGATES to build-and-patch.sh
 #
 # A single CMake configure builds whatever resolves ON; a single `cmake --install` writes the one prefix
 # (and runs the delegated PLUMED build via install(CODE) when requested). This script stays a shallow shell:
@@ -38,7 +38,7 @@ MODULEFILE_DIR=""                         # empty => CMake default (<prefix>/mod
 MODULEFILE_LINK=""                        # non-empty => also symlink modulefiles into this system dir
 # PLUMED (delegation): clone coords + optional local tree / install prefix
 PLUMED_SRC=""       PLUMED_PREFIX=""
-GROMACS_SRC=""                             # for --with-plumed-gromacs: a provided 2025.x source (else plumed fetches)
+GROMACS_SRC=""                             # for --with-plumed-gromacs: a provided 2026.x source (else plumed fetches)
 # kenref-gmx force-provider GROMACS: give its BUILD dir (source+install+MPI flavor are derived from it), or a
 # SOURCE for KEnRef to build; give neither and KEnRef fetches+builds a stock gromacs (--download ON).
 GMX_GROMACS_BUILD=""  GMX_GROMACS_SRC=""
@@ -60,7 +60,7 @@ Components (tri-state ON/OFF/AUTO, default AUTO; bare flag = ON):
   (default)                  build kenref_core (the library)
   --with-gmx[=ON|OFF|AUTO]   also build the kenref-gmx force provider (executables), consuming the core
   --with-plumed[=ON|OFF|AUTO] also build PLUMED with the kenref module   (delegated to the plumed side)
-  --with-plumed-gromacs      also build PLUMED + a batched GROMACS        (delegated to build-and-batch.sh)
+  --with-plumed-gromacs      also build PLUMED + a patched GROMACS        (delegated to build-and-patch.sh)
   --export-plumedinterface   install the plumedinterface source + kenref_plumed.pc (the plumed side sets this
                              when it delegates the kenref build; enables compiling the module in-tree)
 
@@ -84,7 +84,7 @@ Config:
                              Omit both to fetch+build a stock gromacs (needs --download ON).
   --plumed-src DIR       PLUMED source tree (omit to clone the PR fork into the build dir)
   --plumed-prefix DIR    PLUMED install prefix
-  --gromacs-src DIR      provided GROMACS 2025.x source for --with-plumed-gromacs (else plumed fetches it)
+  --gromacs-src DIR      provided GROMACS 2026.x source for --with-plumed-gromacs (else plumed fetches it)
   -y | --yes             non-interactive; take defaults
   -h | --help
   --                     forward everything after it to cmake, e.g.  -- -G Ninja -DKENREF_EIGEN_INSTALL_DIR=/usr/local
@@ -132,7 +132,7 @@ if interactive; then
     say "Interactive mode (pass flags or -y to skip). Building kenref_core; component choices (ON/OFF/AUTO):"
     ask_tri WITH_GMX    "  kenref-gmx force provider (executables)?"
     ask_tri WITH_PLUMED "  PLUMED with the kenref module?"
-    if [ "$WITH_PLUMED" != "OFF" ] && ask_yesno "  ... and also batch a GROMACS with it?"; then WITH_PLUMED_GROMACS=1; fi
+    if [ "$WITH_PLUMED" != "OFF" ] && ask_yesno "  ... and also patch a GROMACS with it?"; then WITH_PLUMED_GROMACS=1; fi
     ask_yesno "  Allow downloading missing sub-deps (Eigen/GROMACS/PLUMED)?" && DOWNLOAD="ON" || DOWNLOAD="OFF"
     # Modulefile system-dir link: only offer when the prefix is NOT /usr/local (there the modulefile is
     # already under /usr/local/modulefiles, so a link would be a self-referential no-op).
@@ -140,7 +140,7 @@ if interactive; then
         ask_yesno "  Symlink modulefiles into /usr/local/modulefiles?" && MODULEFILE_LINK="/usr/local/modulefiles"
     fi
 fi
-[ "$WITH_PLUMED_GROMACS" = 1 ] && WITH_PLUMED="ON"   # batching implies building plumed
+[ "$WITH_PLUMED_GROMACS" = 1 ] && WITH_PLUMED="ON"   # patching implies building plumed
 
 bt="$(echo "$BUILD_TYPE" | tr '[:upper:]' '[:lower:]')"
 

@@ -7,7 +7,7 @@
 # install prefix. The natural CMake hook for that is install(CODE): it runs at
 # `cmake --install`, after the kenref install rules. There it clones PLUMED into
 # the build dir (or uses KENREF_PLUMED_SRC_DIR) and runs build-only.sh /
-# build-and-batch.sh, sourcing the installed env.sh so the script sees kenref
+# build-and-patch.sh, sourcing the installed env.sh so the script sees kenref
 # (and the preferred eigen flavor). No loop: kenref is already installed.
 #
 # Included from CMakeLists.txt when KENREF_WITH_PLUMED. (build.sh only sets -D.)
@@ -19,13 +19,17 @@ set(KENREF_PLUMED_GIT_URL     "https://github.com/Smith-Group/kenref-plumed2" CA
 set(KENREF_PLUMED_GIT_TAG     "kenref-plumed-master" CACHE STRING "PLUMED branch/tag carrying the kenref module")
 set(KENREF_PLUMED_SRC_DIR     ""  CACHE PATH   "Local PLUMED tree (else cloned into the build dir)")
 set(KENREF_PLUMED_INSTALL_DIR ""  CACHE PATH   "PLUMED install prefix (else the plumed script's default)")
-# for --with-plumed-gromacs: a provided GROMACS 2025.x source (else the plumed side fetches one)
-set(KENREF_GROMACS_SRC_DIR    ""  CACHE PATH   "Provided GROMACS 2025.x source for the batched build")
+# for --with-plumed-gromacs: a provided GROMACS 2026.x source (else the plumed side fetches one)
+set(KENREF_GROMACS_SRC_DIR    ""  CACHE PATH   "Provided GROMACS 2026.x source for the patched build")
 
 if(KENREF_WITH_PLUMED_GROMACS)
-    set(_kn_pl_script "build-and-batch.sh")
+    set(_kn_pl_script "build-and-patch.sh")
+    # The script's name before the rename. A PLUMED tree that predates it has only this one; newer trees keep it
+    # as a wrapper for one release. Drop this fallback when the wrapper is deleted.
+    set(_kn_pl_script_old "build-and-batch.sh")
 else()
     set(_kn_pl_script "build-only.sh")
+    set(_kn_pl_script_old "build-only.sh")
 endif()
 
 # where the PLUMED tree will be (clone happens at install time so configure stays light)
@@ -69,7 +73,12 @@ else()
     set(_kn_force FALSE)
 endif()
 
-message(STATUS "KENREF_WITH_PLUMED: CMake will delegate to ${_kn_plumed_src}/src/kenref/${_kn_pl_script} at install time")
+if(_kn_pl_script STREQUAL _kn_pl_script_old)
+    message(STATUS "KENREF_WITH_PLUMED: CMake will delegate to ${_kn_plumed_src}/src/kenref/${_kn_pl_script} at install time")
+else()
+    message(STATUS "KENREF_WITH_PLUMED: CMake will delegate to ${_kn_plumed_src}/src/kenref/${_kn_pl_script} "
+                   "(${_kn_pl_script_old} in a PLUMED tree that predates it) at install time")
+endif()
 
 # Runs at `cmake --install`, after kenref is installed. ${..} = configure-time; \${..} = install-time.
 #
@@ -84,12 +93,16 @@ if(EXISTS \"${_kn_plumed_prefix}/bin/plumed\" AND NOT ${_kn_force})
 else()
     set(_pl_src \"${_kn_plumed_src}\")
     set(_pl_script \"\${_pl_src}/src/kenref/${_kn_pl_script}\")
-    if(NOT EXISTS \"\${_pl_script}\")
+    # build-only.sh is in every PLUMED tree that carries the kenref module, under either script name.
+    if(NOT EXISTS \"\${_pl_src}/src/kenref/build-only.sh\")
         message(STATUS \"PLUMED: cloning ${KENREF_PLUMED_GIT_URL}@${KENREF_PLUMED_GIT_TAG} -> \${_pl_src}\")
         execute_process(COMMAND \"${GIT_EXECUTABLE}\" clone --branch \"${KENREF_PLUMED_GIT_TAG}\" \"${KENREF_PLUMED_GIT_URL}\" \"\${_pl_src}\" RESULT_VARIABLE _kn_c)
         if(NOT _kn_c EQUAL 0)
             message(FATAL_ERROR \"PLUMED clone failed; set -DKENREF_PLUMED_SRC_DIR=<plumed tree>.\")
         endif()
+    endif()
+    if(NOT EXISTS \"\${_pl_script}\")
+        set(_pl_script \"\${_pl_src}/src/kenref/${_kn_pl_script_old}\")
     endif()
     message(STATUS \"PLUMED: delegating build -> \${_pl_script}  (reuses the just-installed kenref)\")
     execute_process(

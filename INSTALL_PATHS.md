@@ -59,7 +59,7 @@ Two asymmetries worth knowing:
   interface compiles against GROMACS's *internal* headers and its generated `config.h`, so it is specific
   to one GROMACS build.
 - **`gromacs-4-plumed` carries no plumed/kenref dimension.** `plumed patch --mode runtime` does not link
-  PLUMED into GROMACS — the kernel is `dlopen`'d at run time via `$PLUMED_KERNEL`. One batched GROMACS
+  PLUMED into GROMACS — the kernel is `dlopen`'d at run time via `$PLUMED_KERNEL`. One patched GROMACS
   therefore serves every plumed/kenref combination; adding those dimensions would force byte-identical
   rebuilds.
 
@@ -96,7 +96,7 @@ accel is shared). Later modifiers append to the leading part: `2.0.0_AVX_512_cud
 kenref/<kenref>_<accel>                    KEnRef core + the kenref-gmx interface, one prefix
 kenref/<kenref>_<accel>-gmx-<gmxver>       the stock GROMACS that build was made against
 plumed/<plumed>_<accel>-kenref<kenref>     PLUMED (its kernel LINKS that kenref)
-gromacs-4-plumed/<gmxver>_<accel>          the PLUMED-batched GROMACS
+gromacs-4-plumed/<gmxver>_<accel>          the PLUMED-patched GROMACS
 modulefiles/{kenref,plumed}/<same name>    modulefiles, flat, symlinked into the install
 ```
 

@@ -10,7 +10,7 @@
 #   * openmpi + plumed  -> `module load`
 #   * gromacs           -> `source .../GMXRC`
 #   * kenref            -> `source .../env.sh`
-# The two sides use DIFFERENT gromacs (the kenref one vs the plumed-batched one),
+# The two sides use DIFFERENT gromacs (the kenref one vs the plumed-patched one),
 # so each run gets its env in a fresh subshell.
 #
 # TWO TIERS, one script — they differ ONLY in where things are installed:

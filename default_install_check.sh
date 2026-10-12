@@ -7,7 +7,7 @@
 # something that runs an MD simulation — from EITHER side, and do the two
 # coexist?
 #
-# Only documented commands are used (`./build.sh -y`, `build-and-batch.sh -y`,
+# Only documented commands are used (`./build.sh -y`, `build-and-patch.sh -y`,
 # `source env.sh`, `source GMXRC`). Every smoke run happens under `env -i`, so
 # nothing is propped up by this shell's PATH/LD_LIBRARY_PATH — that is exactly
 # the mistake that makes a broken install look fine on the developer's machine.
@@ -155,7 +155,9 @@ build_kenref_side() {                      # the documented KEnRef quick start
 }
 build_plumed_side() {                      # <tag> <plumed tree> [extra args...]
     local tag="$1" tree="$2"; shift 2
-    step "build-plumed-side-$tag" bash -c "cd '$tree' && ./src/kenref/build-and-batch.sh -y $*"
+    # build-and-batch.sh is the script's name before the rename; a PLUMED tree that predates it has only that.
+    local script=build-and-patch.sh; [ -e "$tree/src/kenref/$script" ] || script=build-and-batch.sh
+    step "build-plumed-side-$tag" bash -c "cd '$tree' && ./src/kenref/$script -y $*"
 }
 
 remove_kenref_install() {

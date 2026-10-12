@@ -55,12 +55,12 @@ option(KENREF_EXPORT_PLUMEDINTERFACE "Install the plumedinterface headers/source
 option(KENREF_FETCH_MISSING "Download & build missing dependencies (Eigen/GROMACS/PLUMED) instead of failing" ON)
 
 # PLUMED: KEnRef does not REIMPLEMENT plumed's build; it DELEGATES to the plumed side (build-only.sh /
-# build-and-batch.sh), and CMake itself invokes that script (via install(CODE) — after kenref_core is
+# build-and-patch.sh), and CMake itself invokes that script (via install(CODE) — after kenref_core is
 # installed, so the plumed script reuses it). See cmake/InvokePlumed.cmake. build.sh just sets these.
 # Tri-state (ON/OFF/AUTO): AUTO builds iff a PLUMED source is provided (KENREF_PLUMED_SRC_DIR). Resolved below.
 set(KENREF_WITH_PLUMED "AUTO" CACHE STRING "Also build PLUMED (kenref module), delegated to the plumed side at install time (ON/OFF/AUTO)")
 set_property(CACHE KENREF_WITH_PLUMED PROPERTY STRINGS ON OFF AUTO)
-option(KENREF_WITH_PLUMED_GROMACS  "Also build PLUMED + a batched GROMACS (delegates to build-and-batch.sh)"        OFF)
+option(KENREF_WITH_PLUMED_GROMACS  "Also build PLUMED + a patched GROMACS (delegates to build-and-patch.sh)"        OFF)
 
 # Per-model compile-time enable switches (Style-2 registration). Default ON; turning one OFF drops that
 # model's registration from bootstrapModels() so it is unavailable at runtime. Passed to the core
@@ -358,7 +358,7 @@ if(DEFINED KENREF_PLUMED_SRC_DIR AND NOT KENREF_PLUMED_SRC_DIR STREQUAL "")
 endif()
 kenref_resolve_component("PLUMED (delegated build)" "${_KN_WITHPLUMED_REQ}" ${_kn_with_plumed_available} KENREF_WITH_PLUMED)
 
-# Implications: batching a GROMACS implies building PLUMED; a PLUMED build here compiles plumedinterface from
+# Implications: patching a GROMACS implies building PLUMED; a PLUMED build here compiles plumedinterface from
 # the kenref install, so it must be exported.
 if(KENREF_WITH_PLUMED_GROMACS)
 	set(KENREF_WITH_PLUMED ON)

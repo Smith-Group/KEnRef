@@ -232,8 +232,8 @@ endmacro()
 # concrete paths come from your dev env (~/scripts, CLion), not hardcoded here. Fetch fallback =
 # ExternalProject clone+build of upstream gromacs (heavy; scaffolded for now).
 # ----------------------------------------------------------------------------
-# The kenref-gmx force provider's GROMACS (stock gromacs it links) — its download config. The PLUMED-batched
-# GROMACS is a separate consumer, handled on the PLUMED side (build-and-batch.sh), not here. build.sh's
+# The kenref-gmx force provider's GROMACS (stock gromacs it links) — its download config. The PLUMED-patched
+# GROMACS is a separate consumer, handled on the PLUMED side (build-and-patch.sh), not here. build.sh's
 # --with-gmx does the actual fetch+build; these are the defaults it uses.
 set(KENREF_GMX_GROMACS_GIT_URL   "https://gitlab.com/gromacs/gromacs.git" CACHE STRING
     "Upstream GROMACS git URL for the kenref-gmx force-provider fetch (stock gromacs)")

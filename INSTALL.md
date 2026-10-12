@@ -40,7 +40,7 @@ piece is a clean error telling you what to provide.
 ./build.sh -y                        # kenref_core (library)                       -> /usr/local/kenref
 ./build.sh --with-gmx -y             # + kenref-gmx executables (force GMX on; fetches a stock GROMACS if none)
 ./build.sh --with-plumed -y          # + PLUMED (kenref module)   — delegated to the plumed side
-./build.sh --with-plumed-gromacs -y  # + PLUMED + a batched GROMACS 2025.x         — delegated to build-and-batch.sh
+./build.sh --with-plumed-gromacs -y  # + PLUMED + a patched GROMACS 2026.x         — delegated to build-and-patch.sh
 ```
 
 `--with-gmx` / `--with-plumed` take an optional value: `--with-gmx=auto` (build gmx *iff* a GROMACS is already
@@ -138,7 +138,7 @@ no-sudo build. Installing under `/usr/local` uses `sudo` **only** if the prefix 
 
 **PLUMED delegation.** `--with-plumed[-gromacs]` sets CMake options; **CMake itself**, at `cmake --install` time
 (after kenref_core is installed), clones PLUMED into the build dir and runs the plumed side's `build-only.sh` /
-`build-and-batch.sh` (`cmake/InvokePlumed.cmake`), which **reuse** the just-installed kenref — no rebuild, no
+`build-and-patch.sh` (`cmake/InvokePlumed.cmake`), which **reuse** the just-installed kenref — no rebuild, no
 loop. Point at a local plumed with `-DKENREF_PLUMED_SRC_DIR` (with `--download OFF` a missing plumed is an error).
 
 **Forwarding arbitrary flags.** Anything after `--` goes straight to CMake, e.g.
@@ -176,5 +176,5 @@ is optimised by default; pass `-DCMAKE_BUILD_TYPE=Debug` etc. to change it.
 directly — `KENREF_WITH_PLUMED=ON` delegates to the plumed side at install time.
 
 ## Starting from PLUMED instead
-See **`src/kenref/install.md`** in the PLUMED repo — `build-only.sh` (PLUMED only) and `build-and-batch.sh`
-(PLUMED + a batched GROMACS), which delegate the kenref build back to this repo.
+See **`src/kenref/install.md`** in the PLUMED repo — `build-only.sh` (PLUMED only) and `build-and-patch.sh`
+(PLUMED + a patched GROMACS), which delegate the kenref build back to this repo.
