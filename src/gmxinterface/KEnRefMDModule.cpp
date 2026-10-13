@@ -6,6 +6,7 @@
 
 #include <iostream>
 #include "gromacs/mdrunutility/mdmodulesnotifiers.h"
+#include "gromacs/utility/gmxassert.h"   // GMX_RELEASE_ASSERT, for the multisim cross-check
 #include "gromacs/topology/topology.h"
 #include "gmxinterface/gmxkenrefinitializer.h"
 #include "gmxinterface/KEnRefMDModule.h"
@@ -67,7 +68,60 @@ forceProviders->addForceProvider(forceProvider_.get());
 
 //! Subscribe to simulation setup notifications
 void KEnRefMDModule::subscribeToSimulationSetupNotifications(gmx::MDModulesNotifiers* notifiers) {
-	//TODO Implement
+	/* NOTE: GROMACS never calls this for KEnRef (see mdrun.cpp, which calls it itself). */
+
+	/* Opt IN to GROMACS's shared-state handling, for multi-replica runs only.
+	 *
+	 * WHY SUBSCRIBING IS THE POINT, not the callback. `md.cpp` decides whether the simulations share
+	 * state -- and therefore must checkpoint and stop in LOCKSTEP -- from
+	 *     simulationsShareState = (ms != nullptr) && haveSubscribers<const gmx_multisim_t*>()
+	 * so the mere existence of a subscriber to this payload type is the signal. Nothing reads what the
+	 * callback does. That is why this is here at all: KEnRefForceProvider does an MPI_Gather and an
+	 * MPI_Scatter on `mainRanksComm_` EVERY STEP of a -multidir run, which is a strictly stronger
+	 * lockstep requirement than anything the flag imposes. Without the subscription the flag stays
+	 * false, a `-maxh` or SIGINT stop is not propagated between simulations, one replica stops while
+	 * the others step into a collective that will never complete, and the run HANGS rather than
+	 * failing. Subscribing is the fix for that half of the defect.
+	 *
+	 * WHY IT IS GUARDED. Subscribing is not side-effect free -- it imposes lockstep on the run -- so it
+	 * must not be imposed where it is not wanted. PLUMED hit this and fixed it in #1456: its module is
+	 * built into a stock `gmx mdrun`, so subscribing unconditionally imposed lockstep on every
+	 * -multidir run of a patched GROMACS *including runs that never passed -plumed*, which then
+	 * deadlocked on differing step counts. PLUMED therefore gates on its input file having activated
+	 * it. We cannot reuse that condition: KEnRef has no inactive mode -- the force provider is
+	 * registered unconditionally in initForceProviders() and calculateForces() has no bail-out -- so
+	 * "is KEnRef in use" is always true inside this binary. The condition that matters for us is
+	 * instead whether there are replicas to keep in step, which is exactly when those per-step
+	 * cross-replica collectives run.
+	 *
+	 * Strictly, `md.cpp` already ANDs with `ms != nullptr`, so an unconditional subscription would also
+	 * behave correctly today. The guard is kept because it states the intent locally and because it
+	 * stops being redundant the moment this module is added to anything that can run without KEnRef.
+	 *
+	 * ORDERING: this reads simulationContext_, so setSimulationContext() must have run first. Both
+	 * calls are adjacent in our own mdrun.cpp (setSimulationContext then this function), which is why
+	 * the dependency is safe to take.
+	 *
+	 * NOT VERSION-DEPENDENT: `const gmx_multisim_t*` is a simulationSetupNotifier_ payload in both
+	 * 2025.4 and 2026.x, and SimulationContext::multiSimulation_ exists in both, so no GMX_VERSION
+	 * shim is needed here (checked against both header sets, not assumed). */
+	if (simulationContext_ != nullptr && simulationContext_->multiSimulation_ != nullptr) {
+		const gmx_multisim_t *takenDirectly = simulationContext_->multiSimulation_.get();
+		/* The callback is a CROSS-CHECK rather than a formality. mdrun.cpp takes the multisim straight
+		 * out of the SimulationContext instead of waiting for this notification; if the pointer
+		 * GROMACS notifies ever differs from the one we took, that direct grab is reading the wrong
+		 * object and every cross-replica collective is suspect. Cheap to assert, silent if it holds. */
+		notifiers->simulationSetupNotifier_.subscribe(
+		        [takenDirectly](const gmx_multisim_t *notified) {
+			        GMX_RELEASE_ASSERT(notified == takenDirectly,
+			                           "KEnRef: the gmx_multisim_t GROMACS notified differs from the one "
+			                           "taken from the SimulationContext in mdrun.cpp. The cross-replica "
+			                           "collectives are built on the latter, so they would be using the "
+			                           "wrong communicator.");
+		        });
+		std::cout << "KEnRef: multi-simulation run -- subscribed to the multisim record, so GROMACS "
+		             "will checkpoint and stop the replicas in lockstep" << std::endl;
+	}
 }
 
 //! Subscribe to pre processing notifications
