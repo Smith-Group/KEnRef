@@ -105,7 +105,8 @@ Supported **when the topology is available**, which is how the coordinates get r
 otherwise. "Topology" here means GROMACS's in-memory `gmx_mtop_t`, which it builds from the **tpr** —
 no separate `.top` is needed at run time, and it is therefore present in any normal run. KEnRef gets it
 by subscribing to the simulation-setup notification *itself* from its own `mdrun.cpp`, because GROMACS
-does not deliver notifications to externally added modules; so "topology unavailable" in practice means
+2025 does not deliver notifications to externally added modules (2026 does, so there the module is
+asked twice and ignores the repeat — `testSubscribeOnce.cpp`); so "topology unavailable" in practice means
 that subscription has regressed, not that the user did anything wrong. PLUMED is different: it receives
 positions and the box, never a topology, which is why it repairs from the reference structure instead
 (and refuses when that reference is itself unusable). `KENREF_DD_SELFCHECK=1` verifies the property the parallel design rests on — that every row

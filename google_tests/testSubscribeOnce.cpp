@@ -5,8 +5,8 @@
  * and every callback would be registered (and run) twice. These tests count the subscriptions through
  * the diagnostic printed at the subscribe call, so they fail if any path subscribes more than once.
  *
- * Only the multisim subscription is unconditional enough to observe here: it needs a multi-simulation
- * record, which is built by hand below (no MPI calls are made, so no MPI_Init is needed). */
+ * The multisim subscription needs a multi-simulation record, which is built by hand below (no MPI
+ * calls are made, so no MPI_Init is needed). */
 #include "config.h" // GMX_LIB_MPI
 
 #include <filesystem>
@@ -18,6 +18,7 @@
 #include "gromacs/mdrun/simulationcontext.h"
 #include "gromacs/mdrunutility/mdmodulesnotifiers.h"
 #include "gromacs/mdrunutility/multisim.h"
+#include "gromacs/topology/topology.h"
 #include "gromacs/utility/gmxmpi.h"
 #include "gromacs/version.h"
 #include "gmxinterface/KEnRefMDModule.h"
@@ -62,6 +63,18 @@ TEST_F(SubscribeOnceTest, RepeatOnTheSameNotifiersIsIgnored) {
     raw_->subscribeToSimulationSetupNotifications(&notifiers);
     raw_->subscribeToSimulationSetupNotifications(&notifiers);
     EXPECT_EQ(occurrences(testing::internal::GetCapturedStdout(), kSubscribed), 1);
+}
+
+// The count that matters: a callback registered twice RUNS twice. The topology callback is
+// unconditional, so one notification must reach it exactly once.
+TEST_F(SubscribeOnceTest, OneNotificationRunsEachCallbackOnce) {
+    gmx::MDModulesNotifiers notifiers;
+    raw_->subscribeToSimulationSetupNotifications(&notifiers);
+    raw_->subscribeToSimulationSetupNotifications(&notifiers);
+    const gmx_mtop_t mtop;
+    testing::internal::CaptureStdout();
+    notifiers.simulationSetupNotifier_.notify(mtop);
+    EXPECT_EQ(occurrences(testing::internal::GetCapturedStdout(), "KEnRef: topology received"), 1);
 }
 
 // The guard is per notifiers object, not a blanket "subscribe once ever".
