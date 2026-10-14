@@ -35,10 +35,50 @@ WORK="${WORK:-${TMPDIR:-/tmp}/kenref-rt-validate.$$}"
 
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 
-# Expected step-0 energies. These are properties of the committed fixtures, not of
-# the machine: they were bit-identical across 1, 2 and 4 ranks and across repeats.
-EXPECT_GB3="3.65155e-05"
-EXPECT_UBQ="7.18869e-08"
+# Expected step-0 energies, PER SIMD WIDTH.
+#
+# The previous comment here claimed these were "properties of the committed fixtures, not
+# of the machine: bit-identical across 1, 2 and 4 ranks and across repeats". That was
+# measured on AVX_512 and is NOT true in general. A narrower vector changes the order the
+# energy terms are summed, and the 6th significant figure moves. Measured 2026-10-14 on the
+# v2.0.3 tier (kenref 087d753, gromacs 2026.4), and constant across all four GROMACS
+# releases within a width -- which is what establishes that the SIMD width, not GROMACS, is
+# the variable:
+#
+#   fixture      AVX_512       AVX2_256      AVX_256
+#   gb3_broken   3.65155e-05   3.6515e-05    3.65161e-05
+#   ubiquitin    7.18869e-08   7.18869e-08   7.18869e-08     (width-insensitive so far)
+#
+# AVX_256 CAVEAT: there, and only there, gb3_broken's step-0 energy is 3.65161e-05 at np=1
+# but 3.6516e-05 at np=2 and np=4 -- a reproducible 2.7e-06 relative serial-vs-DD gap (four
+# independent confirmations, deterministic within each configuration). np=2 and np=4 agree
+# with EACH OTHER exactly, so the decomposition axis is self-consistent and it is the serial
+# path that is the outlier. The value below is the np=1 one, because this script runs serial.
+# dd_validate.sh, which sweeps rank counts, therefore reports three genuinely-failing cells
+# for gb3 on AVX_256. That red is the check working, not a stale number -- see dd_validate.sh.
+#
+# DERIVED FROM $BIN'S OWN PATH, not taken as a knob. The path says which build is actually
+# under test; a knob can disagree with the binary it claims to describe. A dev-tree binary has
+# no width in its path, so ACCEL= must be set explicitly there.
+# NO FALLBACK to AVX_512's numbers for an unrecognised width: silently reusing them is exactly
+# how 32 of 60 smoke checks read as a product failure on 2026-10-14 when the references were
+# the only thing wrong.
+case "$BIN" in
+    */release/AVX_512/*)  KN_WIDTH=AVX_512  ;;
+    */release/AVX2_256/*) KN_WIDTH=AVX2_256 ;;
+    */release/AVX_256/*)  KN_WIDTH=AVX_256  ;;
+    *)                    KN_WIDTH="${ACCEL:-}" ;;
+esac
+case "$KN_WIDTH" in
+    AVX_512)  EXPECT_GB3="3.65155e-05"; EXPECT_UBQ="7.18869e-08" ;;
+    AVX2_256) EXPECT_GB3="3.6515e-05";  EXPECT_UBQ="7.18869e-08" ;;
+    AVX_256)  EXPECT_GB3="3.65161e-05"; EXPECT_UBQ="7.18869e-08" ;;
+    *) echo "rt_validate: cannot tell the SIMD width of $BIN, and ACCEL is unset." >&2
+       echo "  The expected energies differ per width, so there is nothing safe to compare against." >&2
+       echo "  Set ACCEL=AVX_512|AVX2_256|AVX_256 -- and if this is a width with no recorded" >&2
+       echo "  reference, MEASURE it rather than borrowing another width's number." >&2
+       exit 2 ;;
+esac
 
 GB3_SET="$REPO/res/sigma/md_single"
 GB3_TPR="$GB3_SET/md-00_PBC-BROKEN.tpr"          # the tpr is named for what it IS

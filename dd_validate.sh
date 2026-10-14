@@ -60,8 +60,49 @@ WORK="${WORK:-${TMPDIR:-/tmp}/kenref-dd-validate.$$}"
 
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 
-EXPECT_GB3="3.65155e-05"
-EXPECT_UBQ="7.18869e-08"
+# Expected step-0 energies, PER SIMD WIDTH. See the long note in rt_validate.sh: a narrower
+# vector changes the summation order and the 6th significant figure moves, so one set of
+# literals cannot serve all three widths. Measured 2026-10-14 on the v2.0.3 tier
+# (kenref 087d753, gromacs 2026.4):
+#
+#   fixture      AVX_512       AVX2_256      AVX_256
+#   gb3_broken   3.65155e-05   3.6515e-05    3.65161e-05   (np=1; see below)
+#   ubiquitin    7.18869e-08   7.18869e-08   7.18869e-08
+#
+# EXPECT THREE RED CELLS FOR gb3 ON AVX_256, AND DO NOT "FIX" THEM BY WIDENING THE NUMBER.
+# On AVX_256 only, gb3_broken's step-0 energy is 3.65161e-05 at np=1 but 3.6516e-05 at np=2,
+# np=4 and np=4/-npme 1 -- a reproducible 2.7e-06 relative gap (four independent
+# confirmations, deterministic within each configuration; AVX_512 shows exact independence
+# across six runs spanning 2026-10-04..14). The reference below is the np=1 value, so part 1
+# reports the three DD cells as failures. That is this check doing its job: part 1 exists to
+# assert the step-0 energy does NOT move with rank count, and on AVX_256 it does.
+#
+# Recording a SECOND value for the DD cells would silence it, and would also destroy the
+# check: a per-rank-count reference cannot detect a rank-count dependence. If this ever needs
+# to be an accepted deviation, it has to be a NAMED one that still fails on any change --
+# not a widened literal.
+#
+# Reading it: np=2 and np=4 agree with each OTHER exactly, so the decomposition axis is
+# self-consistent and the SERIAL path is the outlier -- consistent with serial taking a
+# different (non-MPI-reduction) summation branch, not with DD being wrong. The gap is smaller
+# than the width-to-width spread (1.0e-05..3.3e-05), i.e. the same class of effect; AVX_512
+# and AVX2_256 merely hide it at six printed figures.
+case "$BIN" in
+    */release/AVX_512/*)  KN_WIDTH=AVX_512  ;;
+    */release/AVX2_256/*) KN_WIDTH=AVX2_256 ;;
+    */release/AVX_256/*)  KN_WIDTH=AVX_256  ;;
+    *)                    KN_WIDTH="${ACCEL:-}" ;;
+esac
+case "$KN_WIDTH" in
+    AVX_512)  EXPECT_GB3="3.65155e-05"; EXPECT_UBQ="7.18869e-08" ;;
+    AVX2_256) EXPECT_GB3="3.6515e-05";  EXPECT_UBQ="7.18869e-08" ;;
+    AVX_256)  EXPECT_GB3="3.65161e-05"; EXPECT_UBQ="7.18869e-08" ;;
+    *) echo "dd_validate: cannot tell the SIMD width of $BIN, and ACCEL is unset." >&2
+       echo "  The expected energies differ per width, so there is nothing safe to compare against." >&2
+       echo "  Set ACCEL=AVX_512|AVX2_256|AVX_256 -- and if this is a width with no recorded" >&2
+       echo "  reference, MEASURE it rather than borrowing another width's number." >&2
+       exit 2 ;;
+esac
 
 GB3_SET="$REPO/res/sigma/md_single"
 GB3_TPR="$GB3_SET/md-00_PBC-BROKEN.tpr"

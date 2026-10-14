@@ -82,8 +82,37 @@ export PLUMED_NUM_THREADS="${PLUMED_NUM_THREADS:-1}"
 
 # The same step-0 energies rt_validate.sh asserts on the GROMACS side. That they
 # are the SAME numbers here is the point: two engines, two repair mechanisms.
-EXPECT_GB3="3.65155e-05"
-EXPECT_UBQ="7.18869e-08"
+# Expected step-0 energies, PER SIMD WIDTH. See the long note in rt_validate.sh: a narrower
+# vector changes the order the energy terms are summed and the 6th significant figure moves,
+# so one set of literals cannot serve all three widths. Measured 2026-10-14 on the v2.0.3
+# tier (kenref 087d753, gromacs 2026.4):
+#
+#   fixture      AVX_512       AVX2_256      AVX_256
+#   gb3_broken   3.65155e-05   3.6515e-05    3.65161e-05
+#   ubiquitin    7.18869e-08   7.18869e-08   7.18869e-08
+#
+# This script runs serial, so AVX_256's np=1 value is the right one here. (On AVX_256 the DD
+# runs differ from serial by 2.7e-06; that is dd_validate.sh's business, documented there.)
+#
+# Derived from $BIN's own path, not taken as a knob: the path says which build is actually
+# under test. NO FALLBACK for an unrecognised width -- borrowing AVX_512's numbers is how 32
+# of 60 smoke checks read as a product failure on 2026-10-14 when only the references were wrong.
+case "$BIN" in
+    */release/AVX_512/*)  KN_WIDTH=AVX_512  ;;
+    */release/AVX2_256/*) KN_WIDTH=AVX2_256 ;;
+    */release/AVX_256/*)  KN_WIDTH=AVX_256  ;;
+    *)                    KN_WIDTH="${ACCEL:-}" ;;
+esac
+case "$KN_WIDTH" in
+    AVX_512)  EXPECT_GB3="3.65155e-05"; EXPECT_UBQ="7.18869e-08" ;;
+    AVX2_256) EXPECT_GB3="3.6515e-05";  EXPECT_UBQ="7.18869e-08" ;;
+    AVX_256)  EXPECT_GB3="3.65161e-05"; EXPECT_UBQ="7.18869e-08" ;;
+    *) echo "$(basename "$0"): cannot tell the SIMD width of $BIN, and ACCEL is unset." >&2
+       echo "  The expected energies differ per width, so there is nothing safe to compare against." >&2
+       echo "  Set ACCEL=AVX_512|AVX2_256|AVX_256 -- and if this is a width with no recorded" >&2
+       echo "  reference, MEASURE it rather than borrowing another width's number." >&2
+       exit 2 ;;
+esac
 
 GB3_SET="$REPO/res/sigma/md_single"
 GB3_TPR="$GB3_SET/md-00_PBC-BROKEN.tpr"
