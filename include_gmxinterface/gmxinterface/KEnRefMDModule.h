@@ -94,6 +94,17 @@ class KEnRefMDModule final: public gmx::IMDModule {
     //! Object that evaluates the forces
     std::shared_ptr<KEnRefForceProvider> forceProvider_;
     gmx::SimulationContext* simulationContext_ = nullptr;
+    /*! \brief The setup notifiers this module has already subscribed to, so that a repeat is ignored.
+     *
+     * mdrun.cpp subscribes the module itself, because GROMACS 2025 never does; GROMACS 2026 does, so
+     * there it arrives a second time on the same notifiers. A copy of the module has subscribed to
+     * nothing (none of its callbacks are registered), so copying or moving does not carry this over. */
+    struct SubscribedNotifiers {
+        const gmx::MDModulesNotifiers* setup = nullptr;
+        SubscribedNotifiers() = default;
+        SubscribedNotifiers(const SubscribedNotifiers& /*other*/) noexcept {}
+        SubscribedNotifiers& operator=(const SubscribedNotifiers& /*other*/) noexcept { return *this; }
+    } subscribed_;
     std::shared_ptr<std::vector<int> const> guideAtoms0Indexed; //ZERO indexed
     std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> guideAtomsReferenceCoords_;
 

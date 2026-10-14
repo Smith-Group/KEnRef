@@ -68,7 +68,16 @@ forceProviders->addForceProvider(forceProvider_.get());
 
 //! Subscribe to simulation setup notifications
 void KEnRefMDModule::subscribeToSimulationSetupNotifications(gmx::MDModulesNotifiers* notifiers) {
-	/* NOTE: GROMACS never calls this for KEnRef (see mdrun.cpp, which calls it itself). */
+	/* NOTE: GROMACS 2025 never calls this for KEnRef, so mdrun.cpp calls it itself. GROMACS 2026 calls
+	 * it too, on the same notifiers, once the module is added. Subscribing twice would register every
+	 * callback twice, so the second call must do nothing. Keying on the notifiers rather than on the
+	 * GROMACS version keeps this right whichever of the two calls comes first, and on any version. */
+	if (notifiers == subscribed_.setup) {
+		std::cout << "KEnRef: already subscribed to these setup notifiers; ignoring the repeated "
+		             "subscription" << std::endl;
+		return;
+	}
+	subscribed_.setup = notifiers;
 
 	/* Opt IN to GROMACS's shared-state handling, for multi-replica runs only.
 	 *
