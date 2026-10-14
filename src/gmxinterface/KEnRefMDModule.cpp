@@ -75,7 +75,7 @@ void KEnRefMDModule::initForceProviders(gmx::ForceProviders* forceProviders) {
 
 //! Subscribe to simulation setup notifications
 //
-// IMPORTANT: GROMACS never calls this for us on its own. `MDModules::add()` stores the module in
+// IMPORTANT: GROMACS 2025 never calls this for us on its own. `MDModules::add()` stores the module in
 // `impl_->modules_`, and that vector is iterated in exactly ONE place -- `initForceProviders`. Every
 // `subscribe*` dispatcher in mdmodules.cpp hard-codes the five built-in modules (densityFitting_,
 // qmmm_, colvars_, plumed_, nnpot_), so an externally added module silently receives a subset of the
@@ -83,9 +83,22 @@ void KEnRefMDModule::initForceProviders(gmx::ForceProviders* forceProviders) {
 // the notifier object returned by the public MDModules::notifiers() -- which is the same object the
 // runner emits on (runner.cpp: `mdModules_->notifiers().simulationSetupNotifier_`), so registering
 // here is enough to receive everything the built-ins receive.
+//
+// GROMACS 2026.0 made the dispatchers iterate modules_, so there GROMACS calls this as well, on the
+// same notifiers, after mdrun.cpp already has. The second call is ignored (below).
 void KEnRefMDModule::subscribeToSimulationSetupNotifications(gmx::MDModulesNotifiers* notifiers) {
 	if (notifiers == nullptr)
 		return;
+
+	/* Subscribing twice would register every callback twice, so the second call must do nothing (see
+	 * above: on 2026 both mdrun.cpp and GROMACS make it). Keying on the notifiers rather than on the
+	 * GROMACS version keeps this right whichever of the two calls comes first, and on any version. */
+	if (notifiers == subscribed_.setup) {
+		std::cout << "KEnRef: already subscribed to these setup notifiers; ignoring the repeated "
+		             "subscription" << std::endl;
+		return;
+	}
+	subscribed_.setup = notifiers;
 
 	// The manager that owns every LocalAtomSet. GROMACS emits it once, after the domain decomposition
 	// has been built but before the first repartition (runner.cpp: `setupNotifier.notify(&atomSets)`),
@@ -93,9 +106,10 @@ void KEnRefMDModule::subscribeToSimulationSetupNotifications(gmx::MDModulesNotif
 	// DD across every repartition, which is what makes them usable under domain decomposition.
 	const auto storeLocalAtomSetManager = [this](gmx::LocalAtomSetManager* manager) {
 		this->localAtomSetManager_ = manager;
-		// Proof that the subscription fired. GROMACS does not deliver this to externally added modules
-		// on its own, so if this line never appears the self-subscription in mdrun.cpp has regressed
-		// (or GROMACS changed how notifications are dispatched) and LocalAtomSet is unavailable.
+		// Proof that the subscription fired. GROMACS 2025 does not deliver this to externally added
+		// modules on its own, so if this line never appears the self-subscription in mdrun.cpp has
+		// regressed (or GROMACS changed how notifications are dispatched) and LocalAtomSet is
+		// unavailable.
 		std::cout << "KEnRef: LocalAtomSetManager received (" << (manager ? "non-null" : "NULL")
 		          << ") — simulation-setup notification reached the module" << std::endl;
 	};

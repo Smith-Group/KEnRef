@@ -261,9 +261,12 @@ int /*KEnRef_*/gmx_mdrun(MPI_Comm communicator, const gmx_hw_info_t& hwinfo, int
      *
      * The const_cast is deliberate: notifiers() returns a const reference, while subscribing mutates
      * the notifier. MDModules passes its own built-ins a non-const pointer to the same object, so this
-     * does exactly what MDModules does internally. If GROMACS ever iterates modules_ in the subscribe*
-     * dispatchers (a one-line fix we intend to propose upstream), this block becomes redundant and can
-     * simply be deleted. */
+     * does exactly what MDModules does internally.
+     *
+     * GROMACS 2026.0 made the dispatchers iterate modules_, so from 2026 GROMACS ALSO calls this once
+     * the module is added, and we would subscribe twice. The module ignores the second call (see
+     * KEnRefMDModule::subscribeToSimulationSetupNotifications), which is what keeps this block safe on
+     * both versions. It cannot simply be deleted while 2025 is supported. */
     kEnRefModuleRaw->subscribeToSimulationSetupNotifications(
             const_cast<gmx::MDModulesNotifiers*>(&mdModules->notifiers()));
 
