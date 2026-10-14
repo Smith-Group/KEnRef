@@ -6,13 +6,35 @@
 # counterpart, and it exists because the two engines repair periodic breaks by
 # DIFFERENT mechanisms and must still agree to the last digit:
 #
-#   GROMACS  walks the topology's BOND graph          (KEnRefMoleculeGraph)
-#   PLUMED   walks a spanning tree over the REFERENCE (makeRequestedAtomsWhole)
+#   GROMACS  walks the topology's BOND graph            (KEnRefMoleculeGraph)
+#   PLUMED   walks a spanning tree over the REFERENCE
 #
-# PLUMED is never handed a topology, so the reference structure is all it has.
-# That makes the reference load-bearing in a way it is not for GROMACS, and it
-# is why res/*/GB3_27_10us.pdb had to be made whole before this could work at
-# all -- see res/PBC-BROKEN.md.
+# WHICH PLUMED-SIDE REPAIR THIS ACTUALLY TESTS (2026-10-13): PLUMED's OWN, via
+# `MOLINFO STRUCTURE=<reference> WHOLE` + `WHOLEMOLECULES` above the KENREF
+# line -- NOT KEnRef's makeRequestedAtomsWhole(). Ours is compiled and
+# UNREACHABLE: it is defined (src/plumedinterface/KEnRefBias_setup.cpp) and has
+# ZERO call sites, because the per-step readers that would have to call it live
+# in PLUMED's half of the module (src/kenref/KEnRefBias.cpp: getGuideAtomsX,
+# fillSubAtomsX, getLocalModelX) and read getPositions() directly. Confirmed on
+# the installed kernel: the symbol is defined at a fixed address and no
+# instruction in libplumedKernel.so calls or jumps to it. The three lines that
+# wire it up have never left ~/.claude/handoffs/kenref-pbc-frozen-frame.patch.
+#
+# So a PASS here is coverage of PLUMED's repair, NOT of ours. Do not read it as
+# the latter. Case C below names which mechanism refused, so the day the
+# KEnRefBias call ships this script says so instead of quietly changing meaning.
+#
+# AND NOTE WHY THAT MATTERED: before 2026-10-13 this script asserted the same
+# three energies with no MOLINFO/WHOLEMOLECULES lines at all, and passed -- but
+# only against a local PLUMED build carrying that unshipped patch. From
+# committed sources it could not pass, and on the first install built from
+# committed sources alone it went red. Same trap as the never-committed
+# KENREF_DD_FAULT hook: a gate whose green lives outside the repository.
+#
+# PLUMED is never handed a topology, so the reference structure is all it has --
+# for its own repair exactly as for ours. That makes the reference load-bearing
+# in a way it is not for GROMACS, and it is why res/*/GB3_27_10us.pdb had to be
+# made whole before this could work at all -- see res/PBC-BROKEN.md.
 #
 # Three cases, and the contrast between them is the whole point:
 #
@@ -23,6 +45,20 @@
 # A alone proves nothing: a repair that did nothing would still "run". B is
 # what proves the repair does not damage good input. C is what proves the
 # reference is really carrying the repair -- without it, A could be luck.
+#
+# C ASSERTS THE MECHANISM, not merely that the run died. A crash and a refusal
+# both abort the driver -- both give rc=134 -- so matching on exit status alone
+# lets a segfault pass as a refusal. C therefore requires one of the two
+# refusal TEXTS, and prints which one fired:
+#
+#   * our reference guard, "cannot be used to repair periodic images" -- only
+#     reachable once makeRequestedAtomsWhole() is actually called;
+#   * the KEnRefDriver split-check backstop, "the 'sub' atoms are SPLIT" --
+#     what fires today, when PLUMED's own makeWhole is handed a torn reference.
+#
+# Measured 2026-10-13: a torn reference leaves the set WORSE than no repair at
+# all (span 67.7628 with MOLINFO against 64.6615 without), which is the
+# reference being load-bearing, visibly, for PLUMED's repair too.
 #
 # NOTE ON THE FRAME. plumed driver is fed a .trr, not a .gro, deliberately.
 # GRO carries 0.001 nm; on these fixtures the step-0 SIGMA energy is a near-zero
@@ -69,6 +105,36 @@ guide_group() {   # ndx-file
         | tr -s ' \n' '\n' | grep -v '^$' | paste -sd,
 }
 
+# WHOLEMOLECULES needs the molecule's atom range. Derive it from the reference
+# PDB -- the last atom that is not solvent or a counter-ion -- rather than
+# hardcoding a number that would rot the moment a fixture changed. The protein
+# is a contiguous prefix in every fixture here (GB3's reference is protein-only,
+# 862 atoms; ubiquitin's 00ns.pdb is 1-1231 protein followed by 24720 SOL
+# atoms), and this REFUSES if that stops being true instead of silently chaining
+# water into the entity, which would make WHOLEMOLECULES both wrong and slow.
+protein_entity() {   # reference-pdb -> "1-N"
+    awk '
+        /^ATOM|^HETATM/ {
+            r = substr($0, 18, 4); gsub(/ /, "", r); serial = substr($0, 7, 5) + 0
+            if (r == "SOL" || r == "HOH" || r == "WAT" || r == "TIP3" ||
+                r == "NA" || r == "CL" || r == "NA+" || r == "CL-" ||
+                r == "K" || r == "MG" || r == "ZN" || r == "CA") {
+                if (first_solvent == 0) first_solvent = serial
+            } else last_protein = serial
+        }
+        END {
+            if (last_protein == 0) {
+                print "protein_entity: no non-solvent atoms in the reference" > "/dev/stderr"; exit 1
+            }
+            if (first_solvent != 0 && first_solvent < last_protein) {
+                printf "protein_entity: solvent interleaves the molecule (first solvent %d, last protein %d) -- 1-N is not the right entity\n", \
+                       first_solvent, last_protein > "/dev/stderr"
+                exit 1
+            }
+            print "1-" last_protein
+        }' "$1"
+}
+
 # Frame 0 in FULL precision: run the tpr for zero steps and keep the trr it writes.
 make_frame() {   # label tpr -> $WORK/<label>.trr
     local label="$1" tpr="$2"
@@ -85,18 +151,32 @@ run_case() {   # label dat trr expect|REFUSE
     local label="$1" dat="$2" trr="$3" expect="$4"
     local d="$WORK/$label"; rm -rf "$d"; mkdir -p "$d"
     ( cd "$d" && "$PLUMED" driver --plumed "$dat" --itrr "$trr" ) > "$WORK/$label.log" 2>&1
-    local rc=$? energy refused=no
-    grep -a -q "ERROR in input to action KENREF\|KEnRef refuses to continue" "$WORK/$label.log" && refused=yes
+    local rc=$? energy guard=no backstop=no
+    # WHICH message, not just "it died": see the header. rc alone cannot tell a
+    # refusal from a crash, because the driver aborts either way.
+    grep -a -q 'cannot be used to repair periodic images' "$WORK/$label.log" && guard=yes
+    grep -a -q "the 'sub' atoms are SPLIT"                "$WORK/$label.log" && backstop=yes
     energy=$(grep -a -m1 -E "Step 0  KEnRef energy" "$WORK/$label.log" | awk '{print $NF}')
 
     printf '%-28s rc=%-4s ' "$label" "$rc"
     if [ "$expect" = REFUSE ]; then
-        if [ "$refused" = yes ] && [ "$rc" -ne 0 ]; then
-            echo "REFUSED as required"
+        if [ "$rc" -eq 0 ]; then
+            echo "*** FAIL: expected a refusal, but it ran: E0=${energy:-none}"; fails=$((fails+1))
+        elif [ "$guard" = yes ]; then
+            echo "REFUSED by OUR reference guard"
             grep -a -m1 -o 'cannot be used to repair periodic images:.*' "$WORK/$label.log" \
                 | cut -c1-160 | sed 's/^/      | /'
+            echo "      | NOTE: makeRequestedAtomsWhole() is now being CALLED -- route (b) has"
+            echo "      |       shipped. Re-run case A with the MOLINFO/WHOLEMOLECULES lines"
+            echo "      |       removed, so that A covers our own repair again, and update the"
+            echo "      |       header of this script."
+        elif [ "$backstop" = yes ]; then
+            echo "REFUSED by the split-check backstop (our guard is still unreachable)"
+            grep -a -m1 -o "the 'sub' atoms are SPLIT.*" "$WORK/$label.log" \
+                | cut -c1-160 | sed 's/^/      | /'
         else
-            echo "*** FAIL: expected a refusal, got rc=$rc energy=${energy:-none}"; fails=$((fails+1))
+            echo "*** FAIL: aborted with rc=$rc and NEITHER refusal message -- that is a crash,"
+            echo "                                  not a refusal (see $WORK/$label.log)"; fails=$((fails+1))
         fi
     else
         if [ "$rc" -eq 0 ] && [ "$energy" = "$expect" ]; then
@@ -132,7 +212,12 @@ for kind in whole broken; do
         whole)  ref="$GB3_SET/GB3_27_10us.pdb" ;;
         broken) ref="$GB3_SET/GB3_27_10us_PBC-BROKEN.pdb" ;;
     esac
+    ent="$(protein_entity "$ref")" || exit 2
     cat > "$WORK/gb3_$kind.dat" <<EOF
+# PLUMED's own periodic repair, built from the SAME reference KENREF gets below.
+# This is what makes the torn fixture whole today -- see this script's header.
+MOLINFO STRUCTURE=$ref WHOLE
+WHOLEMOLECULES ENTITY0=$ent
 KENREF ...
   LABEL=kenref
   MODEL=SIGMA
@@ -148,7 +233,14 @@ KENREF ...
 ... KENREF
 EOF
 done
+ubq_ent="$(protein_entity "$UBQ_SET/00ns.pdb")" || exit 2
 cat > "$WORK/ubq.dat" <<EOF
+# The repair lines belong here too, and that is the point of case B: it exists
+# to prove the repair does not damage input that is already whole, so the repair
+# must be ENABLED for the case to prove anything. Ubiquitin is whole, so these
+# two lines must change the answer by nothing at all.
+MOLINFO STRUCTURE=$UBQ_SET/00ns.pdb WHOLE
+WHOLEMOLECULES ENTITY0=$ubq_ent
 KENREF ...
   LABEL=kenref
   MODEL=PLATEAUS

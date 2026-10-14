@@ -21,6 +21,18 @@
 # Running both is the point: the tiers are built from the same sources, so a
 # result that differs between them is about the INSTALL LAYOUT, not the science.
 #
+# THE PLUMED SIDE'S PERIODIC REPAIR IS PLUMED'S OWN, not KEnRef's. The generated
+# .dat puts `MOLINFO STRUCTURE=<reference> WHOLE` + `WHOLEMOLECULES` above the
+# KENREF line, because KEnRef's makeRequestedAtomsWhole() is compiled but never
+# called -- the per-step readers that would call it live in PLUMED's half of the
+# module (src/kenref/KEnRefBias.cpp) and read getPositions() directly. Without
+# those two lines the SIGMA and RELAX sets REFUSE on the PLUMED side, since
+# md-00_PBC-BROKEN.tpr is torn and nothing repairs it; PLATEAUS happens to pass
+# either way, because its restrained set contains none of the 12 displaced
+# atoms, which makes its green uninformative about periodicity. So a PASS on the
+# plumed side here covers PLUMED's repair, not ours. See rt_validate_plumed.sh's
+# header, and res/PBC-BROKEN.md.
+#
 # Usage:  ./smoke_test_installs.sh [staging|deploy]
 #         TIER=deploy KENREF_VER=2.0.0 ./smoke_test_installs.sh
 # =============================================================================
@@ -28,6 +40,33 @@ REPO=/home/amr/CLionProjects/KEnRef
 NSTEPS=${NSTEPS:-500}
 GUIDE_ATOMS=39,60,82,101,117,234,241,256,270,284,358,368,383,397,407,422,444,454,474,496,513,534,544,558,626,642,666,680,701,771,785
 REF=$REPO/res/sigma/md_double/GB3_27_10us.pdb   # same GB3 system for every set
+
+# WHOLEMOLECULES needs the molecule's atom range; take it from the reference
+# rather than hardcoding it. Refuses if solvent interleaves the molecule, which
+# would make 1-N the wrong entity. (Mirrors rt_validate_plumed.sh.)
+protein_entity() {   # reference-pdb -> "1-N"
+    awk '
+        /^ATOM|^HETATM/ {
+            r = substr($0, 18, 4); gsub(/ /, "", r); serial = substr($0, 7, 5) + 0
+            if (r == "SOL" || r == "HOH" || r == "WAT" || r == "TIP3" ||
+                r == "NA" || r == "CL" || r == "NA+" || r == "CL-" ||
+                r == "K" || r == "MG" || r == "ZN" || r == "CA") {
+                if (first_solvent == 0) first_solvent = serial
+            } else last_protein = serial
+        }
+        END {
+            if (last_protein == 0) {
+                print "protein_entity: no non-solvent atoms in the reference" > "/dev/stderr"; exit 1
+            }
+            if (first_solvent != 0 && first_solvent < last_protein) {
+                printf "protein_entity: solvent interleaves the molecule (first solvent %d, last protein %d)\n", \
+                       first_solvent, last_protein > "/dev/stderr"
+                exit 1
+            }
+            print "1-" last_protein
+        }' "$1"
+}
+ENTITY=$(protein_entity "$REF") || exit 2
 
 TIER="${1:-${TIER:-staging}}"
 OPT=/smithlab/opt
@@ -105,7 +144,11 @@ do_set() {
   # for every Bias -- which meant the same input could not serve 2.10 (ARG must be ABSENT) and that
   # 2.11-dev (ARG must be PRESENT). The module's Bias no longer declares it, so passing it now fails with
   #   ERROR in input to action KENREF ... cannot understand the following words from the input line : ARG
-  { echo "KENREF ..."; echo "  LABEL=kenref"; echo "  MODEL=$MODEL"; echo "  K=$K"; echo "  N=0.25";
+  # MOLINFO + WHOLEMOLECULES: PLUMED's own make-whole, from the same reference
+  # KENREF is given. Required, not optional -- see the header. Remove it only
+  # once KEnRef's own makeRequestedAtomsWhole() is actually called.
+  { echo "MOLINFO STRUCTURE=$REF WHOLE"; echo "WHOLEMOLECULES ENTITY0=$ENTITY";
+    echo "KENREF ..."; echo "  LABEL=kenref"; echo "  MODEL=$MODEL"; echo "  K=$K"; echo "  N=0.25";
     if [ "$EXPKIND" = folder ]; then echo "  EXP_DATA_FOLDER=$EXPVAL"; [ "$MODEL" = SIGMA ] && echo "  PROTON_MHZ=700.0";
     else echo "  EXP_DATA_FILE=$EXPVAL"; fi
     echo "  GUIDE_ATOMS=$GUIDE_ATOMS"; echo "  REF=$REF"; echo "  ATOMNAME_MAPPING=$REF";

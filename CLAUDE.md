@@ -59,19 +59,33 @@ it was live until 2026-08: every serial run against the committed GB3 sets was r
   rule then re-images atoms that were correctly placed. "Nearest image to a shared anchor" fails because
   GB3 reaches marginally further from its centroid (2.171 nm) than half its shortest box vector
   (2.165 nm), past which the nearest image is simply the wrong one. Connectivity is not optional.
-- **PLUMED repairs it from the REFERENCE**, because it is never given a topology. `KEnRefBias` builds a
-  Euclidean minimum spanning tree over the requested atoms once, from the reference structure, and each
-  step walks it parents-before-children placing every atom at the image nearest its parent
-  (`makeRequestedAtomsWhole`). Like the GROMACS repair it is a **bitwise no-op** on whole input. An MST,
-  not a distance heuristic, for the reason above: its edges join genuine spatial neighbours, so each
-  minimum image is unambiguous.
-- **That makes the reference load-bearing on the PLUMED side.** A reference that is itself split has no
-  near neighbour for its wrapped fragment, so the tree reaches across the box to link it and every frame
-  is then walked through that bad edge. `KEnRefBias` therefore **refuses** at the first step if the
-  longest tree edge is not less than half the smallest box width. PLUMED's own `makeWhole()` has the
-  same weakness and no such guard: with MOLINFO it walks a tree over the *reference* too, and when the
-  reference is broken the same way as the frames the fragment is linked by an edge shorter than half the
-  box, so minimum-image leaves it in place (measured: 29.17 Å against a 30.61 Å half-box).
+- **On the PLUMED side the repair is PLUMED's own, not ours — ours is written but never called.**
+  `KEnRefBias` *does* build a Euclidean minimum spanning tree over the requested atoms at setup, from
+  the reference structure, and `makeRequestedAtomsWhole` *would* walk it parents-before-children placing
+  every atom at the image nearest its parent. **It has zero call sites** (measured 2026-10-13 at
+  1dccb2d): it is defined in `src/plumedinterface/KEnRefBias_setup.cpp` and the per-step readers that
+  would have to call it — `getGuideAtomsX`, `fillSubAtomsX`, `getLocalModelX` — live in PLUMED's half of
+  the module, `src/kenref/KEnRefBias.cpp`, and read `getPositions()` directly. Confirmed in the shipped
+  binary: `libplumedKernel.so` defines the symbol and no instruction calls or jumps to it. The three
+  lines that wire it up exist only in `~/.claude/handoffs/kenref-pbc-frozen-frame.patch`, which never
+  went upstream (#1436 merged without it). **So until that lands, every PLUMED input must carry
+  `MOLINFO STRUCTURE=<whole reference> WHOLE` + `WHOLEMOLECULES ENTITY0=…` above the `KENREF` line**,
+  which is what both gates now generate. Measured through it: 3.65155e-05 on the torn GB3 fixture, and
+  a no-op on whole ubiquitin (7.18869e-08 unchanged). The setup log line `KEnRef periodic repair:
+  spanning tree over N requested atoms` is printed when the tree is BUILT, so it is **not** evidence
+  that any repair ran — it was read that way once, which is how this survived a whole staging tier.
+- **Either way the reference is load-bearing, and for PLUMED's repair too.** A reference that is itself
+  split has no near neighbour for its wrapped fragment, so a tree built from it reaches across the box
+  to link that fragment and every frame is then walked through the bad edge. `makeRequestedAtomsWhole`
+  carries a guard for exactly this — it refuses at the first step if the longest tree edge is not less
+  than half the smallest box width, and the thresholds are right (longest edge 2.73 Å from the repaired
+  reference against 31.49 Å from the broken one, either side of a 30.61 Å half-box) — but the guard is
+  **unreachable for the same reason the repair is**. PLUMED's own `makeWhole()` has the same weakness
+  and no guard at all: with MOLINFO it walks a tree over the *reference* too, and when the reference is
+  broken the same way as the frames the fragment is linked by an edge shorter than half the box, so
+  minimum-image leaves it in place (measured: 29.17 Å against a 30.61 Å half-box) — in fact it can leave
+  the set *worse* than no repair at all (span 67.7628 against 64.6615). Filed as plumed/plumed2#1492,
+  ours #1494. Today only `KEnRefDriver`'s split check catches it.
 - **`KEnRefDriver` still refuses as the backstop** (`enablePeriodicSplitCheck`, enabled by both
   engines): repair first, refuse second. It tests for a **tear**, not a size — per lattice direction it
   compares the extent as delivered against the smallest extent any choice of images could give (1 minus
@@ -93,7 +107,26 @@ how this survived engine-vs-engine, byte-identity and R-ground-truth checks for 
 `./rt_validate.sh` (GROMACS: repaired → 3.65155e-05, ubiquitin → 7.18869e-08, `KENREF_NO_MAKEWHOLE=1`
 → refuses) and `PLUMED=<plumed> ./rt_validate_plumed.sh` (the same two energies through PLUMED, plus a
 broken *reference* → refuses). The energies matching across the two scripts is the engine-agreement
-check. Run the PLUMED one at 500 steps too, not 10: the step-120 abort above was invisible below ~120.
+check.
+
+Two things about the PLUMED gate, both learned the hard way. **It covers PLUMED's make-whole, not
+ours**, for the reason above, so its green is not coverage of `makeRequestedAtomsWhole`; as committed
+before 2026-10-13 it carried no `MOLINFO`/`WHOLEMOLECULES` lines and passed only against a local PLUMED
+build holding the unshipped patch — from committed sources it could not pass, and the first install
+built from committed sources alone turned it red. A gate whose green lives outside the repository is
+the `KENREF_DD_FAULT` trap again. And **case C asserts which message refused**, because a crash and a
+refusal both abort `plumed driver` with rc=134: it requires either our guard's text (`cannot be used to
+repair periodic images`, only reachable once the call ships — and it then tells you to re-point case A)
+or the split-check backstop's (`the 'sub' atoms are SPLIT`), and reports anything else as a crash. The
+earlier version matched `ERROR in input to action KENREF`, which a missing exp-data folder also prints,
+so a setup failure passed as "REFUSED as required" — verified by injecting one.
+
+**The PLUMED gate cannot be run at 500 steps, because it runs no MD at all.** It emits frame 0 with
+`-nsteps 0` and feeds that single frame to `plumed driver`. (An earlier version of this file said to
+"run the PLUMED one at 500 steps too, not 10"; there is no step count to raise.) `rt_validate.sh` does
+run MD — 2 steps by default, so `NSTEPS=500 ./rt_validate.sh` is the long GROMACS run — and the long
+PLUMED run is `smoke_test_installs.sh`, which drives `mdrun -plumed` for 500 steps. That is where the
+~step-120 class of failure shows, invisible below ~120, so a long run on each engine means those two.
 
 **Feed `plumed driver` a `.trr`, never a `.gro`.** GRO carries 0.001 nm. On these fixtures the step-0
 SIGMA energy is a near-zero residual, and that rounding alone moves 3.65155e-05 to 3.4e-03 — a factor
