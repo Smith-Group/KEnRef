@@ -1,9 +1,15 @@
 cmake_minimum_required(VERSION 3.24)
-project(KEnRef VERSION 2.0.1)
+project(KEnRef VERSION 2.0.3)
 # Single source of truth for the KEnRef version. Flows to the pkg-config files (@PROJECT_VERSION@ in
 # cmake/*.pc.in) and, via those, to PLUMED's configure floor (KENREF_MIN_VERSION in plumed configure.ac,
 # checked as `kenref_core >= X`). Bump here when the public API / numerical contract changes; keep the
 # PLUMED floor in lockstep. v2.0.0 == the model-abstraction restructure (branch v2.0 and its subbranches).
+# THIS MUST MOVE WITH THE TAG. v2.0.2 was tagged while this line still said 2.0.1, so every prefix
+# installed under 2.0.2/ carried libkenref_core.so.2.0.1, `Version: 2.0.1` in all four .pc files and
+# `kenref_version = 2.0.1` in its build manifest: the path named one release and the contents another.
+# The git sha in the manifest stayed correct, which is the only reason that was recoverable. v2.0.3
+# exists to carry the same code under a name that agrees with itself; 2.0.2 is skipped, not reused.
+# The PLUMED floor is NOT bumped: KENREF_MIN_VERSION is a MINIMUM (2.0.0) and the API did not change.
 set(CMAKE_CXX_STANDARD 17)
 
 # Emit compile_commands.json so clangd / IDEs resolve includes for every translation unit (including
