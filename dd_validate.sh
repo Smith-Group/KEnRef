@@ -87,19 +87,29 @@ export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 # different (non-MPI-reduction) summation branch, not with DD being wrong. The gap is smaller
 # than the width-to-width spread (1.0e-05..3.3e-05), i.e. the same class of effect; AVX_512
 # and AVX2_256 merely hide it at six printed figures.
-case "$BIN" in
-    */release/AVX_512/*)  KN_WIDTH=AVX_512  ;;
-    */release/AVX2_256/*) KN_WIDTH=AVX2_256 ;;
-    */release/AVX_256/*)  KN_WIDTH=AVX_256  ;;
-    *)                    KN_WIDTH="${ACCEL:-}" ;;
-esac
+# Both tier LAYOUTS, because the width sits in a different place in each: staging spells it
+# .../release/AVX_512/..., the deployment tree spells it 2.0.3+2026.4_AVX_512 (and the plumed
+# prefix 2.10.1-830-g684c3c255_AVX_512-kenref2.0.3+2026.4). Matching only the staging spelling
+# made every deployment-tier run exit 2. AVX2_256 cannot be mistaken for AVX_256: the literal
+# "AVX_256" does not occur inside "AVX2_256".
+kn_width_of() {   # path -> AVX_512|AVX2_256|AVX_256, or "" when the path names no width
+    case "$1" in
+        *AVX_512*)  echo AVX_512  ;;
+        *AVX2_256*) echo AVX2_256 ;;
+        *AVX_256*)  echo AVX_256  ;;
+        *)          echo ""       ;;
+    esac
+}
+KN_WIDTH="$(kn_width_of "$BIN")"
+KN_WIDTH="${KN_WIDTH:-${ACCEL:-}}"
 case "$KN_WIDTH" in
     AVX_512)  EXPECT_GB3="3.65155e-05"; EXPECT_UBQ="7.18869e-08" ;;
     AVX2_256) EXPECT_GB3="3.6515e-05";  EXPECT_UBQ="7.18869e-08" ;;
     AVX_256)  EXPECT_GB3="3.65161e-05"; EXPECT_UBQ="7.18869e-08" ;;
-    *) echo "dd_validate: cannot tell the SIMD width of $BIN, and ACCEL is unset." >&2
+    *) echo "dd_validate: no reference energies for this build: $BIN${ACCEL:+ (ACCEL=$ACCEL)}" >&2
        echo "  The expected energies differ per width, so there is nothing safe to compare against." >&2
-       echo "  Set ACCEL=AVX_512|AVX2_256|AVX_256 -- and if this is a width with no recorded" >&2
+       echo "  Its SIMD width is not one of AVX_512|AVX2_256|AVX_256, or no path names a width." >&2
+       echo "  Set ACCEL to one of those -- and if it IS a width with no recorded" >&2
        echo "  reference, MEASURE it rather than borrowing another width's number." >&2
        exit 2 ;;
 esac
