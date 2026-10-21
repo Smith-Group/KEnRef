@@ -297,12 +297,24 @@ if(KENREF_EXPORT_PLUMEDINTERFACE)
 	              "${CMAKE_CURRENT_BINARY_DIR}/kenref_plumed_and_eigen3.pc" DESTINATION share/pkgconfig)
 endif()
 
-# Install export configuration
+# Install export configuration: the targets go in KEnRefCoreTargets.cmake, and KEnRefCoreConfig.cmake (the
+# file consumers load) finds the core's public dependencies before including them -- see the template.
 install(EXPORT KEnRefCoreTargets
-		FILE KEnRefCoreConfig.cmake
+		FILE KEnRefCoreTargets.cmake
 		NAMESPACE KENREF::
 		DESTINATION lib/cmake/KEnRef
 )
+if(TARGET OpenMP::OpenMP_CXX)
+	set(KENREF_CORE_USES_OPENMP ON)
+else()
+	set(KENREF_CORE_USES_OPENMP OFF)
+endif()
+configure_file(
+		"${CMAKE_CURRENT_SOURCE_DIR}/cmake/KEnRefCoreConfig.cmake.in"
+		"${CMAKE_CURRENT_BINARY_DIR}/KEnRefCoreConfig.cmake"
+		@ONLY
+)
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/KEnRefCoreConfig.cmake" DESTINATION lib/cmake/KEnRef)
 
 # Install license files
 install(FILES LICENSE_CORE.txt DESTINATION share/licenses/kenref)
