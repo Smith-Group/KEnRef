@@ -41,11 +41,19 @@ constexpr int         kenrefNumIFunc = F_NRE;
  * The same selection GROMACS uses to build its own molecule graph (pbcutil/mshift.cpp): everything
  * flagged IF_CHEMBOND, plus constraints and SETTLE. The latter two matter because a constrained or
  * rigid-water bond is a real connection that carries no IF_CHEMBOND flag, and leaving it out would
- * split a molecule into fragments that then get re-imaged independently. */
+ * split a molecule into fragments that then get re-imaged independently.
+ *
+ * GROMACS 2027 renamed the flags to categories (442e876767, "Modernize interaction-function
+ * categories"): IF_CHEMBOND became sc_ifcChemicalBond, in t_interaction_function::categories. The same
+ * interaction types carry it, so the selection is unchanged; testMoleculeGraph.cpp pins it. */
 inline bool kenrefIsConnectingInteraction(KEnRefIFunc ftype) {
     if (ftype == kenrefConstr || ftype == kenrefConstrNC || ftype == kenrefSettle)
         return true;
+#if GMX_VERSION >= 20270000
+    return (interaction_function[ftype].categories & sc_ifcChemicalBond) != 0;
+#else
     return (interaction_function[ftype].flags & IF_CHEMBOND) != 0;
+#endif
 }
 
 /*! \brief Append the atom pairs of one interaction list, shifted into global indexing.
@@ -130,6 +138,16 @@ void KEnRefMoleculeGraph::build(const gmx_mtop_t &mtop, const std::vector<int> &
     }
 
     buildSpanningForest(edges);
+}
+
+std::vector<std::string> KEnRefMoleculeGraph::connectingInteractionNames() {
+    std::vector<std::string> names;
+    for (int i = 0; i < kenrefNumIFunc; ++i) {
+        const auto ftype = static_cast<KEnRefIFunc>(i);
+        if (kenrefIsConnectingInteraction(ftype))
+            names.emplace_back(interaction_function[ftype].name);
+    }
+    return names;
 }
 
 void KEnRefMoleculeGraph::buildFromEdgesForTesting(const std::vector<int> &atoms0,
