@@ -16,6 +16,7 @@
 
 #include <cmath>
 #include <array>
+#include <cstdint>
 #include <cstdio>
 #include <fstream>
 #include <string>
@@ -32,6 +33,8 @@ namespace {
 
 //! The committed GB3 tpr whose protein is split across the periodic boundary.
 const char *kBrokenTpr = "../../res/sigma/md_single/md-00_PBC-BROKEN.tpr";
+//! Whole ubiquitin in water: the known-whole contrast, and a solvent that uses SETTLE.
+const char *kUbiquitinTpr = "../../res/10nsstart+fitting/t000.00.tpr";
 
 /*! The reference structure, kept in BOTH states.
  *
@@ -95,6 +98,21 @@ bool readTpr(const char *path, gmx_mtop_t *mtop, std::vector<gmx::RVec> *x, matr
     x->resize(natoms);
     read_tpx(path, &ir, box, &natoms, as_rvec_array(x->data()), nullptr, mtop);
     return true;
+}
+
+/*! \brief FNV-1a over the spanning tree's (parent, child) rows, in walk order.
+ *
+ * One number that changes if any bond is added, dropped or reordered -- each of which changes which
+ * image some atom is placed at. */
+std::uint64_t treeDigest(const KEnRefMoleculeGraph &g) {
+    std::uint64_t h = 1469598103934665603ULL;
+    for (const auto &[parent, child] : g.treeEdges()) {
+        for (const int v : { parent, child }) {
+            h ^= static_cast<std::uint64_t>(v);
+            h *= 1099511628211ULL;
+        }
+    }
+    return h;
 }
 
 } // namespace
@@ -286,4 +304,55 @@ TEST(MoleculeGraphTest, BondGraphRepairOfReferencePdbMatchesTrjconv) {
         }
     }
     EXPECT_EQ(movedByGraph, 12) << "expected exactly the 12 wrapped LYS10/THR11 side-chain atoms to move";
+}
+
+/*! Which interaction types the walk may cross, by name, on whichever GROMACS this was built against.
+ *
+ * GROMACS's own bond test changed spelling in 2027 (IF_CHEMBOND -> sc_ifcChemicalBond, 442e876767);
+ * KEnRefMoleculeGraph.cpp follows it under a GMX_VERSION guard. This pins that the guard selects the
+ * same set on every version, and fails if GROMACS ever re-classifies an interaction type. */
+TEST(MoleculeGraphTest, WalksTheChemicalBondsPlusConstraintsAndSettle) {
+    const std::vector<std::string> expected = {
+        "BONDS", "G96BONDS", "MORSE", "CUBICBONDS", "CONNBONDS", "FENEBONDS", "TABBONDS", // chemical bonds
+        "POLARIZATION", "ANHARM_POL",                                                      // chemical bonds
+        "CONSTR", "CONSTRNC", "SETTLE",                                    // also named explicitly
+    };
+    EXPECT_EQ(KEnRefMoleculeGraph::connectingInteractionNames(), expected);
+}
+
+/*! The spanning trees over the two committed topologies, against the ones the pre-2027 code built.
+ *
+ * Recorded from release/2.x 99edf1f (still on IF_CHEMBOND) against GROMACS 2025.4 and 2026.3, where it
+ * was identical, and matched by GROMACS main (2027) after the port. GB3 is the protein alone; ubiquitin
+ * adds its last molecule, a water, so the SETTLE special case is covered too. To re-record, print
+ * atoms().size(), numFragments(), treeEdges().size() and treeDigest() -- but only for a change that is
+ * MEANT to alter the bonds the repair walks along. */
+TEST(MoleculeGraphTest, TreesOverTheCommittedTopologiesAreUnchanged) {
+    struct Case {
+        const char *tpr;
+        bool withLastMolecule;
+        std::size_t atoms, fragments, edges;
+        std::uint64_t digest;
+    };
+    const Case cases[] = {
+        { kBrokenTpr, false, 862, 1, 861, 0x4566323209769699ULL },
+        { kUbiquitinTpr, true, 1234, 2, 1232, 0x481f77c71d17ae43ULL },
+    };
+    for (const Case &c : cases) {
+        gmx_mtop_t mtop;
+        std::vector<gmx::RVec> xs;
+        matrix box;
+        if (!readTpr(c.tpr, &mtop, &xs, box))
+            GTEST_SKIP() << "fixture not present: " << c.tpr;
+        std::vector<int> wanted = { 0 };
+        if (c.withLastMolecule)
+            wanted.push_back(static_cast<int>(xs.size()) - 1);
+
+        KEnRefMoleculeGraph g;
+        g.build(mtop, wanted);
+        EXPECT_EQ(g.atoms().size(), c.atoms) << c.tpr;
+        EXPECT_EQ(g.numFragments(), c.fragments) << c.tpr;
+        EXPECT_EQ(g.treeEdges().size(), c.edges) << c.tpr;
+        EXPECT_EQ(treeDigest(g), c.digest) << c.tpr << ": the bonds the repair walks along have changed";
+    }
 }

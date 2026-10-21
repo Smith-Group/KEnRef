@@ -23,6 +23,7 @@
 #ifndef KENREFMOLECULEGRAPH_H_
 #define KENREFMOLECULEGRAPH_H_
 
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -79,6 +80,15 @@ public:
 
 	//! Number of separately-connected fragments covered (each is re-imaged independently).
 	[[nodiscard]] std::size_t numFragments() const { return fragmentRoots_.size(); }
+
+	//! Spanning-tree edges as (parent row, child row), parents before children: the walk makeWhole() takes.
+	[[nodiscard]] const std::vector<std::pair<int, int>> &treeEdges() const { return treeEdges_; }
+
+	/*! \brief Names of the GROMACS interaction types build() walks along, in interaction-type order.
+	 *
+	 * Which bonds the walk may cross decides which image every atom is placed at, so this set is
+	 * load-bearing for the repair; it is exposed so a test can pin it on every GROMACS version. */
+	[[nodiscard]] static std::vector<std::string> connectingInteractionNames();
 
 	/*! \brief Make gathered coordinates whole, in place.
 	 *
