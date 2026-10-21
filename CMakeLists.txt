@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(KEnRef VERSION 2.0.3)
+project(KEnRef VERSION 2.0.4)
 # Single source of truth for the KEnRef version. Flows to the pkg-config files (@PROJECT_VERSION@ in
 # cmake/*.pc.in) and, via those, to PLUMED's configure floor (KENREF_MIN_VERSION in plumed configure.ac,
 # checked as `kenref_core >= X`). Bump here when the public API / numerical contract changes; keep the
