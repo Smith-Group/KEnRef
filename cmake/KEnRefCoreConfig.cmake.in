@@ -1,0 +1,24 @@
+# KEnRef core package configuration -- generated from cmake/KEnRefCoreConfig.cmake.in at configure time.
+#
+# The exported targets (KEnRefCoreTargets.cmake) name the core's public dependencies by their imported
+# target names, so those targets must exist before the export is loaded. Find them here rather than
+# relying on the consumer to have created them as a side effect of something else. Each lookup is skipped
+# when the target already exists, so a consumer that provides its own (e.g. a fetched Eigen) is unaffected.
+
+include(CMakeFindDependencyMacro)
+
+if(NOT TARGET Eigen3::Eigen)
+    find_dependency(Eigen3)
+endif()
+
+# No MPI: the core has no MPI code since 2.0 (consumers that need it link it themselves).
+
+# kenref_core links OpenMP::OpenMP_CXX PUBLICly whenever the core was built with OpenMP. GROMACS 2025/2026's
+# own package config happened to create that target, which hid the missing lookup from gmx-only builds;
+# GROMACS main (2027) no longer does, and loading the export then fails at generate time with
+#     The link interface of target "KENREF::kenref_core" contains: OpenMP::OpenMP_CXX but the target was not found.
+if(@KENREF_CORE_USES_OPENMP@ AND NOT TARGET OpenMP::OpenMP_CXX)
+    find_dependency(OpenMP COMPONENTS CXX)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/KEnRefCoreTargets.cmake")
