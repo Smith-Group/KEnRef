@@ -5,6 +5,9 @@ name: CI
 #   consumer-abi        a consumer built by a DIFFERENT compiler than the library  <- caught the icpx bug
 #   pkgconfig-consumer  consumption through pkg-config alone, with and without eigen3.pc
 #   fd                  the ~30 s finite-difference kernel check (nightly; too slow per push)
+#   gmx                 the GROMACS interface against a GROMACS built from source, its gtests, the
+#                       rt_validate.sh wholeness gate, and (one matrix cell) PLUMED + rt_validate_plumed.sh
+#   nightly-long        placeholder for the long runtime checks (TODO list inside)
 #
 # Every job builds INSIDE the source tree. The gtests open their fixtures relative to the CWD
 # ("../../res/google_tests/..."), so an out-of-tree build directory makes every fixture-based test fail
@@ -245,3 +248,200 @@ jobs:
       - name: Finite-difference test
         working-directory: build/google_tests
         run: ./Google_tests_kenref_core_exe --gtest_filter="KEnRefTestSuite.TestCoordArrayToSigmaEnergyFD"
+
+  gmx:
+    # Until this job existed every CI cell built with BUILD_KENREF_GMX=OFF, so a GROMACS-side regression
+    # (the August break of 2026.x, the 2027 port) was invisible here and was found by hand.
+    #
+    # GROMACS is built from source because kenref-gmx needs GROMACS's BUILD tree (config.h) and SOURCE tree
+    # (internal headers), not just an install -- see "GROMACS" in CMakeLists.txt. The three trees are cached
+    # under the COMMIT the tag resolves to, never the tag name alone: a moved tag must not restore a stale
+    # GROMACS.
+    #
+    # Toolchain: clang with its default libstdc++, for GROMACS, KEnRef and PLUMED alike, so all three share
+    # one C++ runtime.
+    name: GROMACS ${{ matrix.gromacs }} interface${{ matrix.plumed && ' + PLUMED' || '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        gromacs: ['2026.4', '2025.5']
+        include:
+          - gromacs: '2026.4'
+            plumed: true
+    env:
+      # AVX2_256 is what the runners execute natively, and it is one of the widths rt_validate.sh and
+      # rt_validate_plumed.sh hold reference energies for. Both scripts derive the width from the binary's
+      # path; BIN here is a dev-tree path that names none, so ACCEL is passed to them explicitly.
+      ACCEL: AVX2_256
+      GMX_ROOT: /home/runner/deps/gromacs-${{ matrix.gromacs }}
+      KENREF_PREFIX: /home/runner/deps/kenref-prefix
+      # Upstream PLUMED master, pinned. Must contain plumed/plumed2#1515 (1e03000ea), the commit that makes
+      # KEnRefBias call makeRequestedAtomsWhole(); the gate below fails on a kernel without that call.
+      PLUMED_COMMIT: c2a5cd1525e2a71f82b9aeeef7adb0b44b2b106c
+      PLUMED_PREFIX: /home/runner/deps/plumed-install
+      OMP_NUM_THREADS: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang libomp-dev libopenmpi-dev openmpi-bin libfftw3-dev ccache
+          clang --version | head -1; mpirun --version | head -1
+
+      - name: Resolve the GROMACS tag to a commit
+        id: gmxrev
+        run: |
+          url=https://gitlab.com/gromacs/gromacs.git
+          tag=v${{ matrix.gromacs }}
+          # An annotated tag lists its commit as ^{}; a lightweight tag only as itself.
+          sha=$(git ls-remote "$url" "refs/tags/$tag^{}" | cut -f1)
+          [ -n "$sha" ] || sha=$(git ls-remote "$url" "refs/tags/$tag" | cut -f1)
+          [ -n "$sha" ] || { echo "cannot resolve $tag at $url"; exit 1; }
+          echo "GROMACS $tag = $sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Restore GROMACS
+        id: gmxcache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.GMX_ROOT }}
+          key: gromacs-${{ runner.os }}-${{ steps.gmxrev.outputs.sha }}-clang-${{ env.ACCEL }}-mpi-v1
+
+      - name: Build GROMACS ${{ matrix.gromacs }} (cache miss only)
+        if: steps.gmxcache.outputs.cache-hit != 'true'
+        run: |
+          set -e
+          mkdir -p "$GMX_ROOT"
+          git clone --depth 1 --branch v${{ matrix.gromacs }} https://gitlab.com/gromacs/gromacs.git "$GMX_ROOT/src"
+          got=$(git -C "$GMX_ROOT/src" rev-parse HEAD)
+          [ "$got" = "${{ steps.gmxrev.outputs.sha }}" ] \
+            || { echo "cloned $got, but the cache key names ${{ steps.gmxrev.outputs.sha }}"; exit 1; }
+          rm -rf "$GMX_ROOT/src/.git"
+          # GMX_MPI: kenref-gmx refuses a thread-MPI GROMACS (multi-simulation needs library MPI).
+          # GMX_INSTALL_LEGACY_API: without it GROMACS does not install the headers kenref-gmx includes.
+          cmake -S "$GMX_ROOT/src" -B "$GMX_ROOT/build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+            -DGMX_MPI=ON -DGMX_INSTALL_LEGACY_API=ON -DGMX_SIMD=${{ env.ACCEL }} \
+            -DGMX_GPU=OFF -DGMX_FFT_LIBRARY=fftw3 -DGMX_BUILD_HELP=OFF -DBUILD_TESTING=OFF \
+            -DCMAKE_INSTALL_PREFIX="$GMX_ROOT/install"
+          cmake --build "$GMX_ROOT/build" -j "$(nproc)"
+          cmake --install "$GMX_ROOT/build"
+          # KEnRef reads the build tree's CMakeCache.txt and generated headers, never its objects.
+          find "$GMX_ROOT/build" -name '*.o' -delete
+          du -sh "$GMX_ROOT"/*
+
+      - name: Configure KEnRef with the GROMACS interface
+        run: |
+          # In-tree build dir: the gtests open their fixtures relative to the CWD (see the header comment).
+          # GROMACS_BUILD_DIR is the only GROMACS input; its source and install are read from its cache.
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+            -DBUILD_KENREF_CORE=ON -DBUILD_KENREF_GMX=ON -DBUILD_KENREF_PLUMED=OFF -DKENREF_WITH_PLUMED=OFF \
+            -DKENREF_EXPORT_PLUMEDINTERFACE=ON \
+            -DBUILD_TESTS=ON -DACCEL=${{ env.ACCEL }} \
+            -DKENREF_EIGEN_GIT_TAG=${{ env.KENREF_EIGEN_GIT_TAG }} \
+            -DGROMACS_BUILD_DIR="$GMX_ROOT/build" \
+            -DCMAKE_INSTALL_PREFIX="$KENREF_PREFIX"
+
+      - name: Build
+        id: build
+        run: cmake --build build -j "$(nproc)"
+
+      - name: GROMACS-interface gtests
+        # Includes testMoleculeGraph (the PBC repair and the bonds it walks along), testSubscribeOnce and
+        # testOwnershipCheck (the DD one-writer property).
+        working-directory: build/google_tests
+        run: ./Google_tests_kenref_gmxinterface_exe
+
+      - name: rt_validate.sh (repaired / whole / refused)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: BIN="$PWD/build/KEnRef" WORK="$RUNNER_TEMP/rt" ./rt_validate.sh
+
+      # ---------------------------------------------------------------- PLUMED (one matrix cell)
+      # PLUMED is built against the KEnRef core installed from THIS checkout, so its install is never
+      # cached: a cached kernel would carry KEnRefBias compiled against an older KEnRef. Only the compiler
+      # cache is kept (ccache), keyed on both commits, falling back to the same PLUMED commit.
+      - name: Install the KEnRef core for PLUMED
+        if: ${{ matrix.plumed && !cancelled() && steps.build.outcome == 'success' }}
+        run: cmake --install build
+
+      - name: Restore the PLUMED compiler cache
+        if: ${{ matrix.plumed && !cancelled() && steps.build.outcome == 'success' }}
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/.cache/ccache
+          key: plumed-ccache-${{ runner.os }}-${{ env.PLUMED_COMMIT }}-${{ github.sha }}
+          restore-keys: plumed-ccache-${{ runner.os }}-${{ env.PLUMED_COMMIT }}-
+
+      - name: Build PLUMED (upstream, pinned) with --enable-kenref
+        id: plumed
+        if: ${{ matrix.plumed && !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          CCACHE_DIR: /home/runner/.cache/ccache
+        run: |
+          set -e
+          mkdir -p /home/runner/deps/plumed-src && cd /home/runner/deps/plumed-src
+          git init -q && git remote add origin https://github.com/plumed/plumed2.git
+          # Deep enough to reach 1e03000ea (16 commits below the pin), so the ancestry check can run.
+          git fetch -q --depth 100 origin "$PLUMED_COMMIT" && git checkout -q FETCH_HEAD
+          git merge-base --is-ancestor 1e03000ea9ff6947e8a49012de86a1c3adea7879 HEAD \
+            || { echo "PLUMED_COMMIT does not contain plumed/plumed2#1515 (1e03000ea)"; exit 1; }
+          # The core is found through its .pc files in $KENREF_PREFIX (lib/ for KEnRef's, share/ for the
+          # Eigen it installs alongside). PLUMED never fetches KEnRef here: the installed one is found first.
+          export PKG_CONFIG_PATH="$KENREF_PREFIX/lib/pkgconfig:$KENREF_PREFIX/share/pkgconfig"
+          # Before configure, not just before make: with rpath on (PLUMED's default for KEnRef builds),
+          # configure bakes $libdir:$LIBRARY_PATH into -Wl,-R for libplumedKernel.so and the plumed exe.
+          # That -R is also how ld finds libkenref_core.so.2, which the kernel needs, when it links the exe.
+          # Without it the link fails ("libkenref_core.so.2, needed by libplumedKernel.so, not found").
+          # TODO: drop this once PLUMED records the KEnRef libdir itself (Smith-Group ef33e6e20, unmerged).
+          export LIBRARY_PATH="$KENREF_PREFIX/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
+          ./configure --prefix="$PLUMED_PREFIX" CC="ccache clang" CXX="ccache clang++" \
+            --enable-kenref --disable-doc --disable-python
+          grep -m1 'KEnRef: using' config.log || true
+          make -j "$(nproc)"
+          make install
+          ccache -s | head -5 || true
+
+      - name: rt_validate_plumed.sh, and require OUR repair to be the one that refuses
+        if: ${{ matrix.plumed && !cancelled() && steps.plumed.outcome == 'success' }}
+        run: |
+          set -o pipefail
+          # The plumed binary and libplumedKernel.so carry a RUNPATH to $KENREF_PREFIX/lib (see LIBRARY_PATH
+          # in the build step). LD_LIBRARY_PATH names it again, so the run never depends on the RUNPATH.
+          export LD_LIBRARY_PATH="$KENREF_PREFIX/lib:$PLUMED_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          ldd "$PLUMED_PREFIX/bin/plumed" | grep -iE 'kenref|plumed' || true
+          PLUMED="$PLUMED_PREFIX/bin/plumed" BIN="$PWD/build/KEnRef" WORK="$RUNNER_TEMP/rtp" \
+            ./rt_validate_plumed.sh | tee "$RUNNER_TEMP/rt_validate_plumed.log"
+          # Case C can be refused by KEnRef's own reference guard -- reachable only when KEnRefBias calls
+          # makeRequestedAtomsWhole() -- or by the split-check backstop. The script accepts either; this
+          # job does not: a kernel without the call is a regression of plumed/plumed2#1515.
+          grep -q 'REFUSED by OUR reference guard' "$RUNNER_TEMP/rt_validate_plumed.log" \
+            || { echo "::error::case C was not refused by makeRequestedAtomsWhole's guard: this PLUMED kernel has no call site for it"; exit 1; }
+
+  nightly-long:
+    # PLACEHOLDER. Runs only on the nightly schedule and on demand, never per push.
+    name: long runtime checks (placeholder)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: TODO -- move the long tests here
+        run: |
+          cat <<'EOF'
+          TODO(nightly): move these long checks here; none of them runs yet. Each needs the gmx job's
+          GROMACS (reuse its cache key) and a KEnRef build with BUILD_KENREF_GMX=ON.
+            1. KEnRefTestSuite.TestCoordArrayToSigmaEnergyFD (~200 s) -- already runs nightly in the `fd`
+               job; fold it in here once this job builds.
+            2. The finite-difference tests being split out of the per-push suite (kenref-pbc's split):
+               run whatever lands with the FD filter, at OMP_NUM_THREADS=1 AND all threads.
+            3. smoke_test_installs.sh -- the 500-step MD on the committed res/{sigma,plateau} sets,
+               KEnRef-native AND PLUMED, with its step-0 energy assertions.
+            4. dd_validate.sh -- true domain decomposition at 1, 2 and 4 ranks and with -npme 1; needs
+               >= 4 MPI slots (--oversubscribe on a 4-core runner).
+            5. NSTEPS=500 rt_validate.sh (and rt_validate_plumed.sh at 500 frames): the old split-check
+               false refusal only appeared at ~step 120, invisible to the 2-step default.
+          EOF
