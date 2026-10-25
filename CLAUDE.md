@@ -39,6 +39,35 @@ package is at `/home/amr/PycharmProjects/ke` (load with `pkgload::load_all(...)`
 The `port-ke-function` skill documents the full porting + fixture-generation + test workflow. Do not
 optimize or refactor a kernel in a way that breaks the bit-for-bit match with R.
 
+**But R ground truth cannot catch a derivation error R shares.** It catches a PORT error. If the R
+reference omits a term from an analytical gradient, the port omits the same term, the two agree to the
+last digit, and both are wrong — agreement mistaken for correctness again. Finite differences of the
+total energy are the independent check, because they see every dependence the energy actually has.
+There are FD gradient tests for all three models: `TestCoordArrayToSigmaEnergyFD`,
+`TestCoordArrayToGEnergyFD`, `TestCoordArrayToRelaxEnergyFD`. Keep ≥ 2 members in any of them — with
+one member every cross-replica derivative term vanishes identically and the test goes blind to the
+whole class of error it exists to detect.
+
+**Measured 2026-10-07.** SIGMA and PLATEAUS agree with FD to ~1e-8 relative, including the
+cross-replica term through the group-averaged interaction tensor (so KEnRef does *not* have the bug
+PLUMED fixed in #1462). RELAX agrees to 2e-9 for **isotropic** rotational diffusion and disagrees by
+**3.5%** for anisotropic — because `coord_array_to_relax_energy` back-propagates
+`a_int → g_matrix → d_array → r_array → coords` and never through `a_overall`, the overall-tumbling
+amplitudes, which `dxyz_dunit_to_overall_modes` computes from the coordinates and which has no
+gradient parameter at all. R omits the identical term (`ke.R` calls `r_array_to_d_array(..., unit =
+TRUE)` for the unit tensors without passing `gradient`).
+
+Why it has stayed invisible: for isotropic D the single overall mode is `mean_m(Σ of all five squared
+tensor components)`, a rotational **invariant** — measured to move by 6.7e-16 under a rigid rotation —
+so the omitted derivative is identically zero and omitting it is *exact*. The anisotropic branches
+instead pick out individual components, which move by 0.56 under the same rotation. The committed
+fixture and `RelaxModel`'s built-in defaults are isotropic (`Dx=Dy=Dz=2.5e8`), so the defect is
+unreachable by default — but `RATES_FILE` lets a user supply anisotropic `Dx/Dy/Dz` and **nothing
+checks for it**, so that user silently gets incomplete forces. `RelaxOverallModesCoordinateDependence`
+pins the mechanism; the anisotropic leg of the FD test pins the discrepancy as a range so it cannot
+drift unnoticed in either direction. NOT FIXED — fixing it means deriving the missing term and
+re-validating against R.
+
 ## Periodic boundaries: the restrained molecule must be WHOLE
 KEnRef restrains a *whole* molecule — the Kabsch superposition and the pair distances are global and
 have **no cutoff**. A molecule split across a periodic boundary therefore does not fail; it quietly
