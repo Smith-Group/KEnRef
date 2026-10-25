@@ -21,17 +21,19 @@
 # Running both is the point: the tiers are built from the same sources, so a
 # result that differs between them is about the INSTALL LAYOUT, not the science.
 #
-# THE PLUMED SIDE'S PERIODIC REPAIR IS PLUMED'S OWN, not KEnRef's. The generated
-# .dat puts `MOLINFO STRUCTURE=<reference> WHOLE` + `WHOLEMOLECULES` above the
-# KENREF line, because KEnRef's makeRequestedAtomsWhole() is compiled but never
-# called -- the per-step readers that would call it live in PLUMED's half of the
-# module (src/kenref/KEnRefBias.cpp) and read getPositions() directly. Without
-# those two lines the SIGMA and RELAX sets REFUSE on the PLUMED side, since
-# md-00_PBC-BROKEN.tpr is torn and nothing repairs it; PLATEAUS happens to pass
-# either way, because its restrained set contains none of the 12 displaced
-# atoms, which makes its green uninformative about periodicity. So a PASS on the
-# plumed side here covers PLUMED's repair, not ours. See rt_validate_plumed.sh's
-# header, and res/PBC-BROKEN.md.
+# THE PLUMED SIDE'S PERIODIC REPAIR IS NOW KEnRef'S OWN. Since plumed/plumed2#1515
+# (PLUMED >= 1e03000ea) KEnRefBias calls makeRequestedAtomsWhole() and reads the
+# repaired coordinates, so the generated .dat deliberately carries NO MOLINFO and
+# NO WHOLEMOLECULES: what is under test is OUR repair, and PLUMED's own make-whole
+# above the KENREF line would mask it. Until #1515 those two lines WERE required --
+# the repair was compiled but never called, and without them the SIGMA and RELAX
+# sets refused on the PLUMED side because md-00_PBC-BROKEN.tpr is torn. (PLATEAUS
+# passed either way, because its restrained set contains none of the 12 displaced
+# atoms, which makes its green uninformative about periodicity -- so it is not the
+# set to watch here.) Against a PLUMED older than #1515 the SIGMA/RELAX sets will
+# refuse: that is the correct answer, and the fix is a newer PLUMED, NOT adding
+# MOLINFO/WHOLEMOLECULES back. rt_validate_plumed.sh asserts the kernel version
+# outright; see its header, and res/PBC-BROKEN.md.
 #
 # WHAT THIS ASSERTS. Each (model x member-count) is checked THREE ways on the
 # step-0 energy: native-vs-reference, plumed-vs-reference, and the two engines
@@ -50,39 +52,18 @@
 # Usage:  ./smoke_test_installs.sh [staging|deploy]
 #         TIER=deploy KENREF_VER=2.0.0 ./smoke_test_installs.sh
 # =============================================================================
-REPO=/home/amr/CLionProjects/KEnRef
+# The repository THIS script came from, so a copy run from a clone drives that clone's
+# res/ sets. It used to be hardcoded to /home/amr/CLionProjects/KEnRef, which meant an
+# edited copy in a temp clone silently tested the MAIN CHECKOUT's fixtures -- the same
+# class of mistake as a stale install faking correctness. REPO= still overrides, which is
+# what a frozen copy outside the tree needs (never run a long job from a file you are editing).
+REPO="${REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 # 500, not 10: nstlist is 40, so a 10-step run never leaves the initial pair-list
 # partition -- which is exactly how a step-120 abort stayed invisible through every
 # earlier DD/PBC check.
 NSTEPS=${NSTEPS:-500}
 REF=$REPO/res/sigma/md_double/GB3_27_10us.pdb   # same GB3 system for every set
 
-# WHOLEMOLECULES needs the molecule's atom range; take it from the reference
-# rather than hardcoding it. Refuses if solvent interleaves the molecule, which
-# would make 1-N the wrong entity. (Mirrors rt_validate_plumed.sh.)
-protein_entity() {   # reference-pdb -> "1-N"
-    awk '
-        /^ATOM|^HETATM/ {
-            r = substr($0, 18, 4); gsub(/ /, "", r); serial = substr($0, 7, 5) + 0
-            if (r == "SOL" || r == "HOH" || r == "WAT" || r == "TIP3" ||
-                r == "NA" || r == "CL" || r == "NA+" || r == "CL-" ||
-                r == "K" || r == "MG" || r == "ZN" || r == "CA") {
-                if (first_solvent == 0) first_solvent = serial
-            } else last_protein = serial
-        }
-        END {
-            if (last_protein == 0) {
-                print "protein_entity: no non-solvent atoms in the reference" > "/dev/stderr"; exit 1
-            }
-            if (first_solvent != 0 && first_solvent < last_protein) {
-                printf "protein_entity: solvent interleaves the molecule (first solvent %d, last protein %d)\n", \
-                       first_solvent, last_protein > "/dev/stderr"
-                exit 1
-            }
-            print "1-" last_protein
-        }' "$1"
-}
-ENTITY=$(protein_entity "$REF") || exit 2
 
 # GUIDE_ATOMS used to be a hardcoded list of 31 serials here. The `[ guideC-alpha ]`
 # group that the KEnRef side reads BY NAME out of the same .ndx has 33 (805 and 819
@@ -115,7 +96,26 @@ KENREF_VER="${KENREF_VER:-2.0.0}"        # the kenref version dimension / name t
 GMX_VERS="${GMX_VERS:-2025.4 2026.0 2026.3}"
 # A single GMX_VER= still works, and wins: the one-version invocation stays available.
 [ -n "${GMX_VER:-}" ] && GMX_VERS="$GMX_VER"
-PLUMED_VER="${PLUMED_VER:-master}"       # staging only; deploy uses a describe token (see below)
+PLUMED_VER="${PLUMED_VER:-}"             # empty = DISCOVER it; see pick_plumed_ver below.
+# There is no sane hardcoded default: both tiers name PLUMED by a describe token
+# (`main.1e03000ea`), which changes at every re-pin -- the old default "master" named
+# nothing in either tier once the pipeline landed, and the script could only be run by
+# passing PLUMED_VER= by hand. So discover it, and REFUSE when the answer is ambiguous:
+# picking the newest by mtime is an accident of write order, not a version decision.
+pick_plumed_ver() {   # <glob-dir> <pattern> -> echoes the one match, or fails
+    local dir="$1" pat="$2" n m
+    m=$(cd "$dir" 2>/dev/null && ls -d $pat 2>/dev/null)
+    n=$(printf '%s\n' "$m" | grep -c .)
+    if [ "$n" -eq 0 ]; then
+        echo "no plumed install matching $dir/$pat" >&2; return 1
+    elif [ "$n" -gt 1 ]; then
+        echo "several plumed installs match $dir/$pat:" >&2
+        printf '  %s\n' $m >&2
+        echo "  set PLUMED_VER=<token> to choose; it is not this script's call." >&2
+        return 1
+    fi
+    printf '%s\n' "$m"
+}
 
 MODINIT='source /usr/share/Modules/init/bash'
 OMPI='module load openmpi/5.0.7_clang20.1.1_cuda12.4.1; module load llvm/20.1.1'
@@ -130,21 +130,37 @@ tier_paths() {   # tier_paths <gmxver>
     KENREF_GMXRC="$OPT/gromacs-4-kenref-dev/${GMX_VER%%.*}/$GMX_VER/release/$ACCEL/bin/GMXRC"
     KENREF_ENV="$OPT/kenref-gmx-dev/$KENREF_VER/${GMX_VER%%.*}/$GMX_VER/release/$ACCEL/env.sh"
     PLUMED_GMXRC="$OPT/gromacs-4-plumed-dev/${GMX_VER%%.*}/$GMX_VER/release/$ACCEL/bin/GMXRC"
-    PLUMED_MODULE="plumed-dev/$PLUMED_VER/$KENREF_VER/release/$ACCEL"
+    local pv="$PLUMED_VER"
+    [ -n "$pv" ] || pv=$(pick_plumed_ver "$OPT/modulefiles/plumed-dev" \
+                             "*/$KENREF_VER/release/$ACCEL") || return 1
+    pv="${pv%%/*}"
+    PLUMED_MODULE="plumed-dev/$pv/$KENREF_VER/release/$ACCEL"
     ;;
   deploy)
-    # Flat: the config is the directory NAME. The kenref prefix holds BOTH the core and the gmx
-    # interface, so its name carries a COMPOSITE <kenref-ver>+<gmx-ver> token — the interface is compiled
-    # against one GROMACS series, and without the second half the name would not identify a unique build.
-    # Its paired GROMACS is the `-gmx-<ver>` sibling; that pairing is why they are named to sort together.
+    # Flat: the config is the directory NAME. Identity is carried by PACKAGE + name, not by a
+    # composite token inside one name (the pre-2026-10-19 tree put <kenref-ver>+<gmx-ver> in a
+    # single `kenref/` prefix; that tree is now under $OPT/bkp/pre-pipeline-20261019/):
+    #   kenref/<k>_<accel>                      the core alone
+    #   kenref-gmx/<k>_<accel>-gmx-<g>          the interface, which names its GROMACS
+    #   plumed/<p>_<accel>-kenref<k>            one PLUMED build, which names its KEnRef
+    # So do NOT reintroduce a `<k>+<g>` token: the interface already says which GROMACS it was
+    # compiled against, and one PLUMED serves any GROMACS through its gromacs-4-plumed sibling.
+    # The interface prefix has NO GMXRC of its own -- GROMACS lives in gromacs-4-kenref/<g>_<accel>,
+    # which is what its modulefile loads, so this script sources that GMXRC and the interface env.sh.
     # The plumed name carries a describe token, so it is DISCOVERED rather than constructed:
     # `2.10.1-787-g3eec8d7ae` is not something to hardcode, and the commit-count is not even monotonic
-    # across a history rewrite. `ls -t` (newest first), never a version sort.
-    KENREF_PAIR="${KENREF_VER}+${GMX_VER}"
-    KENREF_GMXRC="$OPT/kenref/${KENREF_PAIR}_${ACCEL}-gmx-${GMX_VER}/bin/GMXRC"
-    KENREF_ENV="$OPT/kenref/${KENREF_PAIR}_${ACCEL}/env.sh"
+    # across a history rewrite. Exactly one match is required -- see pick_plumed_ver.
+    KENREF_GMXRC="$OPT/gromacs-4-kenref/${GMX_VER}_${ACCEL}/bin/GMXRC"
+    KENREF_ENV="$OPT/kenref-gmx/${KENREF_VER}_${ACCEL}-gmx-${GMX_VER}/env.sh"
     PLUMED_GMXRC="$OPT/gromacs-4-plumed/${GMX_VER}_${ACCEL}/bin/GMXRC"
-    PLUMED_MODULE="plumed/$(ls -t "$OPT/modulefiles/plumed/"*"_${ACCEL}-kenref${KENREF_PAIR}" 2>/dev/null | head -1 | xargs -r basename)"
+    local pm
+    if [ -n "$PLUMED_VER" ]; then
+        pm="${PLUMED_VER}_${ACCEL}-kenref${KENREF_VER}"
+        [ -e "$OPT/modulefiles/plumed/$pm" ] || { echo "no such plumed modulefile: $pm" >&2; return 1; }
+    else
+        pm=$(pick_plumed_ver "$OPT/modulefiles/plumed" "*_${ACCEL}-kenref${KENREF_VER}") || return 1
+    fi
+    PLUMED_MODULE="plumed/$pm"
     ;;
   *)  echo "unknown tier '$TIER' (expected: staging | deploy)" >&2; exit 2 ;;
   esac
@@ -217,11 +233,10 @@ do_set() {
   # for every Bias -- which meant the same input could not serve 2.10 (ARG must be ABSENT) and that
   # 2.11-dev (ARG must be PRESENT). The module's Bias no longer declares it, so passing it now fails with
   #   ERROR in input to action KENREF ... cannot understand the following words from the input line : ARG
-  # MOLINFO + WHOLEMOLECULES: PLUMED's own make-whole, from the same reference
-  # KENREF is given. Required, not optional -- see the header. Remove it only
-  # once KEnRef's own makeRequestedAtomsWhole() is actually called.
-  { echo "MOLINFO STRUCTURE=$REF WHOLE"; echo "WHOLEMOLECULES ENTITY0=$ENTITY";
-    echo "KENREF ..."; echo "  LABEL=kenref"; echo "  MODEL=$MODEL"; echo "  K=$K"; echo "  N=0.25";
+  # NO MOLINFO and NO WHOLEMOLECULES, deliberately: KEnRef repairs the requested
+  # atoms itself since plumed/plumed2#1515, and PLUMED's own make-whole here would
+  # mask it. See the header -- do not add them back to make an older PLUMED pass.
+  { echo "KENREF ..."; echo "  LABEL=kenref"; echo "  MODEL=$MODEL"; echo "  K=$K"; echo "  N=0.25";
     if [ "$EXPKIND" = folder ]; then echo "  EXP_DATA_FOLDER=$EXPVAL"; [ "$MODEL" = SIGMA ] && echo "  PROTON_MHZ=700.0";
     else echo "  EXP_DATA_FILE=$EXPVAL"; fi
     echo "  GUIDE_ATOMS=$GUIDE_ATOMS"; echo "  REF=$REF"; echo "  ATOMNAME_MAPPING=$REF";

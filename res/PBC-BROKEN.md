@@ -112,22 +112,32 @@ bit-identical. `MoleculeGraphTest.ShippedReferencePdbIsWhole` guards the shipped
   1.44 Å. A whole reference makes every tree edge short and the repair correct. Making this file whole
   was the prerequisite for the PLUMED-side fix below, not a cosmetic tidy-up.
 
-## The PLUMED-side repair was WRITTEN but NEVER SHIPPED (2026-08-23; corrected 2026-10-13)
+## The PLUMED-side repair: written 2026-08-23, unshipped until 2026-10-19
 
-> **Correction, measured 2026-10-13 at KEnRef 1dccb2d.** Everything this section describes was built and
-> does work — but nothing calls it. `makeRequestedAtomsWhole()` has **zero call sites**: it is defined in
-> `src/plumedinterface/KEnRefBias_setup.cpp` and the three lines that would invoke it live only in
-> `~/.claude/handoffs/kenref-pbc-frozen-frame.patch`, which never went upstream (#1436 merged without
-> it). Confirmed in the shipped binary: `libplumedKernel.so` defines the symbol and no instruction calls
-> or jumps to it. `KEnRefBias` therefore still takes coordinates **straight from `getPositions()`**, as
-> described in the paragraph below in the past tense. Read this section as the design and its
-> validation, not as the state of the code. Until the call ships, PLUMED inputs must carry
-> `MOLINFO STRUCTURE=<whole reference> WHOLE` + `WHOLEMOLECULES` above `KENREF`, which is PLUMED's own
-> equivalent and is what both gates now generate.
+> **Shipped, measured 2026-10-25.** `makeRequestedAtomsWhole()` is now CALLED. plumed/plumed2#1515
+> (merged 2026-10-19, PLUMED `1e03000ea`) invokes it from `getLocalModelX()` and points
+> `getGuideAtomsX`/`fillSubAtomsX` at the repaired `wholePositions_` buffer. On the re-pinned lab
+> install the PLUMED gate passes 3/3 through our repair alone, with no `MOLINFO`/`WHOLEMOLECULES` in
+> the input: 3.65155e-05 on the torn GB3 fixture (identical to GROMACS), 7.18869e-08 unchanged on
+> whole ubiquitin, and a torn *reference* refused by our own guard at a tree edge of 31.491270 Å. The
+> repo's `smoke_test_installs.sh` agrees across all five committed sets, 15/15 step-0 assertions.
+>
+> **What this section records, and why it is worth keeping.** For eight weeks the code below existed
+> and was validated, and **nothing called it** — zero call sites, measured 2026-10-13 at KEnRef
+> 1dccb2d: it was defined in `src/plumedinterface/KEnRefBias_setup.cpp` while the three lines that
+> invoke it lived only in `~/.claude/handoffs/kenref-pbc-frozen-frame.patch`, which never went
+> upstream (#1436 merged without it). `KEnRefBias` read `getPositions()` directly, so the PLUMED
+> engine computed on the torn structure, and the gates papered over it with PLUMED's own make-whole.
+> Nothing in a version string said so: **both kernels define the symbol**, and only the call count
+> differs (`objdump` + `grep -cE '(call|jmp).*<sym>'`: 0 at 684c3c255, 1 at `1e03000ea`). That is why
+> `rt_validate_plumed.sh` now inspects the kernel and refuses an older one outright instead of
+> falling back to `MOLINFO` — a fallback would quietly return to testing PLUMED's repair, which is
+> the state this paragraph exists to describe.
 
-`KEnRefBias` takes coordinates straight from `getPositions()`, so the PLUMED engine computes on the torn
-structure and the two engines disagree on all five sets unless PLUMED's own make-whole is enabled in the
-input. The design below mirrors the GROMACS one — repair once per step, over the whole requested set,
+Before #1515, `KEnRefBias` took coordinates straight from `getPositions()`, so the PLUMED engine
+computed on the torn structure and the two engines disagreed on all five sets unless PLUMED's own
+make-whole was enabled in the input. The design below mirrors the GROMACS one — repair once per
+step, over the whole requested set,
 before anything is computed — and is implemented on the KEnRef side, lacking only its call site.
 
 * At setup, `KEnRefBias_setup.cpp` reads reference positions for **all** of `atoms_` (guide + sub) and
@@ -175,12 +185,22 @@ carrying the three unshipped edits, which is why it does not reproduce from comm
 | broken GB3 tpr | `GB3_27_10us_PBC-BROKEN.pdb` | **refuses**: 31.49 Å edge vs a 21.65 Å half-width |
 
 Both gates are committed: `rt_validate.sh` (GROMACS) and `rt_validate_plumed.sh` (PLUMED). The GROMACS
-one is 3/3 from committed sources. The PLUMED one was **not**: as committed before 2026-10-13 it carried
-no `MOLINFO`/`WHOLEMOLECULES` lines and so depended on the unshipped patch, and on the first install
-built from committed sources alone it went red — case A aborting with the split-check message, case C
-passing *vacuously* because A and C then emit byte-identical text. It now generates PLUMED's own
-make-whole and is 3/3 again on the installed staging kernel (A 3.65155e-05, B 7.18869e-08 unchanged,
-C refusing and naming which mechanism did it). What it covers is PLUMED's repair, not ours.
+one is 3/3 from committed sources. The PLUMED one has been through three states, and the middle one is
+the cautionary tale:
+
+1. **Before 2026-10-13** it carried no `MOLINFO`/`WHOLEMOLECULES` lines and so depended on the unshipped
+   patch. On the first install built from committed sources alone it went red — case A aborting with the
+   split-check message, and case C passing *vacuously*, because A and C then emit byte-identical text.
+2. **From 2026-10-13** it generated PLUMED's own make-whole and was 3/3 again — but what it covered was
+   PLUMED's repair, not ours. A deliberate stopgap, recorded as one.
+3. **Since #1515 (re-measured 2026-10-25)** the directives are gone again and it is 3/3 through OUR
+   repair on the re-pinned install: A 3.65155e-05, B 7.18869e-08 unchanged, C refused by our reference
+   guard at a 31.491270 Å edge. The difference from state 1 is that the call now ships, and the gate
+   proves it by inspecting the kernel (symbol present *and* called) before it runs anything.
+
+The lesson from state 1 survives into state 3: a gate whose green depends on something outside the
+repository — an unshipped patch then, a PLUMED pin now — must say so loudly. That is why state 3 refuses
+on an old kernel rather than re-adding the directives to stay green.
 
 Also measured 2026-10-13, on the three rows above: with a **torn** reference, PLUMED's `makeWhole` can
 leave the set *worse* than no repair at all — span 67.7628 against 64.6615 untouched — so a torn

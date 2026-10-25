@@ -9,27 +9,38 @@
 #   GROMACS  walks the topology's BOND graph            (KEnRefMoleculeGraph)
 #   PLUMED   walks a spanning tree over the REFERENCE
 #
-# WHICH PLUMED-SIDE REPAIR THIS ACTUALLY TESTS (2026-10-13): PLUMED's OWN, via
-# `MOLINFO STRUCTURE=<reference> WHOLE` + `WHOLEMOLECULES` above the KENREF
-# line -- NOT KEnRef's makeRequestedAtomsWhole(). Ours is compiled and
-# UNREACHABLE: it is defined (src/plumedinterface/KEnRefBias_setup.cpp) and has
-# ZERO call sites, because the per-step readers that would have to call it live
-# in PLUMED's half of the module (src/kenref/KEnRefBias.cpp: getGuideAtomsX,
-# fillSubAtomsX, getLocalModelX) and read getPositions() directly. Confirmed on
-# the installed kernel: the symbol is defined at a fixed address and no
-# instruction in libplumedKernel.so calls or jumps to it. The three lines that
-# wire it up have never left ~/.claude/handoffs/kenref-pbc-frozen-frame.patch.
+# WHICH PLUMED-SIDE REPAIR THIS TESTS (2026-10-19): KEnRef's OWN
+# makeRequestedAtomsWhole(), and nothing else. REQUIRES PLUMED >= 1e03000ea
+# (plumed/plumed2#1515), which added the call in getLocalModelX() and switched
+# both readers -- getGuideAtomsX and fillSubAtomsX -- from getPositions() to the
+# repaired wholePositions_. The generated inputs below therefore carry NO
+# MOLINFO and NO WHOLEMOLECULES: PLUMED's own make-whole would repair the frame
+# first and this gate would measure PLUMED's repair while claiming to measure
+# ours. That is exactly what it did between 2026-10-13 and this commit, which is
+# why those two lines were in it and why they are gone now.
 #
-# So a PASS here is coverage of PLUMED's repair, NOT of ours. Do not read it as
-# the latter. Case C below names which mechanism refused, so the day the
-# KEnRefBias call ships this script says so instead of quietly changing meaning.
+# AGAINST AN OLDER PLUMED THIS GATE REFUSES TO RUN, by checking the kernel
+# rather than a version string. No version string can tell the two apart:
+# `plumed info --long-version` is 2.11.0-dev on both sides of #1515, and
+# --git-version reports a describe token that cannot be ordered without a
+# plumed2 clone and says "-dirty" for any locally modified build. Measured:
+#   684c3c255 (pre)   makeRequestedAtomsWhole defined, 0 call sites
+#   1e03000ea (post)  defined, 1 call site
+# so the predicate is "the kernel defines the repair and calls it", which is the
+# condition that makes these assertions mean what they say. It is not a proxy.
 #
-# AND NOTE WHY THAT MATTERED: before 2026-10-13 this script asserted the same
-# three energies with no MOLINFO/WHOLEMOLECULES lines at all, and passed -- but
-# only against a local PLUMED build carrying that unshipped patch. From
-# committed sources it could not pass, and on the first install built from
-# committed sources alone it went red. Same trap as the never-committed
-# KENREF_DD_FAULT hook: a gate whose green lives outside the repository.
+# WHY A REFUSAL AND NOT A FALLBACK: post-#1515 a regression in OUR repair also
+# ends at the split-check backstop with the same refusal text an old kernel
+# produces. So "this PLUMED predates #1515" and "our repair broke" cannot be
+# told apart from behaviour, and a gate that adapted between them would file the
+# second as the first -- agreement mistaken for correctness, rebuilt inside the
+# check meant to catch it. Refuse, name the kernel, and let a human re-pin.
+#
+# AND NOTE WHY THIS MATTERED: before 2026-10-13 this script asserted the same
+# three energies with no MOLINFO/WHOLEMOLECULES lines, and passed -- but only
+# against a local PLUMED build carrying the unshipped patch. From committed
+# sources it could not pass. Same trap as the never-committed KENREF_DD_FAULT
+# hook: a gate whose green lived outside the repository. It is in PLUMED now.
 #
 # PLUMED is never handed a topology, so the reference structure is all it has --
 # for its own repair exactly as for ours. That makes the reference load-bearing
@@ -156,6 +167,50 @@ command -v "$MPIRUN" >/dev/null || { echo "rt_validate_plumed: no mpirun (set MP
 "$PLUMED" driver --help 2>&1 | grep -q -- --itrr || {
     echo "rt_validate_plumed: this plumed has no --itrr driver support" >&2; exit 2; }
 
+# REQUIRE PLUMED >= 1e03000ea (#1515), by asking the KERNEL whether the repair is actually called.
+# Rationale and the measured 0-vs-1 call-site figures are in the header. Three ways this can fail and
+# all three EXIT, never continue: no kernel found, no binutils to inspect it, or the repair present
+# but never called. Refusing is the point -- the assertions below are only meaningful if our repair
+# runs, and no version string distinguishes the two kernels.
+# CONDITION, not a fact: this reads a direct call instruction, so a kernel built with -flto could
+# inline the call away and read as 0 on a CORRECT build. The staging and deployment builds are -O3
+# with no -flto (checked via `plumed info --configuration`), so it is sound for them; if that ever
+# changes, this predicate needs replacing rather than relaxing.
+require_our_repair() {
+    local kernel sym n
+    kernel="${PLUMED_KERNEL:-}"
+    [ -n "$kernel" ] || kernel="$(dirname "$(command -v "$PLUMED")")/../lib/libplumedKernel.so"
+    [ -f "$kernel" ] || {
+        echo "rt_validate_plumed: cannot find libplumedKernel.so (tried '$kernel')." >&2
+        echo "  This gate must inspect the kernel to know whether KEnRef's own repair is called." >&2
+        echo "  Set PLUMED_KERNEL=/path/to/libplumedKernel.so." >&2; exit 2; }
+    command -v nm >/dev/null 2>&1 && command -v objdump >/dev/null 2>&1 || {
+        echo "rt_validate_plumed: needs nm and objdump (binutils) to inspect $kernel." >&2
+        echo "  Refusing rather than assuming: see the header." >&2; exit 2; }
+    sym="$(nm -D "$kernel" 2>/dev/null | awk '/makeRequestedAtomsWhole/{print $3; exit}')"
+    [ -n "$sym" ] || {
+        echo "rt_validate_plumed: $kernel does not define makeRequestedAtomsWhole at all." >&2
+        echo "  That is not a pre-#1515 PLUMED, it is a kernel without KEnRef's repair -- check" >&2
+        echo "  that this plumed was built against KEnRef >= 2.0.0." >&2; exit 2; }
+    n="$(objdump -d --no-show-raw-insn "$kernel" 2>/dev/null | grep -cE "(call|jmp).*<${sym}>")"
+    [ "${n:-0}" -gt 0 ] || {
+        echo "rt_validate_plumed: this gate needs PLUMED >= 1e03000ea (plumed/plumed2#1515)." >&2
+        echo "  kernel      : $kernel" >&2
+        # The KERNEL's own embedded git version, not `$PLUMED info --git-version`: the exe and the
+        # kernel can disagree (PLUMED_KERNEL overrides which kernel is loaded), and reporting the
+        # exe's version beside the kernel's path is how a diagnostic ends up describing the wrong
+        # artefact. Cosmetic only -- the refusal above is decided by the call-site count.
+        echo "  kernel built from : $(strings -a "$kernel" 2>/dev/null \
+            | grep -oE '^[0-9a-f]{9}(-dirty)?$' | head -1 || echo unknown)" >&2
+        echo "  plumed exe        : $("$PLUMED" info --git-version 2>/dev/null || echo unknown)" >&2
+        echo "  It DEFINES makeRequestedAtomsWhole but never calls it, so the per-step readers are" >&2
+        echo "  still reading getPositions() and the torn fixture would reach the numerics torn." >&2
+        echo "  Re-pin PLUMED past #1515 and rebuild. Do NOT add MOLINFO/WHOLEMOLECULES to make" >&2
+        echo "  this pass: that measures PLUMED's repair while claiming to measure ours." >&2; exit 2; }
+    echo "  repair   KEnRef's own makeRequestedAtomsWhole, $n call site(s) in the kernel"
+}
+require_our_repair
+
 mkdir -p "$WORK"
 
 # Zero-based-to-1-based is not our problem here: read the group straight out of the
@@ -226,12 +281,12 @@ run_case() {   # label dat trr expect|REFUSE
             echo "REFUSED by OUR reference guard"
             grep -a -m1 -o 'cannot be used to repair periodic images:.*' "$WORK/$label.log" \
                 | cut -c1-160 | sed 's/^/      | /'
-            echo "      | NOTE: makeRequestedAtomsWhole() is now being CALLED -- route (b) has"
-            echo "      |       shipped. Re-run case A with the MOLINFO/WHOLEMOLECULES lines"
-            echo "      |       removed, so that A covers our own repair again, and update the"
-            echo "      |       header of this script."
+            echo "      | This is the expected refusal since #1515: the guard lives inside"
+            echo "      | makeRequestedAtomsWhole(), so reaching it proves the repair RAN."
         elif [ "$backstop" = yes ]; then
-            echo "REFUSED by the split-check backstop (our guard is still unreachable)"
+            echo "*** the SPLIT-CHECK BACKSTOP fired, not the reference guard."
+            echo "    Since #1515 the repair runs first, so the guard should have caught this."
+            echo "    Reaching the backstop instead means the repair ran and left the set torn."
             grep -a -m1 -o "the 'sub' atoms are SPLIT.*" "$WORK/$label.log" \
                 | cut -c1-160 | sed 's/^/      | /'
         else
@@ -274,10 +329,9 @@ for kind in whole broken; do
     esac
     ent="$(protein_entity "$ref")" || exit 2
     cat > "$WORK/gb3_$kind.dat" <<EOF
-# PLUMED's own periodic repair, built from the SAME reference KENREF gets below.
-# This is what makes the torn fixture whole today -- see this script's header.
-MOLINFO STRUCTURE=$ref WHOLE
-WHOLEMOLECULES ENTITY0=$ent
+# KENREF now repairs the requested atoms itself (plumed/plumed2#1515), so this input
+# deliberately carries NO MOLINFO and NO WHOLEMOLECULES: what is under test is OUR
+# makeRequestedAtomsWhole(), and PLUMED's own make-whole would mask it.
 KENREF ...
   LABEL=kenref
   MODEL=SIGMA
@@ -299,8 +353,6 @@ cat > "$WORK/ubq.dat" <<EOF
 # to prove the repair does not damage input that is already whole, so the repair
 # must be ENABLED for the case to prove anything. Ubiquitin is whole, so these
 # two lines must change the answer by nothing at all.
-MOLINFO STRUCTURE=$UBQ_SET/00ns.pdb WHOLE
-WHOLEMOLECULES ENTITY0=$ubq_ent
 KENREF ...
   LABEL=kenref
   MODEL=PLATEAUS
