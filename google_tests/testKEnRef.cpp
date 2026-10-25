@@ -31,6 +31,7 @@
 #include "core/KEnRefDriver.h"
 #include "testHelper.h"
 
+#include <array>
 #include <filesystem>
 
 #include "testResourcePath.h"   // KENREF_RES(): fixture paths resolved from the source tree
@@ -1725,6 +1726,19 @@ TEST(KEnRefTestSuite, TestCoordArrayToSigmaEnergyFD) {
             coord_copy, s.rates, item_list, GB3_PROTON_MHZ, k, n, s.atomNameMapping, true, 0);
         ASSERT_TRUE(grad.has_value()) << "No gradient for " << prefix;
 
+        /* The same gradient on the FORWARDED thread path. Until 0e5fa41 the SIGMA backprop kernels
+         * ignored the caller's numOmpThreads and passed a literal 0 ("all threads"), so this call and
+         * the one above were the SAME code path and the 0 below could not exercise the other. The
+         * forwarded path is what production takes (-ntomp, PLUMED's count, 1 under the runtime
+         * gates), and the reproducibility test added in 0e5fa41 establishes only that it is
+         * self-consistent -- not that it is correct. Both are compared against the one finite
+         * difference below, which is a property of the energy and so the right fixed reference. */
+        auto coord_copy_1t = s.coord_array;
+        const auto& [energy_1t, grad_1t] = KEnRef<double>::coord_array_to_sigma_energy(
+            coord_copy_1t, s.rates, item_list, GB3_PROTON_MHZ, k, n, s.atomNameMapping, true, 1);
+        ASSERT_TRUE(grad_1t.has_value()) << "No gradient (numOmpThreads=1) for " << prefix;
+        EXPECT_TRUE(std::isfinite(energy_1t)) << prefix;
+
         // FD gradient for this interaction
         const auto fd = TestHelper<double>::finite_difference_grad(
             s.coord_array,
@@ -1737,7 +1751,7 @@ TEST(KEnRefTestSuite, TestCoordArrayToSigmaEnergyFD) {
 
         // Collect (fd, analytical) pairs, compute stats
         std::vector<std::pair<double, double>> pairs;
-        double max_anal = 0.0, max_diff = 0.0;
+        double max_anal = 0.0, max_diff = 0.0, max_diff_1t = 0.0;
         for (int m = 0; m < (int)grad->size(); ++m)
             for (int atomId : active_atom_ids)
                 for (int j = 0; j < 3; ++j) {
@@ -1746,6 +1760,7 @@ TEST(KEnRefTestSuite, TestCoordArrayToSigmaEnergyFD) {
                     pairs.emplace_back(fv, av);
                     max_anal = std::max(max_anal, std::abs(av));
                     max_diff = std::max(max_diff, std::abs(av - fv));
+                    max_diff_1t = std::max(max_diff_1t, std::abs(grad_1t->at(m)(atomId, j) - fv));
                 }
 
         overall_max_analytical = std::max(overall_max_analytical, max_anal);
@@ -1790,10 +1805,374 @@ TEST(KEnRefTestSuite, TestCoordArrayToSigmaEnergyFD) {
             std::cout << "  written " << prefix << "_fd_check.png\n";
 
         EXPECT_LT(max_diff / std::max(max_anal, 1.0), 1e-4) << "FD check failed for " << prefix;
+        std::cout << "  " << prefix << "  threads=1  Max|diff|=" << max_diff_1t
+                  << "  rel=" << max_diff_1t / std::max(max_anal, 1e-300) << "\n";
+        EXPECT_LT(max_diff_1t / std::max(max_anal, 1.0), 1e-4)
+            << "FD check failed for " << prefix << " on the FORWARDED thread path "
+               "(numOmpThreads=1) while passing with all threads. That asymmetry points at a backprop "
+               "kernel that mishandles the caller's thread count, not at the derivation.";
     }
 
     std::cout << "Overall Max|anal|=" << overall_max_analytical
               << "  Max|diff|=" << overall_max_diff << "\n";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Finite-difference gradient checks for the PLATEAUS and RELAX energy paths.
+//
+// WHY THESE EXIST, given both paths are already validated against R ground truth: an R comparison
+// catches a PORT error but cannot catch a DERIVATION error shared with the R original. If the R
+// reference omits a term from its analytical gradient, the C++ port omits the same term, the two
+// agree to the last digit, and both are wrong. That is "agreement mistaken for correctness" -- this
+// project's characteristic failure mode -- and it is not hypothetical for this class of code:
+// PLUMED #1462 fixed exactly it in ENSEMBLE, where the derivative of a central moment omitted the
+// replica-averaged mean's dependence on each replica. KEnRef differentiates replica-averaged
+// observables throughout, so it is exposed to the same mistake.
+//
+// A finite difference of the TOTAL energy is independent of the analytical derivation: it sees every
+// dependence the energy actually has. That is what makes it able to catch an omitted term.
+//
+// Both tests use >= 2 members on purpose. With a single member every cross-replica derivative term
+// vanishes identically, so a one-member fixture would pass while being blind to the whole class of
+// error these tests exist to detect.
+// ─────────────────────────────────────────────────────────────────────────────
+
+namespace {
+
+//! (fd, analytical) agreement summary over a set of compared components.
+struct FdStats {
+    double max_abs_analytical = 0.0;
+    double max_abs_diff       = 0.0;
+    long   compared           = 0;
+    [[nodiscard]] double relative() const {
+        return max_abs_diff / std::max(max_abs_analytical, 1e-300);
+    }
+};
+
+/*! Compare an analytical gradient against a finite-difference one over the given rows.
+ *
+ * Reports max|analytical| and max|analytical - fd| rather than a per-component relative error:
+ * individual components pass through zero, where a relative error is meaningless, so the scale that
+ * matters is the largest gradient present in the comparison. */
+FdStats compareGradients(const std::vector<CoordsMatrixType<double>>& analytical,
+                         const std::vector<CoordsMatrixType<double>>& fd,
+                         const std::vector<int>& rows) {
+    FdStats st;
+    for (size_t m = 0; m < analytical.size(); ++m)
+        for (const int i : rows)
+            for (int j = 0; j < 3; ++j) {
+                const double a = analytical[m](i, j);
+                const double f = fd[m](i, j);
+                st.max_abs_analytical = std::max(st.max_abs_analytical, std::abs(a));
+                st.max_abs_diff       = std::max(st.max_abs_diff,       std::abs(a - f));
+                ++st.compared;
+            }
+    return st;
+}
+
+} // namespace
+
+/*! PLATEAUS: analytical gradient of coord_array_to_g_energy vs finite difference.
+ *
+ * The grouping is {{0,1,2}} then {{0},{1},{2}}: the FIRST level averages the interaction tensor over
+ * all three members, so d(energy)/d(coords of member m) genuinely has a cross-replica contribution
+ * through that average. This is the term PLUMED #1462 was about, and the reason the first grouping
+ * level is not dropped from this fixture to make it cheaper.
+ *
+ * Tolerance: central differences carry O(delta^2) truncation plus O(eps/delta) cancellation noise.
+ * With delta = 1e-5 (Angstrom, on coordinates of order 10) the expected floor is ~1e-10 relative,
+ * and the bound below is set from the MEASURED agreement with headroom, not tuned until it passed.
+ */
+TEST(KEnRefTestSuite, TestCoordArrayToGEnergyFD) {
+    constexpr double k = 1.0;
+    constexpr double delta = 1e-5;
+    auto s = makeGB3SigmaEnergySetup();                 // 3 members: models {0,2,4}
+    ASSERT_GE(s.coord_array.size(), 2u) << "a cross-replica FD check needs >= 2 members";
+
+    // Real atom-name pairs out of the loaded spec-den data, with synthetic but non-degenerate targets.
+    // Synthetic g0 is fine here: FD vs analytical is a self-consistency property of the kernel, not a
+    // comparison against experiment, so the targets only have to keep the residuals away from zero
+    // (where the n < 1 power loss has unbounded curvature).
+    constexpr size_t MAX_PAIRS = 24;
+    std::vector<std::tuple<std::string, std::string>> namePairs;
+    for (const auto& d : s.spec_den_data_list) {
+        for (const auto& ap : d.get_atom_pairs()) {
+            namePairs.push_back(ap);
+            if (namePairs.size() >= MAX_PAIRS) break;
+        }
+        if (namePairs.size() >= MAX_PAIRS) break;
+    }
+    ASSERT_FALSE(namePairs.empty());
+
+    Eigen::MatrixX<double> g0(namePairs.size(), 2);
+    for (int i = 0; i < static_cast<int>(namePairs.size()); ++i) {
+        g0(i, 0) = 0.01 + 0.001 * i;   // group-averaged level
+        g0(i, 1) = 0.02 + 0.001 * i;   // per-member level
+    }
+    const std::vector<std::vector<std::vector<int>>> grouping{{{0, 1, 2}}, {{0}, {1}, {2}}};
+
+    // Perturb only the atoms these pairs actually involve; every other row has an identically zero
+    // gradient, so including them would cost runtime and prove nothing.
+    std::set<int> active;
+    for (const auto& [a1, a2] : namePairs) {
+        if (auto it = s.atomNameMapping.find(a1); it != s.atomNameMapping.end()) active.insert(it->second);
+        if (auto it = s.atomNameMapping.find(a2); it != s.atomNameMapping.end()) active.insert(it->second);
+    }
+    const std::vector<int> rows(active.begin(), active.end());
+    ASSERT_FALSE(rows.empty());
+
+    // Both exponents: n = 1 is the numerically benign case, n = 0.25 is what production uses.
+    for (const double n : {1.0, 0.25}) {
+        // One finite difference per exponent: it is a property of the ENERGY, so it is the fixed
+        // reference both analytical thread paths are judged against.
+        const auto fd = TestHelper<double>::finite_difference_grad(
+            s.coord_array,
+            [&](std::vector<CoordsMatrixType<double>> c) -> double {
+                return std::get<0>(KEnRef<double>::coord_array_to_g_energy(
+                    c, namePairs, grouping, g0, s.atomNameMapping, k, n, false, 0));
+            },
+            rows, delta);
+
+        /* Both thread paths. numOmpThreads == 0 means "all threads"; 1 is what the runtime gates and
+         * -ntomp 1 use. These used to be the same code path for SIGMA and RELAX, because their
+         * backprop kernels ignored the caller's value and passed a literal 0 -- fixed in 0e5fa41 and
+         * 1925b70. PLATEAUS always forwarded it, so this leg confirms rather than tests a change.
+         * Checking both matters because kenref-dd's reproducibility tests show the gradient is
+         * SELF-CONSISTENT on the forwarded path, not that it is CORRECT there. */
+        for (const int nt : {0, 1}) {
+            auto coords_analytical = s.coord_array;
+            const auto& [energy, grad] = KEnRef<double>::coord_array_to_g_energy(
+                coords_analytical, namePairs, grouping, g0, s.atomNameMapping, k, n, true, nt);
+            ASSERT_TRUE(grad.has_value()) << "no gradient returned for n=" << n << " nt=" << nt;
+            ASSERT_TRUE(std::isfinite(energy)) << "non-finite energy for n=" << n << " nt=" << nt;
+
+            const FdStats st = compareGradients(*grad, fd, rows);
+            std::cout << "  PLATEAUS n=" << n << " threads=" << (nt == 0 ? "all" : "1")
+                      << "  E=" << energy
+                      << "  components=" << st.compared
+                      << "  Max|anal|=" << st.max_abs_analytical
+                      << "  Max|diff|=" << st.max_abs_diff
+                      << "  rel=" << st.relative() << "\n";
+
+            EXPECT_LT(st.relative(), 1e-6)
+                << "PLATEAUS analytical gradient disagrees with finite difference at n=" << n
+                << ", numOmpThreads=" << nt
+                << ". A discrepancy here is NOT a tolerance problem: it means the analytical derivation "
+                   "omits a dependence the energy actually has -- most likely the cross-replica term "
+                   "through the group-averaged interaction tensor. If it appears at ONE thread setting "
+                   "only, suspect a backprop kernel that ignores the caller's thread count instead. "
+                   "Do not loosen this bound; validate against R per the port-ke-function workflow first.";
+        }
+    }
+}
+
+
+/*! The mechanism behind the RELAX gradient's one structural omission, isolated from FD noise.
+ *
+ * coord_array_to_relax_energy back-propagates a_int -> g_matrix -> d_array -> r_array -> coords and
+ * NEVER through a_overall, the overall-tumbling amplitudes. Those amplitudes are computed from the
+ * coordinates (dxyz_dunit_to_overall_modes over the unit dipole-dipole tensors), with gradient
+ * disabled -- and dxyz_dunit_to_overall_modes does not even take a gradient flag. The R reference
+ * does the same: ke.R's coord_array_to_relax_energy calls r_array_to_d_array(..., unit = TRUE)
+ * for the unit tensors WITHOUT passing gradient, so R omits the identical term. An R comparison
+ * therefore cannot see this, which is exactly why an FD check is needed.
+ *
+ * Whether the omission matters depends entirely on the diffusion symmetry, and this test pins that:
+ *
+ *   ISOTROPIC (Dx == Dy == Dz): a_overall has ONE column and equals mean_m(sum of all five squared
+ *     tensor components). For a unit rank-2 tensor that sum is a rotational INVARIANT, so a_overall
+ *     does not depend on the coordinates at all and omitting its derivative is exactly correct --
+ *     not an approximation.
+ *   ANISOTROPIC: the columns pick out individual components (col0^2; col1^2+col4^2; ...), which are
+ *     NOT invariant -- they depend on the orientation of each internuclear vector in the diffusion
+ *     frame. a_overall then does vary with the coordinates and the omitted derivative is real.
+ *
+ * The committed R-validated fixture is isotropic, which is why this has never shown up.
+ */
+TEST(KEnRefTestSuite, RelaxOverallModesCoordinateDependence) {
+    const auto atomNameMapping_to1 = IoUtils::getAtomMappingFromPdb<std::string, int>(
+        GB3_PROTON_FILENAME, IoUtils::fill_atomId_to_index_Map);
+    const bool handleNames = IoUtils::should_handleNames(atomNameMapping_to1);
+    const auto atomNameMapping = get_atomNameMapping<double>(atomNameMapping_to1, handleNames);
+    auto relax_data_list = IoUtils::load_spec_den_relax_data(KENREF_RES("google_tests/relax/"), handleNames);
+    ASSERT_FALSE(relax_data_list.empty());
+
+    auto coords = getAllModels_allAtomCoordsMatrix<double>(GB3_PROTON_FILENAME, {0, 2, 4});
+    const auto& relaxData = relax_data_list[0];
+    const auto& cache = relaxData.get_atomIdPairs_to_sub0Atom_id_pairs_cache();
+    const std::vector<std::tuple<int, int>> pairs =
+        cache.has_value() ? cache.value()
+                          : IoUtils::atomNamePairs_2_atomIdPairs(relaxData.get_atom_pairs(), atomNameMapping, 0);
+
+    // a_overall for the reference coordinates and for a visibly rotated/displaced copy.
+    auto overallFor = [&](const std::vector<CoordsMatrixType<double>>& c,
+                          const Eigen::Matrix<double, 3, 1>& dxyz) {
+        const auto r = KEnRef<double>::coord_array_to_r_array(c, pairs, 0);
+        auto&& [dunit, unused] = KEnRef<double>::r_array_to_d_array(r, true, false, false, 0);
+        (void) unused;
+        const auto& grouping = IoUtils::subset_idx_to_grouping_mat(relaxData.get_multiple_grouping());
+        const uint nShift = grouping.cols() / static_cast<uint>(c.size());
+        const auto shifted = KEnRef<double>::array_shift(dunit, nShift);
+        auto&& [a_overall, lambda] = KEnRef<double>::dxyz_dunit_to_overall_modes(dxyz, shifted);
+        (void) lambda;
+        return a_overall;
+    };
+
+    auto moved = coords;                       // a rigid rotation about z: orientations change, lengths do not
+    const double th = 0.37;
+    for (auto& m : moved) {
+        const auto x = m.col(0).eval(), y = m.col(1).eval();
+        m.col(0) = std::cos(th) * x - std::sin(th) * y;
+        m.col(1) = std::sin(th) * x + std::cos(th) * y;
+    }
+
+    const Eigen::Matrix<double, 3, 1> iso   {2.5e8, 2.5e8, 2.5e8};
+    const Eigen::Matrix<double, 3, 1> aniso {2.0e8, 2.5e8, 3.0e8};
+
+    const auto iso_ref = overallFor(coords, iso),   iso_mov = overallFor(moved, iso);
+    const auto ani_ref = overallFor(coords, aniso), ani_mov = overallFor(moved, aniso);
+
+    const double iso_change = (iso_ref - iso_mov).cwiseAbs().maxCoeff();
+    const double ani_change = (ani_ref - ani_mov).cwiseAbs().maxCoeff();
+    std::cout << "  a_overall columns: isotropic=" << iso_ref.cols() << " anisotropic=" << ani_ref.cols()
+              << "   max change under rotation: isotropic=" << iso_change
+              << "  anisotropic=" << ani_change << "\n";
+
+    EXPECT_EQ(iso_ref.cols(), 1) << "isotropic diffusion should collapse to a single overall mode";
+    EXPECT_EQ(ani_ref.cols(), 5) << "fully anisotropic diffusion should give five overall modes";
+
+    // Isotropic: a rotational invariant, so unchanged to round-off. This is what makes omitting
+    // d(a_overall)/d(coords) exact rather than approximate for the committed fixture.
+    EXPECT_LT(iso_change, 1e-12)
+        << "a_overall moved under a rigid rotation in the ISOTROPIC case. It is supposed to be a "
+           "rotational invariant there; if it is not, omitting its derivative is no longer exact and "
+           "the isotropic RELAX gradient is incomplete too.";
+
+    // Anisotropic: genuinely orientation-dependent. This is the term the gradient omits.
+    EXPECT_GT(ani_change, 1e-3)
+        << "a_overall did NOT move under rotation in the anisotropic case, which would contradict "
+           "the per-component construction in dxyz_dunit_to_overall_modes.";
+}
+
+/*! RELAX: analytical gradient of coord_array_to_relax_energy vs finite difference.
+ *
+ * Run for both diffusion symmetries, because they are not equally informative (see
+ * RelaxOverallModesCoordinateDependence): isotropic is the case the gradient is exact for and the
+ * case the committed R fixture uses; anisotropic is the case that exercises the omitted
+ * d(a_overall)/d(coords) term.
+ *
+ * The expectation below is deliberately asserted ONLY for the isotropic case. The anisotropic number
+ * is measured and printed, and is checked against a documented-discrepancy bound rather than an
+ * agreement bound -- asserting agreement there would be asserting that a known structural omission
+ * is absent, and asserting nothing would let a future regression hide behind "it was already broken".
+ */
+TEST(KEnRefTestSuite, TestCoordArrayToRelaxEnergyFD) {
+    constexpr double k = 1.0, n = 1.0;        // R power_scaled_loss defaults
+    constexpr double delta = 1e-5;            // Angstrom; coordinates are O(10)
+    constexpr const char* RELAX_DIR = KENREF_RES("google_tests/relax/");
+
+    const auto atomNameMapping_to1 = IoUtils::getAtomMappingFromPdb<std::string, int>(
+        GB3_PROTON_FILENAME, IoUtils::fill_atomId_to_index_Map);
+    const bool handleNames = IoUtils::should_handleNames(atomNameMapping_to1);
+    const auto atomNameMapping = get_atomNameMapping<double>(atomNameMapping_to1, handleNames);
+    auto relax_data_list = IoUtils::load_spec_den_relax_data(RELAX_DIR, handleNames);
+    ASSERT_EQ(relax_data_list.size(), 6u);
+
+    const auto coord_array = getAllModels_allAtomCoordsMatrix<double>(GB3_PROTON_FILENAME, {0, 2, 4});
+    ASSERT_GE(coord_array.size(), 2u) << "RELAX needs >= 2 members, and so does a cross-replica FD check";
+
+    /* A SUBSET of atoms, for runtime: every relax substructure is re-evaluated per perturbed
+     * component, so the full 423 rows would be ~7600 full energy evaluations. The subset is the
+     * atoms of the first few pairs of the first substructure, which is enough to exercise the shared
+     * a_int -> g -> d -> r -> coords chain; it is NOT enough to claim per-atom coverage, and this
+     * test does not claim it. Raise MAX_PAIRS to widen it. */
+    constexpr size_t MAX_PAIRS = 6;
+    std::set<int> active;
+    {
+        const auto& cache = relax_data_list[0].get_atomIdPairs_to_sub0Atom_id_pairs_cache();
+        const std::vector<std::tuple<int, int>> pairs =
+            cache.has_value() ? cache.value()
+                              : IoUtils::atomNamePairs_2_atomIdPairs(
+                                    relax_data_list[0].get_atom_pairs(), atomNameMapping, 0);
+        for (size_t i = 0; i < pairs.size() && i < MAX_PAIRS; ++i) {
+            active.insert(std::get<0>(pairs[i]));
+            active.insert(std::get<1>(pairs[i]));
+        }
+    }
+    const std::vector<int> rows(active.begin(), active.end());
+    ASSERT_FALSE(rows.empty());
+
+    struct Case { const char* label; std::array<const char*, 3> d; bool exact; };
+    const std::array<Case, 2> cases{{
+        {"isotropic",   {"2.5e+08", "2.5e+08", "2.5e+08"}, true},
+        {"anisotropic", {"2.0e+08", "2.5e+08", "3.0e+08"}, false},
+    }};
+
+    for (const auto& c : cases) {
+        const NamedRowVector<double> rates = Table(
+            {{"5.0e+08", "1.0e+12", "1.0e+04", c.d[0], c.d[1], c.d[2]}},
+            {{"kens", "kmethyl", "karo", "Dx", "Dy", "Dz"}}
+        ).toNamedRowVector<double>();
+
+        // One finite difference per diffusion case -- a property of the ENERGY, and the fixed
+        // reference both analytical thread paths are judged against.
+        const auto fd = TestHelper<double>::finite_difference_grad(
+            coord_array,
+            [&](std::vector<CoordsMatrixType<double>> cc) -> double {
+                return std::get<0>(KEnRef<double>::coord_array_to_relax_energy(
+                    cc, rates, relax_data_list, k, n, atomNameMapping, false, 0));
+            },
+            rows, delta);
+
+        /* Both thread paths. Until 1925b70 the RELAX backprop kernels ignored the caller's
+         * numOmpThreads and passed a literal 0 ("all threads"), so nt = 0 and nt = 1 were the SAME
+         * code path and a test passing 0 could not see the forwarded one. Production now takes the
+         * forwarded path (-ntomp, PLUMED's thread count, 1 under the runtime gates), and
+         * kenref-dd's reproducibility tests establish only that the gradient is self-consistent
+         * there -- not that it is correct. This leg closes that gap. */
+        for (const int nt : {0, 1}) {
+            auto coords_analytical = coord_array;   // scaled to metres IN PLACE by the callee; keep a copy
+            const auto& [energy, grad] = KEnRef<double>::coord_array_to_relax_energy(
+                coords_analytical, rates, relax_data_list, k, n, atomNameMapping, true, nt);
+            ASSERT_TRUE(grad.has_value()) << c.label << " nt=" << nt;
+            ASSERT_TRUE(std::isfinite(energy)) << c.label << " nt=" << nt;
+
+            const FdStats st = compareGradients(*grad, fd, rows);
+            std::cout << "  RELAX " << c.label << " threads=" << (nt == 0 ? "all" : "1")
+                      << "  E=" << energy
+                      << "  components=" << st.compared
+                      << "  Max|anal|=" << st.max_abs_analytical
+                      << "  Max|diff|=" << st.max_abs_diff
+                      << "  rel=" << st.relative() << "\n";
+
+            if (c.exact) {
+                EXPECT_LT(st.relative(), 1e-6)
+                    << "RELAX analytical gradient disagrees with finite difference for ISOTROPIC "
+                       "diffusion at numOmpThreads=" << nt << ", where it is supposed to be exact: "
+                       "a_overall is a rotational invariant there, so the only omitted term is "
+                       "identically zero. A failure here is a real defect in the "
+                       "a_int -> g -> d -> r -> coords chain, not the known omission. If it appears at "
+                       "ONE thread setting only, suspect a backprop kernel that ignores the caller's "
+                       "thread count. Validate against R per port-ke-function before touching the kernel.";
+            } else {
+                // Known structural omission: d(a_overall)/d(coords) is never back-propagated, and R
+                // omits it too. Pinned as a RANGE so the magnitude cannot drift unnoticed in either
+                // direction -- a sudden agreement would mean someone added the term (good, but this
+                // test and CLAUDE.md would then be stale and must be updated).
+                EXPECT_GT(st.relative(), 1e-3)
+                    << "The anisotropic RELAX gradient now AGREES with finite difference at "
+                       "numOmpThreads=" << nt << ". If the missing d(a_overall)/d(coords) term was "
+                       "added, that is an improvement -- but update this test, the comment above it "
+                       "and CLAUDE.md, because the documented omission is gone.";
+                EXPECT_LT(st.relative(), 1e-1)
+                    << "The anisotropic RELAX discrepancy GREW. The omission of "
+                       "d(a_overall)/d(coords) accounts for 3.5e-2 relative on this fixture "
+                       "(measured 0.035356, identical at both thread settings); an order of "
+                       "magnitude beyond that is a second, unaccounted error rather than the "
+                       "documented one, and must not be absorbed by widening this bound.";
+            }
+        }
+    }
 }
 
 // a_matrix_to_relax: port of a_matrix_to_relax() in ke.R. Hand-computed reference for
