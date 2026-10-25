@@ -253,12 +253,80 @@ do_set() {
 # The trailing column is the expected step-0 energy, WITH THE MAKE-WHOLE REPAIR ACTIVE.
 # The older recorded agreements (SIGMA single 0.00125246 vs 0.001252, etc.) were both
 # engines agreeing on a TORN protein -- see res/PBC-BROKEN.md. These supersede them.
+# Expected step-0 energies, PER SIMD WIDTH. A narrower vector changes the order the energy
+# terms are summed and the 6th significant figure moves, so one row of literals cannot serve all
+# three widths -- the same reason rt_validate.sh and dd_validate.sh carry a table instead of one
+# set of numbers. Measured per width, every value from a run AT that width across all four
+# GROMACS releases, with one distinct value per (width,set) across those four -- which is what
+# justifies keying on width alone. Nothing is carried over between widths.
+#
+#   set                  AVX_512      AVX2_256     AVX_256
+#   plateaus_md_single   0.0018212    0.00182122   0.00182126
+#   plateaus_md_double   2.87581      2.87575      2.87584
+#   sigma_md_single      3.65155e-05  3.6515e-05   3.65161e-05
+#   sigma_md_double      3.65155e-05  3.6515e-05   3.65161e-05
+#   relax_md_double      34.5337      34.5337      34.5337
+#
+# The two sigma rows being equal at every width is a property of the fixtures, not a copied cell,
+# and RELAX does not move with width at six printed figures. The sigma values are deliberately the
+# SAME literals rt_validate.sh and rt_validate_plumed.sh assert for this fixture at each width:
+# same fixture, same quantity, so they must stay in lockstep, and a divergence between the two
+# tables means one of them is WRONG rather than merely different.
+#
+# Keyed on $ACCEL -- and here that is sound, unlike rt_validate_plumed.sh where $BIN and $PLUMED
+# are independent inputs and the width has to be read off the binary that actually computes the
+# number. In this script $ACCEL is the single source for BOTH engines' prefixes (KENREF_ENV,
+# KENREF_GMXRC and PLUMED_MODULE are all built from it above), so the two halves cannot be
+# constructed at different widths. If this script is ever changed to take the two prefixes
+# separately, this table needs the same treatment as that gate.
+#
+# An unknown (width, set) is a hard failure, never a silent skip and never another width's
+# number: borrowing AVX_512's row is how 32 of 60 smoke checks read as a product failure on
+# 2026-10-14 when the references were the only thing wrong.
+#
+# WHEN YOU EDIT THIS TABLE, diff it MECHANICALLY against whatever you are copying from -- do not
+# read it. Adjacent widths differ in the 6th significant figure only, so a cell copied from the
+# neighbouring column is invisible on review: writing this table the first time put AVX2_256's
+# 3.6515e-05 into the AVX_256 sigma_md_double cell, and it was caught by generating the 15 cells
+# from the source table and diffing, not by anyone looking at it. The run would also have caught
+# it -- that is the point of the table -- but an hour later.
+expect_e0() {   # set-key -> expected step-0 energy on $ACCEL
+    case "$ACCEL:$1" in
+        AVX_512:plateaus_md_single)  echo 0.0018212   ;;
+        AVX_512:plateaus_md_double)  echo 2.87581     ;;
+        AVX_512:sigma_md_single)     echo 3.65155e-05 ;;
+        AVX_512:sigma_md_double)     echo 3.65155e-05 ;;
+        AVX_512:relax_md_double)     echo 34.5337     ;;
+        AVX2_256:plateaus_md_single) echo 0.00182122  ;;
+        AVX2_256:plateaus_md_double) echo 2.87575     ;;
+        AVX2_256:sigma_md_single)    echo 3.6515e-05  ;;
+        AVX2_256:sigma_md_double)    echo 3.6515e-05  ;;
+        AVX2_256:relax_md_double)    echo 34.5337     ;;
+        AVX_256:plateaus_md_single)  echo 0.00182126  ;;
+        AVX_256:plateaus_md_double)  echo 2.87584     ;;
+        AVX_256:sigma_md_single)     echo 3.65161e-05 ;;
+        AVX_256:sigma_md_double)     echo 3.65161e-05 ;;
+        AVX_256:relax_md_double)     echo 34.5337     ;;
+        *) echo "expect_e0: no reference energy for ($ACCEL, $1)." >&2
+           echo "  MEASURE it on that width -- do not borrow another width's number." >&2
+           return 1 ;;
+    esac
+}
+
+# Resolved BEFORE any MD runs, all five, so a missing reference stops the run instead of
+# surfacing as a mismatch an hour in.
+E0_PLATEAUS_SINGLE=$(expect_e0 plateaus_md_single) || exit 1
+E0_PLATEAUS_DOUBLE=$(expect_e0 plateaus_md_double) || exit 1
+E0_SIGMA_SINGLE=$(expect_e0 sigma_md_single)       || exit 1
+E0_SIGMA_DOUBLE=$(expect_e0 sigma_md_double)       || exit 1
+E0_RELAX_DOUBLE=$(expect_e0 relax_md_double)       || exit 1
+
 run_matrix() {
-do_set PLATEAUS "$REPO/res/plateau/md_single" 1 file   "$REPO/res/plateau/md_single/singleton_data_GB3_3-5_all.csv" 1e8 0.0018212
-do_set PLATEAUS "$REPO/res/plateau/md_double" 2 file   "$REPO/res/plateau/md_double/singleton_data_GB3_all.csv"     1e8 2.87581
-do_set SIGMA    "$REPO/res/sigma/md_single"   1 folder "$REPO/res/sigma/md_single/"                                 1.0 3.65155e-05
-do_set SIGMA    "$REPO/res/sigma/md_double"   2 folder "$REPO/res/sigma/md_double/"                                 1.0 3.65155e-05
-do_set RELAX    "$REPO/res/relax/md_double"   2 folder "$REPO/res/relax/md_double/"                                 1   34.5337
+do_set PLATEAUS "$REPO/res/plateau/md_single" 1 file   "$REPO/res/plateau/md_single/singleton_data_GB3_3-5_all.csv" 1e8 "$E0_PLATEAUS_SINGLE"
+do_set PLATEAUS "$REPO/res/plateau/md_double" 2 file   "$REPO/res/plateau/md_double/singleton_data_GB3_all.csv"     1e8 "$E0_PLATEAUS_DOUBLE"
+do_set SIGMA    "$REPO/res/sigma/md_single"   1 folder "$REPO/res/sigma/md_single/"                                 1.0 "$E0_SIGMA_SINGLE"
+do_set SIGMA    "$REPO/res/sigma/md_double"   2 folder "$REPO/res/sigma/md_double/"                                 1.0 "$E0_SIGMA_DOUBLE"
+do_set RELAX    "$REPO/res/relax/md_double"   2 folder "$REPO/res/relax/md_double/"                                 1   "$E0_RELAX_DOUBLE"
 }
 
 # ---- drive it once per gromacs version --------------------------------------
