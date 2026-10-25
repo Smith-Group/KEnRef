@@ -29,12 +29,14 @@
 
 #include "gmxinterface/KEnRefMoleculeGraph.h"
 
+#include "testResourcePath.h"   // KENREF_RES(): fixture paths resolved from the source tree
+
 namespace {
 
 //! The committed GB3 tpr whose protein is split across the periodic boundary.
-const char *kBrokenTpr = "../../res/sigma/md_single/md-00_PBC-BROKEN.tpr";
+const char *kBrokenTpr = KENREF_RES("sigma/md_single/md-00_PBC-BROKEN.tpr");
 //! Whole ubiquitin in water: the known-whole contrast, and a solvent that uses SETTLE.
-const char *kUbiquitinTpr = "../../res/10nsstart+fitting/t000.00.tpr";
+const char *kUbiquitinTpr = KENREF_RES("10nsstart+fitting/t000.00.tpr");
 
 /*! The reference structure, kept in BOTH states.
  *
@@ -42,8 +44,8 @@ const char *kUbiquitinTpr = "../../res/10nsstart+fitting/t000.00.tpr";
  * `gmx trjconv -pbc whole` (see res/PBC-BROKEN.md). `_PBC-BROKEN.pdb` is the original, preserved
  * precisely so the repair can be re-derived here by a second, independent mechanism -- the bond
  * graph -- and the two required to agree. One method producing a plausible answer is not evidence. */
-const char *kWholeRefPdb = "../../res/sigma/md_single/GB3_27_10us.pdb";
-const char *kBrokenRefPdb = "../../res/sigma/md_single/GB3_27_10us_PBC-BROKEN.pdb";
+const char *kWholeRefPdb = KENREF_RES("sigma/md_single/GB3_27_10us.pdb");
+const char *kBrokenRefPdb = KENREF_RES("sigma/md_single/GB3_27_10us_PBC-BROKEN.pdb");
 
 /*! \brief Read the ATOM records of a PDB into a coordinate matrix, converting Angstrom -> nm.
  *

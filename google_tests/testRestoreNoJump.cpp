@@ -16,6 +16,8 @@
 #include "core/IoUtils.h"
 #include "core/restore_no_jump.h"
 
+#include "testResourcePath.h"   // KENREF_RES(): fixture paths resolved from the source tree
+
 // RE-ENABLED. The note that used to stand here said the two fixture frames "genuinely differ in
 // ~28 atoms by ~0.1 Å — real coordinate differences that restoreNoJump correctly leaves untouched".
 // Both halves of that were wrong, and it is worth saying so plainly because it points the next
@@ -30,8 +32,8 @@
 // 0.1162 Å error, while the double tolerance of 1e-13 was never reachable on 2-decimal-place
 // fixtures at any box at all. The fixtures are now written at full precision from the frame's .trr.
 TEST(RestoreNoJumpTestSuite, TestRestoreNoJump) {
-    std::vector<std::string> files{"../../res/google_tests/ensemble_coord_10ns.csv",
-                                   "../../res/google_tests/ensemble_coord_moldel2_PBC_Broken.csv"};
+    std::vector<std::string> files{KENREF_RES("google_tests/ensemble_coord_10ns.csv"),
+                                   KENREF_RES("google_tests/ensemble_coord_moldel2_PBC_Broken.csv")};
     std::vector<CoordsMatrixType<KEnRef_Real_t>> coordsVector;
     coordsVector.reserve(files.size());
     for (int i = 0; i < files.size(); ++i) {

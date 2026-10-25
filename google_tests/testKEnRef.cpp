@@ -31,6 +31,10 @@
 #include "core/KEnRefDriver.h"
 #include "testHelper.h"
 
+#include <filesystem>
+
+#include "testResourcePath.h"   // KENREF_RES(): fixture paths resolved from the source tree
+
 // Minimal EngineAdapter for driving an EnergyModel's init in unit tests: only getRawParam() is
 // exercised (during buildCache); the per-step methods are unused here and assert if called.
 class TestEngineAdapter : public kenref::DefaultEngineAdapter<KEnRef_Real_t> {
@@ -416,11 +420,31 @@ std::vector<CoordsMatrixType<KEnRef_Real> > getAllModels_allAtomCoordsMatrix(
 
 // ── Shared GB3 test fixture ───────────────────────────────────────────────────
 
-static constexpr const char*  GB3_FILENAME       = "../../res/google_tests/2lum.pdb";
-static constexpr const char*  GB3_PROTON_FILENAME = "../../res/google_tests/2lum_subset_proton.pdb";
+static constexpr const char*  GB3_FILENAME       = KENREF_RES("google_tests/2lum.pdb");
+static constexpr const char*  GB3_PROTON_FILENAME = KENREF_RES("google_tests/2lum_subset_proton.pdb");
 static constexpr double       GB3_PROTON_MHZ  = 700.0;
-static constexpr const char*  GB3_SPEC_DEN_DIR   = "../../res/google_tests/";
+static constexpr const char*  GB3_SPEC_DEN_DIR   = KENREF_RES("google_tests/");
 static const std::vector<std::string> SPEC_DEN_PREFIXES{"1-1","1-2","1-3","2-2","2-3","3-3"};
+
+/*! One clear failure instead of fourteen confusing ones.
+ *
+ * Every fixture path now comes from KENREF_TEST_RES_DIR, baked in at build time (see
+ * testResourcePath.h). If that root is ever wrong, the symptom without this test is ~14 separate
+ * "cannot open file" failures spread across the suite, which read exactly like a numerical
+ * regression -- that misreading has already nearly produced a false regression report. This test
+ * names the real cause once, and names the path, so the next reader does not have to infer it. */
+TEST(KEnRefTestSuite, FixtureRootIsResolvable) {
+    const std::filesystem::path root{KENREF_TEST_RES_DIR};
+    ASSERT_TRUE(std::filesystem::is_directory(root))
+        << "The baked-in fixture root does not exist:\n  " << root
+        << "\nThis is a BUILD configuration problem, not a numerical one: KENREF_TEST_RES_DIR comes "
+           "from google_tests/CMakeLists.txt. Every other fixture-reading test in this suite will "
+           "also fail, and for this same reason.";
+    // Spot-check one fixture each test group relies on, so a root that exists but points at the
+    // wrong tree is also caught here rather than downstream.
+    for (const char* f : {GB3_FILENAME, GB3_PROTON_FILENAME})
+        EXPECT_TRUE(std::filesystem::exists(f)) << "missing fixture: " << f;
+}
 
 struct GB3SigmaEnergySetup {
     NamedRowVector<double>              rates;
@@ -592,9 +616,9 @@ TEST(KEnRefTestSuite, testSaturate) {
 TEST(KEnRefTestSuite, TestCoordArrayToEnergyFiniteDifferenceMethodTest) {
     auto coordsArray_base = CoordsMatrixType<double>(409, 3);
 
-    std::ifstream coordsFileStream("../../res/google_tests/coords.txt");
+    std::ifstream coordsFileStream(KENREF_RES("google_tests/coords.txt"));
     auto experimentalData_table = IoUtils::readTable(
-        "../../res/10nsstart+fitting/singleton_data_10nsstart+fit_3-5_1977pairs_80_A.csv", true);
+        KENREF_RES("10nsstart+fitting/singleton_data_10nsstart+fit_3-5_1977pairs_80_A.csv"), true);
 
     auto tempCoordsTable = IoUtils::read_uniform_table_of<double>(coordsFileStream);
     for (int i = 0; i < tempCoordsTable.size(); ++i) {
@@ -603,7 +627,7 @@ TEST(KEnRefTestSuite, TestCoordArrayToEnergyFiniteDifferenceMethodTest) {
         };
     }
 
-    const auto &atomIdPairs = IoUtils::readAtomIdPairs("../../res/google_tests/atomIdPairs.txt");
+    const auto &atomIdPairs = IoUtils::readAtomIdPairs(KENREF_RES("google_tests/atomIdPairs.txt"));
     auto atomIdPairsMatrix = Eigen::Matrix<int, Eigen::Dynamic, 2>(atomIdPairs.size(), 2);
     for (int i = 0; i < atomIdPairs.size(); ++i) {
         auto [lt, rt] = atomIdPairs[i];
@@ -783,7 +807,7 @@ TEST(KEnRefTestSuite, testEROS3) {
 
 
 TEST(KEnRefTestSuite, testGB3) {
-    static const auto FILENAME = "../../res/google_tests/2lum.pdb";
+    static const auto FILENAME = KENREF_RES("google_tests/2lum.pdb");
     std::map<std::string, int> atomNameMapping_to1 = IoUtils::getAtomMappingFromPdb<std::string, int>(
         FILENAME, IoUtils::fill_atomId_to_index_Map);
     const std::vector<CoordsMatrixType<double> >& allModels_allAtomCoordsMap = getAllModels_allAtomCoordsMatrix<double>(FILENAME, std::make_tuple(0, 2));
@@ -952,7 +976,7 @@ TEST(KEnRefTestSuite, testCoordArrayToSigmaEnergy) {
     EXPECT_NEAR(sigma_energy, 124.8785, 1e-4);
 
     // Validate gradient against expected values from 2lum_sigma.csv
-    std::ifstream instream("../../res/google_tests/2lum_sigma.csv");
+    std::ifstream instream(KENREF_RES("google_tests/2lum_sigma.csv"));
     ASSERT_TRUE(instream.is_open()) << "Cannot open 2lum_sigma.csv";
     std::vector<NamedMatrix<double>> modelsSigma(3);
     for (int model = 0; model < 3; ++model)
@@ -1331,7 +1355,7 @@ static DriverCase sigmaDriverCase() {  // testKEnRefDriverSigma's ground truth
 }
 
 static DriverCase relaxDriverCase() {  // testRelaxModelViaRegistry's: R, isotropic diffusion, default rates
-    return {"RELAX", {{"EXP_DATA_FOLDER", "../../res/google_tests/relax/"}}, 1840.2342988885609};
+    return {"RELAX", {{"EXP_DATA_FOLDER", KENREF_RES("google_tests/relax/")}}, 1840.2342988885609};
 }
 
 static std::unique_ptr<kenref::KEnRefDriver<KEnRef_Real_t>> makeGB3Driver(
@@ -1481,7 +1505,7 @@ TEST(KEnRefTestSuite, testKEnRefDriverRanksNeedTheBroadcast) {
 TEST(KEnRefTestSuite, testCoordArrayToRelaxEnergy) {
     constexpr double k = 1;     // R power_scaled_loss default
     constexpr double n = 1;     // R power_scaled_loss default p=1
-    constexpr const char* RELAX_DIR = "../../res/google_tests/relax/";
+    constexpr const char* RELAX_DIR = KENREF_RES("google_tests/relax/");
 
     // rates: kens, kmethyl, karo, Dx=Dy=Dz (isotropic), from relax_deriv_check.R
     const NamedRowVector<double> rates = Table(
@@ -1525,7 +1549,7 @@ TEST(KEnRefTestSuite, testCoordArrayToRelaxEnergy) {
 
 // RELAX shares the pair-to-atom backprop and had the same literal 0; see testSigmaGradientReproducibleOnOneThread.
 TEST(KEnRefTestSuite, testRelaxGradientReproducibleOnOneThread) {
-    constexpr const char* RELAX_DIR = "../../res/google_tests/relax/";
+    constexpr const char* RELAX_DIR = KENREF_RES("google_tests/relax/");
     const NamedRowVector<double> rates = Table(
         {{"5.0e+08", "1.0e+12", "1.0e+04", "2.5e+08", "2.5e+08", "2.5e+08"}},
         {{"kens", "kmethyl", "karo", "Dx", "Dy", "Dz"}}
@@ -1560,7 +1584,7 @@ TEST(KEnRefTestSuite, testRelaxGradientReproducibleOnOneThread) {
 // must equal the R reference's kens/kmethyl/karo/Dx/Dy/Dz set). Exercises the wrapper end-to-end:
 // buildCache (load_spec_den_relax_data + default rates), finalizeIndexing (cache priming), dispatch.
 TEST(KEnRefTestSuite, testRelaxModelViaRegistry) {
-    constexpr const char* RELAX_DIR = "../../res/google_tests/relax/";
+    constexpr const char* RELAX_DIR = KENREF_RES("google_tests/relax/");
 
     kenref::bootstrapModels();
     auto model = kenref::ModelRegistry<KEnRef_Real_t>::create("RELAX");
@@ -1592,7 +1616,7 @@ TEST(KEnRefTestSuite, testRelaxModelViaRegistry) {
 // (relax_pred.csv). Compared as a sorted multiset so the test is independent of
 // substructure-discovery order.
 TEST(KEnRefTestSuite, testCoordArrayToRelax) {
-    constexpr const char* RELAX_DIR = "../../res/google_tests/relax/";
+    constexpr const char* RELAX_DIR = KENREF_RES("google_tests/relax/");
     const NamedRowVector<double> rates = Table(
         {{"5.0e+08", "1.0e+12", "1.0e+04", "2.5e+08", "2.5e+08", "2.5e+08"}},
         {{"kens", "kmethyl", "karo", "Dx", "Dy", "Dz"}}
@@ -1631,7 +1655,7 @@ TEST(KEnRefTestSuite, testCoordArrayToRelax) {
 
 TEST(KEnRefTestSuite, TestS2OrderParameters) {
     std::vector<std::string> files{
-        "../../res/google_tests/ensemble_coord_model1.csv", "../../res/google_tests/ensemble_coord_model2.csv"
+        KENREF_RES("google_tests/ensemble_coord_model1.csv"), KENREF_RES("google_tests/ensemble_coord_model2.csv")
     };
     std::vector<CoordsMatrixType<KEnRef_Real_t> > coordsVector;
     coordsVector.reserve(files.size());
@@ -1647,7 +1671,7 @@ TEST(KEnRefTestSuite, TestS2OrderParameters) {
         }
     }
     auto experimentalData_table = IoUtils::readTable(
-        "../../res/google_tests/singleton_data_10nsstart+fit_0+10.csv", true, false, ",");
+        KENREF_RES("google_tests/singleton_data_10nsstart+fit_0+10.csv"), true, false, ",");
 
     std::vector<std::tuple<int, int> > atomIdPairs;
     auto expectedS2 = Eigen::VectorX<KEnRef_Real_t>(experimentalData_table.rowCount());
@@ -1886,7 +1910,7 @@ TEST(KEnRefBench, DISABLED_RArrayToDArrayBlockThreadSweep) {
 TEST(KEnRefBench, DISABLED_RelaxEnergyThreadSweep) {
     using R = double;
     constexpr R k = 1, n = 1;
-    constexpr const char* RELAX_DIR = "../../res/google_tests/relax/";
+    constexpr const char* RELAX_DIR = KENREF_RES("google_tests/relax/");
 
     // ---- load all data ONCE (untimed) ----
     const NamedRowVector<R> rates = Table(

@@ -19,8 +19,23 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 # configs) into the KEnRef install prefix, polluting a production install with a test-only dependency.
 set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 
-##TODO use the next line to find resources folder and test files (later). You may combine it with creating a header file
-#cmake_path(ABSOLUTE_PATH "../res" BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE OUTPUT_VARIABLE RESOURCES_ABSOLUTE_PATH)
+# Fixture root, resolved from the SOURCE tree rather than from the process working directory, and
+# handed to the tests as KENREF_TEST_RES_DIR (see google_tests/testResourcePath.h).
+#
+# This closes a long-standing trap: the fixture paths used to be written "../../res/...", relative to
+# the CWD, which silently required the test binary to be run exactly two levels below the repo root.
+# Anywhere else, ~14 tests failed with "cannot open file" -- indistinguishable from a real regression,
+# and already misread as one once. (This was the TODO that stood here.)
+# NB cmake_path(ABSOLUTE_PATH) takes the NAME OF A VARIABLE holding the path, not the path itself --
+# which is why the TODO line that stood here ("../res" passed directly) would have failed with
+# "cmake_path undefined variable for input path" and produced an empty root for anyone who uncommented it.
+set(_kenref_res_relative "../res")
+cmake_path(ABSOLUTE_PATH _kenref_res_relative BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" NORMALIZE
+           OUTPUT_VARIABLE RESOURCES_ABSOLUTE_PATH)
+if(NOT IS_DIRECTORY "${RESOURCES_ABSOLUTE_PATH}")
+	message(FATAL_ERROR "test fixture root not found at ${RESOURCES_ABSOLUTE_PATH} (expected <repo>/res)")
+endif()
+message(STATUS "test fixture root (KENREF_TEST_RES_DIR): ${RESOURCES_ABSOLUTE_PATH}")
 
 FetchContent_MakeAvailable(googletest)
 include_directories(${gtest_SOURCE_DIR})
@@ -41,6 +56,8 @@ target_include_directories(Google_tests_kenref_core_exe PRIVATE
 	${gtest_SOURCE_DIR}
 	${CMAKE_CURRENT_SOURCE_DIR}/../include_core
 )
+target_compile_definitions(Google_tests_kenref_core_exe PRIVATE
+	KENREF_TEST_RES_DIR="${RESOURCES_ABSOLUTE_PATH}")
 gtest_discover_tests(Google_tests_kenref_core_exe)
 
 if(BUILD_KENREF_GMX OR TARGET kenref_gmxinterface)
@@ -56,5 +73,7 @@ if(BUILD_KENREF_GMX OR TARGET kenref_gmxinterface)
 		${CMAKE_CURRENT_SOURCE_DIR}/../include_core
 		${CMAKE_CURRENT_SOURCE_DIR}/../include_gmxinterface
 	)
+	target_compile_definitions(Google_tests_kenref_gmxinterface_exe PRIVATE
+		KENREF_TEST_RES_DIR="${RESOURCES_ABSOLUTE_PATH}")
 	gtest_discover_tests(Google_tests_kenref_gmxinterface_exe)
 endif()

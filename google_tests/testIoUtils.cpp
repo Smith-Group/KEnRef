@@ -9,8 +9,10 @@
 #include "testHelper.h"
 #include "core/IoUtils.h"
 
+#include "testResourcePath.h"   // KENREF_RES(): fixture paths resolved from the source tree
+
 TEST(IoUtilsTestSuite, TestGetAtomNameMappingFromPdb){
-    static const char *const ATOMNAME_MAPPING_FILENAME = "../../res/google_tests/00ns.pdb";
+    static const char *const ATOMNAME_MAPPING_FILENAME = KENREF_RES("google_tests/00ns.pdb");
     std::cout << std::filesystem::current_path() << std::endl;
     std::map<std::string, int> atomNameMapping = IoUtils::getAtomMappingFromPdb<std::string, int>(ATOMNAME_MAPPING_FILENAME, IoUtils::fill_atomId_to_index_Map);
     EXPECT_TRUE(!atomNameMapping.empty());
