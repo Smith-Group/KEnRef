@@ -70,6 +70,7 @@
 
 #include "mdrun/mdrun_main.h"
 #include "gmxinterface/KEnRefMDModule.h"
+#include "gmxinterface/KEnRefReplicaSteps.h"
 namespace gmx
 {
 
@@ -240,6 +241,15 @@ int /*KEnRef_*/gmx_mdrun(MPI_Comm communicator, const gmx_hw_info_t& hwinfo, int
                                                              options.mdrunOptions.appendingBehavior,
                                                              ssize(options.filenames),
                                                              options.filenames.data());
+
+    /* Refuse replicas that would run different numbers of steps, before any of them takes one. KEnRef's
+     * per-step exchange between replicas would otherwise hang when the first one finishes; GROMACS only
+     * warns. See KEnRefReplicaSteps.h. */
+    kenref::refuseMismatchedReplicaSteps(ms,
+                                         opt2fn("-s", ssize(options.filenames), options.filenames.data()),
+                                         options.mdrunOptions.numStepsCommandline,
+                                         std::vector<std::string>(multiSimDirectoryNames.begin(),
+                                                                  multiSimDirectoryNames.end()));
 
     auto kEnRefModule = KEnRefModuleInfo::create();
     auto* kEnRefModuleRaw = dynamic_cast<KEnRefMDModule*>(kEnRefModule.get());
