@@ -201,7 +201,10 @@ endif()
 option(BUILD_TESTS "Build Google tests" OFF)
 if(BUILD_TESTS)
 	enable_testing()
-	add_subdirectory(google_tests)
+	# KEnRefGMX.cmake also adds google_tests when the gmx interface is built; avoid a double add_subdirectory.
+	if(NOT TARGET Google_tests_kenref_core_exe)
+		add_subdirectory(google_tests)
+	endif()
 endif()
 
 # ============================================================================
