@@ -572,11 +572,21 @@ void KEnRefForceProvider::restoreNoJump(CoordsMatrixType<KEnRef_Real_t> &atoms,
     }
 #endif
 
+// default(shared), not default(none): the explicit shared() list below still documents every variable
+// this region touches, but default(none) is not portable here. Eigen's templates reference their own
+// constexpr `Eigen::Dynamic` inside the region, and under default(none) a pre-OpenMP-5.0 compiler
+// demands an explicit data-sharing attribute for it -- which cannot be given, since it is a constexpr
+// in another namespace, not one of our variables. OpenMP 5.0 made such constants predetermined shared,
+// so newer clang accepts it and older clang does not:
+//     Eigen/src/Core/util/ForwardDeclarations.h:88:45:
+//     error: variable 'Dynamic' must have explicitly specified data sharing attributes
+// Caught by the gmx CI job (clang 18), not by the local build, whose clang is new enough to allow it.
+// 2.x made the same change to this pragma after it moved to src/core/restore_no_jump.cpp.
 #if RESTORE_NO_JUMP_VERBOSE
-#pragma omp parallel for num_threads(numOmpThreads) default(none) reduction(||:updated) \
+#pragma omp parallel for num_threads(numOmpThreads) default(shared) reduction(||:updated) \
     shared(atoms, box, box_half, reference, updatedLocations, printStatistics, active_dims)
 #else
-#pragma omp parallel for num_threads(numOmpThreads) default(none) shared(atoms, box, box_half, reference, printStatistics, active_dims)
+#pragma omp parallel for num_threads(numOmpThreads) default(shared) shared(atoms, box, box_half, reference, printStatistics, active_dims)
 #endif
     for (int i = 0; i < atoms.rows(); ++i) {
 #if RESTORE_NO_JUMP_VERBOSE
