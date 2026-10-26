@@ -148,6 +148,24 @@ broken *reference* → refuses). The energies matching across the two scripts is
 check. **The PLUMED gate needs PLUMED ≥ `1e03000ea`** (#1515) and refuses anything older by inspecting
 the kernel, as above; no released PLUMED is new enough yet.
 
+**Tolerances: one comparison is relative, everything else is exact.** The energies quoted in this file
+are the AVX_512 values. Each gate holds a per-SIMD-width table (GB3 3.65155e-05 / 3.6515e-05 /
+3.65161e-05 for AVX_512 / AVX2_256 / AVX_256; ubiquitin 7.18869e-08 at every width) and picks the row
+from the binary's path, or from `ACCEL`. The repaired-GB3 SIGMA step-0 energy is a near-zero residual,
+so its last printed digit moves with the hardware: two identical CI runners gave 3.6515e-05 and
+3.65151e-05, 2.7e-06 apart relative. It is therefore compared against the table within a relative
+`KN_GB3_RTOL=1e-05` (3.65e-10 absolute) in `rt_validate.sh`, `rt_validate_plumed.sh`, `dd_validate.sh`
+and `smoke_test_installs.sh`. Everything else stays exact: ubiquitin, PLUMED against GROMACS on the same
+frame, and the domain-decomposed cells among themselves. There is one more place the tolerance applies.
+In `dd_validate.sh` on AVX_256, the GB3 serial energy sits 2.7e-06 relative from every DD rank count,
+while np=2 and np=4 agree with each other exactly. So np=2 is compared with np=1 within the same
+tolerance, and np=4 and np=4/`-npme 1` are compared with np=2 exactly. The tolerance still rejects what
+it has to: the torn protein (0.00125246, 33 relative away; `rt_validate.sh` case D requires that
+rejection on every run) and a wrong width's table entry (the nearest is ~1.4e-05 away). The margin over
+the observed spread is only ~3.7x, and it was estimated from two CI samples. If a run lands beyond
+1e-05, collect more samples before changing anything, and do not widen past ~1.4e-05 without a new check
+that the gate still catches a broken build.
+
 Two things about the PLUMED gate, both learned the hard way. **It covers OUR make-whole, not PLUMED's**
 — since #1515 it carries no `MOLINFO`/`WHOLEMOLECULES` at all, because those would mask what is under
 test. Mind the history, because it is the same trap twice: as committed before 2026-10-13 the gate also
@@ -212,7 +230,9 @@ be re-applied by hand. And the scratch `run_fault.sh` is worse than stale — it
 `KENREF_DD_FAULT`, which is silently ignored against an unpatched tree, so the run succeeds and it prints
 "(NO self-check failure reported!)". That reads as the self-check being broken when the self-check is
 fine; anyone re-deriving this from that script reaches the opposite of the truth.
-Verified rank-count independent: 1, 2, 4 and `-npme 1` give bit-identical step-0 energies.
+Verified rank-count independent: 1, 2, 4 and `-npme 1` give bit-identical step-0 energies on AVX_512 and
+AVX2_256, and the DD rank counts agree exactly with each other at every width. *(Corrected 2026-10-26: on
+AVX_256 the GB3 serial energy differs from the DD ones by 2.7e-06 relative; see "Tolerances" above.)*
 Note `mpi_comm_mygroup` excludes PME-only ranks, so the reductions never involve them.
 
 ## Hot-kernel / OpenMP conventions

@@ -158,6 +158,31 @@ The modulefile is generated at `<prefix>/modulefiles/kenref/<version>` (`-DKENRE
 the prefix isn't `/usr/local`** (there the modulefile already lives under `/usr/local/modulefiles`). Then
 `module use /usr/local/modulefiles && module load kenref/<version>` works too.
 
+## Checking a build: the runtime gates
+
+Five scripts at the repository root run a KEnRef-GROMACS binary (and, for one of them, PLUMED) on the
+committed fixtures and check the result. Each takes `BIN=<path to KEnRef>`; its header has the details.
+
+| script | checks |
+|---|---|
+| `rt_validate.sh` | a GB3 tpr that is split across the periodic boundary is repaired (step-0 energy 3.65155e-05), whole ubiquitin is untouched (7.18869e-08), and the unrepaired input is refused |
+| `rt_validate_plumed.sh` | the same two energies through `plumed driver` (`PLUMED=<plumed>`), equal to GROMACS's on the same frame, and a broken reference structure refused |
+| `dd_validate.sh` | the step-0 energy does not depend on the number of domain-decomposition ranks (1, 2, 4, 4 with a PME rank) |
+| `multireplica_step_mismatch_validate.sh` | a multi-replica (`-multidir`) run whose replicas would stop at different steps is refused at setup instead of hanging (`GMX=<gmx_mpi>`) |
+| `smoke_test_installs.sh` | 500-step MD on the installed tiers, both engines |
+
+**The expected energies depend on the SIMD width**, because a different vector width sums in a different
+order. The values above are AVX_512's. The scripts hold the AVX2_256 and AVX_256 values too, and take the
+width from the binary's path, or from `ACCEL=` when the path does not name one.
+
+**Tolerance.** One comparison is not exact: the repaired-GB3 energy against its table entry. That energy
+is a small residual, and its last printed digit varies between otherwise identical machines (3.6515e-05
+and 3.65151e-05 on two CI runners, 2.7e-06 apart relative). It passes within a relative 1e-05. On
+AVX_256, `dd_validate.sh` applies the same 1e-05 between the serial run and the first decomposed run,
+which differ by 2.7e-06 relative. Everything else must match exactly: ubiquitin, PLUMED against GROMACS,
+and the decomposed runs against each other. 1e-05 is still far too tight to pass the unrepaired protein
+(about 33 relative away), and it is below the ~1.4e-05 gap to a different width's entry.
+
 ## Power user (raw cmake, no script)
 
 ```bash
