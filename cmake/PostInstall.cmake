@@ -40,9 +40,13 @@ string(REPLACE ";" ":" _kn_libs_s "${_kn_libs}")
 string(REPLACE ";" ":" _kn_pcs_s  "${_kn_pcs}")
 string(REPLACE ";" ":" _kn_pref_s "${_kn_prefixes}")
 
-# NB: every expansion uses ${VAR:-} (empty default). env.sh is routinely sourced by scripts running under
-# `set -u` (the plumed-side build scripts use `set -euo pipefail`), where a bare ${PKG_CONFIG_PATH} on a
-# machine that has never set it is an "unbound variable" error that ABORTS the caller's build.
+# NB: every expansion is ${VAR:+:$VAR}, which adds the separator only when VAR is non-empty. Two reasons:
+#  * env.sh is routinely sourced by scripts running under `set -u` (the plumed-side build scripts use
+#    `set -euo pipefail`), where a bare ${PKG_CONFIG_PATH} on a machine that has never set it is an "unbound
+#    variable" error that ABORTS the caller's build. ${VAR:+...} never expands an unset VAR.
+#  * the earlier "dir:${VAR:-}" left a trailing ':' whenever VAR started empty, and an empty entry is not
+#    nothing: in LD_LIBRARY_PATH and PATH it means the CURRENT directory, so the loader searched wherever the
+#    user happened to run from.
 set(_kn_env "#!/bin/sh\n# KEnRef ${_kn_comp} ${PROJECT_VERSION} — `source` this file to use the installed KEnRef.\n")
 # The GROMACS this build links. KEnRef and energycalc/s2calc need its libgromacs at run time, and nothing else
 # here provides it, so without this `source env.sh; KEnRef` fails with "libgromacs_mpi.so.NN: not found". Located from
@@ -65,7 +69,7 @@ if(BUILD_KENREF_GMX AND TARGET Gromacs::libgromacs)
         string(APPEND _kn_env "    if [ -n \"\$_kn_nounset\" ]; then set -u; fi\n")
         string(APPEND _kn_env "    unset _kn_nounset\n")
         string(APPEND _kn_env "else\n")
-        string(APPEND _kn_env "    export LD_LIBRARY_PATH=\"${_kn_gmx_libdir}:\${LD_LIBRARY_PATH:-}\"\n")
+        string(APPEND _kn_env "    export LD_LIBRARY_PATH=\"${_kn_gmx_libdir}\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}\"\n")
         string(APPEND _kn_env "fi\n")
     else()
         message(WARNING "env.sh: Gromacs::libgromacs has no LOCATION, so env.sh will not set up GROMACS; "
@@ -73,11 +77,11 @@ if(BUILD_KENREF_GMX AND TARGET Gromacs::libgromacs)
     endif()
 endif()
 if(_kn_bins)
-    string(APPEND _kn_env "export PATH=\"${_kn_bins_s}:\${PATH:-}\"\n")
+    string(APPEND _kn_env "export PATH=\"${_kn_bins_s}\${PATH:+:\$PATH}\"\n")
 endif()
-string(APPEND _kn_env "export LD_LIBRARY_PATH=\"${_kn_libs_s}:\${LD_LIBRARY_PATH:-}\"\n")
-string(APPEND _kn_env "export PKG_CONFIG_PATH=\"${_kn_pcs_s}:\${PKG_CONFIG_PATH:-}\"\n")
-string(APPEND _kn_env "export CMAKE_PREFIX_PATH=\"${_kn_pref_s}:\${CMAKE_PREFIX_PATH:-}\"\n")
+string(APPEND _kn_env "export LD_LIBRARY_PATH=\"${_kn_libs_s}\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}\"\n")
+string(APPEND _kn_env "export PKG_CONFIG_PATH=\"${_kn_pcs_s}\${PKG_CONFIG_PATH:+:\$PKG_CONFIG_PATH}\"\n")
+string(APPEND _kn_env "export CMAKE_PREFIX_PATH=\"${_kn_pref_s}\${CMAKE_PREFIX_PATH:+:\$CMAKE_PREFIX_PATH}\"\n")
 file(WRITE "${CMAKE_BINARY_DIR}/kenref-env.sh" "${_kn_env}")
 install(FILES "${CMAKE_BINARY_DIR}/kenref-env.sh" DESTINATION "." RENAME "env.sh")
 
@@ -99,6 +103,26 @@ set(KENREF_MODULEFILE_LINK_DIR "" CACHE PATH "System modulefiles dir to symlink 
 set(_kn_mod "#%Module1.0\n")
 string(APPEND _kn_mod "## KEnRef ${_kn_comp} ${PROJECT_VERSION}\n")
 string(APPEND _kn_mod "module-whatis \"KEnRef ${_kn_comp} ${PROJECT_VERSION} (kinetic ensemble refinement)\"\n")
+# The paired GROMACS, as env.sh sets it up, and FIRST for the same reason: modules prepend in file order, so
+# KEnRef's own entries below end up ahead of GROMACS's. env.sh sources GROMACS's GMXRC.bash; a modulefile
+# cannot do that portably (`source-sh` needs Environment Modules >= 4.6; the lab machines run 4.5.2), so this
+# sets what GMXRC.bash sets, by hand. MANPATH is left out: a prepend to an empty MANPATH would hide the
+# system man pages (GMXRC first seeds an empty MANPATH with ':' to avoid exactly that). libgromacs's
+# directory is prepended unconditionally, because KEnRef cannot start without it; the rest only when that
+# GROMACS install is still there, the same test env.sh makes.
+if(_kn_gmx_libdir)
+    string(APPEND _kn_mod "## GROMACS this KEnRef was built against\n")
+    string(APPEND _kn_mod "prepend-path LD_LIBRARY_PATH ${_kn_gmx_libdir}\n")
+    string(APPEND _kn_mod "if {[file readable ${_kn_gmxrc}]} {\n")
+    string(APPEND _kn_mod "    setenv GROMACS_DIR ${_kn_gmx_prefix}\n")
+    string(APPEND _kn_mod "    setenv GMXBIN ${_kn_gmx_prefix}/bin\n")
+    string(APPEND _kn_mod "    setenv GMXLDLIB ${_kn_gmx_libdir}\n")
+    string(APPEND _kn_mod "    setenv GMXMAN ${_kn_gmx_prefix}/share/man\n")
+    string(APPEND _kn_mod "    setenv GMXDATA ${_kn_gmx_prefix}/share/gromacs\n")
+    string(APPEND _kn_mod "    prepend-path PATH ${_kn_gmx_prefix}/bin\n")
+    string(APPEND _kn_mod "    prepend-path PKG_CONFIG_PATH ${_kn_gmx_libdir}/pkgconfig\n")
+    string(APPEND _kn_mod "}\n")
+endif()
 foreach(_d IN LISTS _kn_bins)
     string(APPEND _kn_mod "prepend-path PATH ${_d}\n")
 endforeach()
