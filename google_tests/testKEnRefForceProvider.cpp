@@ -76,28 +76,26 @@ TEST(KEnRefForceProviderTestSuite, TestRestoreNoJump){
             all_subAtomsX[j].row(i) = coordsVector[j].row(subAtomsX1Indices[i]-1);
         }
     }
-//    typedef KEnRef_Real_t matrix[3][3];
-//    matrix box_ = {{6.40261984, 0,          0},
-//                   {0,          6.40261984, 0},
-//                   {0,          0,          6.40261984}};
+    // Box of the frame the fixtures are generated from: res/10nsstart+fitting/10ns.trr carries it as
+    // 6.3914690017700195 nm. NOT the 00ns frame's 6.40262 nm: the run is NPT, so the box shrinks
+    // over the 10 ns (00ns 6.40262, 02ns 6.39500, 10ns 6.3914690). Feeding the 00ns box re-images
+    // the torn z-coordinates by 0.1115 A too much, which is the whole of the failure this test used
+    // to show. That error is invisible on whole input - the repair is a bitwise no-op there at ANY
+    // box - so only a torn fixture can see it. Do not "fix" a residual here by widening epsilon.
+    constexpr KEnRef_Real_t kBoxNm = 6.3914690017700195;
+    matrix box_ = {{kBoxNm, 0,       0},
+                   {0,       kBoxNm, 0},
+                   {0,       0,       kBoxNm}};
 
-    matrix box_ = {{6.40261993, 0,          0},
-                   {0,          6.40261993, 0},
-                   {0,          0,          6.40261993}};
-
-//    matrix box_ = {{6.4026, 0,          0},
-//                   {0,          6.4026, 0},
-//                   {0,          0,          6.4026}};
-
-
-    KEnRef_Real_t epsilon;
-    if constexpr (std::is_same_v<KEnRef_Real_t, float>){
-//        epsilon = 5e-6;
-        epsilon = 0.119;
-//        epsilon = 0.10;
-    }else{
-        epsilon = 1e-13;
-    }
+    // One tolerance for both scalar types, because the limit is the FIXTURE DATA and not the scalar
+    // type. Both fixtures are two-decimal-place Angstrom (PDB precision), so each carries up to
+    // 0.005 A of rounding and an exact restoration is simply not representable: with the correct
+    // box the residual bottoms out at 0.0053 A (measured). That is why the old pair of values could
+    // never both be right - 1e-13 for double was unreachable on this data at ANY box, and 0.119 for
+    // float had been set just above the 0.1162 A wrong-box error, which is how that error hid.
+    // 1e-2 still catches the wrong box (0.1162 A) and a shift that never fires (63.91 A), each by
+    // more than an order of magnitude.
+    const KEnRef_Real_t epsilon = 1e-2;
     std::cout << "Testing no jump on C-Alpha guide atoms" << std::endl;
     CoordsMatrixType<KEnRef_Real_t> guideAtomsDiffB4NoJump = all_guideAtomsX_ZEROIndexed[1] - all_guideAtomsX_ZEROIndexed[0];
     std::cout << "differences before restoreNoJump:\n" << guideAtomsDiffB4NoJump.transpose() << std::endl;
@@ -114,6 +112,35 @@ TEST(KEnRefForceProviderTestSuite, TestRestoreNoJump){
     TestHelper<KEnRef_Real_t>::EXPECT_MATRIX_NEAR(all_subAtomsX[1], all_subAtomsX[0], epsilon);
     CoordsMatrixType<KEnRef_Real_t> subAtomsDiffAfterNoJump = all_subAtomsX[1] - all_subAtomsX[0];
     std::cout << "differences after  restoreNoJump:\n" << subAtomsDiffAfterNoJump.transpose() << std::endl;
+
+    // ---- contrast against known-whole input -------------------------------------------------
+    // Project testing rule: never validate on the broken fixture alone. restoreNoJump must be a
+    // BITWISE no-op when nothing is torn. That is the property which distinguishes a repair that
+    // works from one that merely never fires, and it is what the two legs above cannot show: they
+    // only ever exercise rows the repair does touch.
+    std::cout << "\n\nTesting that restoreNoJump is a no-op on whole input" << std::endl;
+    CoordsMatrixType<KEnRef_Real_t> whole = coordsVector[0];
+    KEnRefForceProvider::restoreNoJump(whole, coordsVector[0], box_, true, 1, false);
+    EXPECT_TRUE((whole.array() == coordsVector[0].array()).all())
+        << "restoreNoJump perturbed already-whole coordinates";
+
+    // ---- exact leg, independent of fixture precision -----------------------------------------
+    // Tear the whole frame by exactly one box vector in z for every 7th atom, then require it back.
+    // This leg does not depend on the committed fixtures, so it is not held back by their two
+    // decimal places: the tear is exact and the only error left is restoreNoJump scaling the box
+    // into GROMACS `real`, which for float32 at 63.9 A costs at most one ulp, 2^-18 = 3.8e-6 A
+    // (measured 1.907e-06, exactly half an ulp). Hence a tolerance 1000x tighter than epsilon.
+    std::cout << "\n\nTesting exact restoration of a synthetic one-box tear" << std::endl;
+    CoordsMatrixType<KEnRef_Real_t> torn = coordsVector[0];
+    const KEnRef_Real_t boxAngstrom = kBoxNm * 10;   // restoreNoJump(toAngstrom=true) scales by 10
+    int tornCount = 0;
+    for (int i = 0; i < torn.rows(); i += 7) {
+        torn(i, 2) -= boxAngstrom;
+        ++tornCount;
+    }
+    ASSERT_GT(tornCount, 0) << "the synthetic tear must actually tear something";
+    KEnRefForceProvider::restoreNoJump(torn, coordsVector[0], box_, true, 1, false);
+    TestHelper<KEnRef_Real_t>::EXPECT_MATRIX_NEAR(torn, coordsVector[0], 1e-5);
 
 //    std::cout << "testing float restoreNoJump with epsilon = " << epsilon << "\n";
 //    const auto &experimentalS2Double = KEnRef<KEnRef_Real_t>::s2OrderParams(coordsVector, atomIdPairs,0);
