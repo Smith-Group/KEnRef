@@ -57,6 +57,12 @@
 # what proves the repair does not damage good input. C is what proves the
 # reference is really carrying the repair -- without it, A could be luck.
 #
+# A and B each assert TWO things: PLUMED's energy against the per-width table
+# below, and PLUMED's energy against GROMACS's own step-0 energy for the same
+# frame, EXACTLY. GROMACS's comes from the zero-step run that writes the frame
+# (see NOTE ON THE FRAME), so the two engines are compared on the same machine
+# in the same job, and the agreement check does not rest on the table at all.
+#
 # C ASSERTS THE MECHANISM, not merely that the run died. A crash and a refusal
 # both abort the driver -- both give rc=134 -- so matching on exit status alone
 # lets a segfault pass as a refusal. C therefore requires one of the two
@@ -92,7 +98,9 @@ export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 export PLUMED_NUM_THREADS="${PLUMED_NUM_THREADS:-1}"
 
 # The same step-0 energies rt_validate.sh asserts on the GROMACS side. That they
-# are the SAME numbers here is the point: two engines, two repair mechanisms.
+# are the SAME numbers here is the point: two engines, two repair mechanisms. Since
+# the table check for gb3 became a tolerance (below), "the same" is asserted
+# directly instead, against GROMACS's energy for the same frame -- see the header.
 # Expected step-0 energies, PER SIMD WIDTH. See the long note in rt_validate.sh: a narrower
 # vector changes the order the energy terms are summed and the 6th significant figure moves,
 # so one set of literals cannot serve all three widths. Measured 2026-10-14 on the v2.0.3
@@ -125,8 +133,10 @@ kn_width_of() {   # path -> AVX_512|AVX2_256|AVX_256, or "" when the path names 
 
 # WHICH binary's width, though? On this script the asserted energy is computed by $PLUMED --
 # by the libkenref_core that the plumed kernel links -- while $BIN only runs the tpr for zero
-# steps to emit a frame (see the banner below: "used only to emit the step-0 frames"), and a
-# zero-step frame is just the tpr's own coordinates, so $BIN's width cannot reach the number.
+# steps to emit a frame, and a zero-step frame is just the tpr's own coordinates, so $BIN's
+# width cannot reach PLUMED's number. ($BIN's width DOES reach the GROMACS energy that the same
+# zero-step run prints, which A and B compare against PLUMED's exactly; a BIN of another width
+# therefore fails there, as engines disagreeing, which is what that run would be.)
 # Keying on $BIN was therefore keying on the wrong build: BIN from an AVX_512 tier with PLUMED
 # from an AVX_256 one would compare AVX_512's references against AVX_256's energies. $BIN stays
 # as the fallback for a plumed whose path names no width, and when both name one and they
@@ -155,6 +165,29 @@ case "$KN_WIDTH" in
        echo "  reference, MEASURE it rather than borrowing another width's number." >&2
        exit 2 ;;
 esac
+
+# The repaired-GB3 energy against the table: within a relative 1e-05, not an exact string. See
+# the note in rt_validate.sh for the measurements: identical CI configurations gave 3.6515e-05
+# and 3.65151e-05 in BOTH gates (2.7e-06 apart, the runner's hardware); the torn protein's
+# 0.00125246 is 33 relative away; PLUMED's put-in-box rounding under DD is ~3e-08. Ubiquitin
+# stays exact, and so does PLUMED against GROMACS: two engines on one machine is not noise.
+KN_GB3_RTOL="1e-05"
+
+# kn_close GOT WANT RTOL|exact -> prints |GOT-WANT|/|WANT| ("n/a" when either is not a number);
+# status 0 iff that is <= RTOL, or, for "exact", iff the two strings are identical.
+kn_close() {
+    local out rc
+    out="$(awk -v g="$1" -v w="$2" -v t="$3" 'BEGIN {
+        num = "^[-+]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][-+]?[0-9]+)?$"
+        if (g !~ num || w !~ num || w + 0 == 0) { print "n/a"; exit 1 }
+        d = (g - w) / w; if (d < 0) d = -d
+        printf "%.1e\n", d
+        exit (t == "exact" ? 0 : !(d <= t + 0)) }')"
+    rc=$?
+    echo "$out"
+    if [ "$3" = exact ]; then [ -n "$1" ] && [ "$1" = "$2" ]; return; fi
+    return $rc
+}
 
 GB3_SET="$REPO/res/sigma/md_single"
 GB3_TPR="$GB3_SET/md-00_PBC-BROKEN.tpr"
@@ -250,8 +283,9 @@ protein_entity() {   # reference-pdb -> "1-N"
         }' "$1"
 }
 
-# Frame 0 in FULL precision: run the tpr for zero steps and keep the trr it writes.
-make_frame() {   # label tpr -> $WORK/<label>.trr
+# Frame 0 in FULL precision: run the tpr for zero steps and keep the trr it writes. The same run
+# prints GROMACS's step-0 KEnRef energy for that frame; keep it for the engine-agreement check.
+make_frame() {   # label tpr -> $WORK/<label>.trr, $WORK/<label>.gmx_e0
     local label="$1" tpr="$2"
     local d="$WORK/frame_$label"
     rm -rf "$d"; mkdir -p "$d"; cp "$tpr" "$d/md.tpr"
@@ -259,11 +293,12 @@ make_frame() {   # label tpr -> $WORK/<label>.trr
           --params "$WORK/$label.toml" -- -nsteps 0 -ntomp 1 -deffnm md ) > "$WORK/frame_$label.log" 2>&1
     [ -s "$d/md.trr" ] || { echo "rt_validate_plumed: no frame produced for $label" >&2; return 1; }
     cp "$d/md.trr" "$WORK/$label.trr"
+    grep -a -m1 -E "^Step: 0 Energy:" "$WORK/frame_$label.log" | awk '{print $4}' > "$WORK/$label.gmx_e0"
 }
 
 fails=0
-run_case() {   # label dat trr expect|REFUSE
-    local label="$1" dat="$2" trr="$3" expect="$4"
+run_case() {   # label dat trr expect|REFUSE [rtol|exact gromacs-energy]
+    local label="$1" dat="$2" trr="$3" expect="$4" rtol="${5:-exact}" gmx="${6:-}"
     local d="$WORK/$label"; rm -rf "$d"; mkdir -p "$d"
     ( cd "$d" && "$PLUMED" driver --plumed "$dat" --itrr "$trr" ) > "$WORK/$label.log" 2>&1
     local rc=$? energy guard=no backstop=no
@@ -294,10 +329,14 @@ run_case() {   # label dat trr expect|REFUSE
             echo "                                  not a refusal (see $WORK/$label.log)"; fails=$((fails+1))
         fi
     else
-        if [ "$rc" -eq 0 ] && [ "$energy" = "$expect" ]; then
-            echo "E0=$energy  (GROMACS gives $expect)  OK"
+        local rel_t ok_t rel_g ok_g
+        rel_t="$(kn_close "$energy" "$expect" "$rtol")"; ok_t=$?
+        rel_g="$(kn_close "$energy" "$gmx" exact)"; ok_g=$?
+        if [ "$rc" -eq 0 ] && [ "$ok_t" -eq 0 ] && [ "$ok_g" -eq 0 ]; then
+            echo "E0=$energy  table $expect (rel $rel_t, $rtol)  GROMACS $gmx (exact)  OK"
         else
-            echo "*** FAIL: E0=${energy:-none} expected $expect"; fails=$((fails+1))
+            echo "*** FAIL: E0=${energy:-none}  table $expect (rel $rel_t, $rtol)  GROMACS ${gmx:-none} (rel $rel_g, exact)"
+            fails=$((fails+1))
         fi
     fi
 }
@@ -369,15 +408,15 @@ EOF
 
 echo "KEnRef PBC wholeness gate -- PLUMED side"
 echo "  plumed   $PLUMED"
-echo "  KEnRef   $BIN   (used only to emit the step-0 frames)"
+echo "  KEnRef   $BIN   (emits the step-0 frames, and GROMACS's energy for them)"
 echo "  workdir  $WORK"
 echo
 make_frame gb3 "$GB3_TPR" || exit 2
 make_frame ubq "$UBQ_TPR" || exit 2
 
 echo "A/B) PLUMED must repair the torn fixture, agree with GROMACS, and leave the whole one alone:"
-run_case gb3_broken_repaired  "$WORK/gb3_whole.dat"  "$WORK/gb3.trr" "$EXPECT_GB3"
-run_case ubiquitin_whole      "$WORK/ubq.dat"        "$WORK/ubq.trr" "$EXPECT_UBQ"
+run_case gb3_broken_repaired  "$WORK/gb3_whole.dat"  "$WORK/gb3.trr" "$EXPECT_GB3" "$KN_GB3_RTOL" "$(cat "$WORK/gb3.gmx_e0")"
+run_case ubiquitin_whole      "$WORK/ubq.dat"        "$WORK/ubq.trr" "$EXPECT_UBQ" exact          "$(cat "$WORK/ubq.gmx_e0")"
 echo
 echo "C) with the reference itself split, PLUMED cannot repair -- and must say so:"
 run_case gb3_broken_reference "$WORK/gb3_broken.dat" "$WORK/gb3.trr" REFUSE

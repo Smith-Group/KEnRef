@@ -9,27 +9,32 @@
 # GB3 sets was refining a torn protein, and engine-vs-engine, byte-identity and
 # R-ground-truth checks all passed while it did. See res/PBC-BROKEN.md.
 #
-# So this gate never validates on the broken fixture alone. It runs THREE cases,
+# So this gate never validates on the broken fixture alone. It runs FOUR cases,
 # and the contrast between them is the whole point:
 #
 #   A  broken GB3, repair on   -> the bond-connectivity make-whole fixes it, PASS
 #   B  whole ubiquitin         -> the repair must be a no-op here, PASS
 #   C  broken GB3, repair off  -> KENREF_NO_MAKEWHOLE=1, the split-check REFUSES
+#   D  broken GB3, no repair   -> its ENERGY must fail A's comparison
 #
 # A alone proves nothing (it would also "pass" if the repair were a no-op and the
 # energy simply wrong). B is what proves the repair does not damage good input.
 # C is what proves the check can still see a tear when the repair is not there.
+# D is what proves A's tolerance (below) cannot accept the torn protein's energy.
 #
 # Both fixtures are committed in-repo, so this is self-contained.
 #
 # Usage:  ./rt_validate.sh
 #         BIN=/path/to/KEnRef MPIRUN=/path/to/mpirun NSTEPS=2 ./rt_validate.sh
+# D needs energycalc, taken from beside $BIN (set ENERGYCALC= otherwise); without
+# it D is reported as SKIPPED, never as passed.
 # =============================================================================
 set -u
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN="${BIN:-$REPO/cmake-build-cli-gmx/KEnRef}"
 MPIRUN="${MPIRUN:-mpirun}"
+ENERGYCALC="${ENERGYCALC:-$(dirname "$BIN")/energycalc}"
 NSTEPS="${NSTEPS:-2}"
 WORK="${WORK:-${TMPDIR:-/tmp}/kenref-rt-validate.$$}"
 
@@ -90,6 +95,47 @@ case "$KN_WIDTH" in
        exit 2 ;;
 esac
 
+# HOW CLOSE IS "EQUAL". Every energy here is compared as an exact string of std::cout's six
+# significant figures, EXCEPT ONE: the repaired-GB3 SIGMA energy (case A), which must be within
+# a relative 1e-05 of the table above.
+#
+# Why that one. It is a near-zero residual -- 3.65e-05, left over from terms of order 1 -- so
+# its 6th figure is the first place summation order shows, and the order depends on more than
+# the SIMD width the table is keyed on. One step in that printed figure is 2.7e-06 relative.
+# Measured: two CI runs of the IDENTICAL configuration (GitHub ubuntu-24.04 runner, clang,
+# AVX2_256, GROMACS 2026.4, same commit) gave 3.6515e-05 and 3.65151e-05, 2.7e-06 apart,
+# in this script and in rt_validate_plumed.sh alike. Same code, same input: the runner's
+# hardware. An exact string made that a coin toss.
+#
+# Why 1e-05 cannot let the failure this gate exists for through. With no repair -- the torn
+# protein -- the same frame gives 0.00125246, 34x the repaired value: a relative difference of
+# 33, six orders of magnitude outside the tolerance. Case D measures that on every run rather
+# than trusting this comment. The smallest effect anyone has measured on this energy, PLUMED's
+# put-in-box rounding under domain decomposition (~3e-08 relative), is well inside it.
+#
+# What it does NOT replace. The widths' values differ from one another by 1.4e-05 (AVX_512 vs
+# AVX2_256) to 3.0e-05 (AVX2_256 vs AVX_256) relative -- outside the tolerance, but not by
+# much, so the per-width table above still decides what is expected. Ubiquitin's energy is not
+# a residual and stays exact. Comparisons BETWEEN two engines or two rank counts on the same
+# machine stay exact too (rt_validate_plumed.sh, dd_validate.sh): those are not hardware noise.
+KN_GB3_RTOL="1e-05"
+
+# kn_close GOT WANT RTOL|exact -> prints |GOT-WANT|/|WANT| ("n/a" when either is not a number);
+# status 0 iff that is <= RTOL, or, for "exact", iff the two strings are identical.
+kn_close() {
+    local out rc
+    out="$(awk -v g="$1" -v w="$2" -v t="$3" 'BEGIN {
+        num = "^[-+]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][-+]?[0-9]+)?$"
+        if (g !~ num || w !~ num || w + 0 == 0) { print "n/a"; exit 1 }
+        d = (g - w) / w; if (d < 0) d = -d
+        printf "%.1e\n", d
+        exit (t == "exact" ? 0 : !(d <= t + 0)) }')"
+    rc=$?
+    echo "$out"
+    if [ "$3" = exact ]; then [ -n "$1" ] && [ "$1" = "$2" ]; return; fi
+    return $rc
+}
+
 GB3_SET="$REPO/res/sigma/md_single"
 GB3_TPR="$GB3_SET/md-00_PBC-BROKEN.tpr"          # the tpr is named for what it IS
 UBQ_SET="$REPO/res/10nsstart+fitting"
@@ -119,8 +165,8 @@ EOF
 
 fails=0
 
-run_case() {   # label tpr toml expect|REFUSE [env=val ...]
-    local label="$1" tpr="$2" toml="$3" expect="$4"; shift 4
+run_case() {   # label tpr toml expect|REFUSE rtol|exact [env=val ...]
+    local label="$1" tpr="$2" toml="$3" expect="$4" rtol="$5"; shift 5
     local d="$WORK/$label"
     rm -rf "$d"; mkdir -p "$d"; cp "$tpr" "$d/md.tpr"
     ( cd "$d" && env "$@" "$MPIRUN" --oversubscribe -np 1 "$BIN" \
@@ -142,10 +188,12 @@ run_case() {   # label tpr toml expect|REFUSE [env=val ...]
             fails=$((fails + 1))
         fi
     else
-        if [ "$rc" -eq 0 ] && [ "$energy" = "$expect" ]; then
-            echo "E0=$energy  (expected $expect)  OK"
+        local rel ok
+        rel="$(kn_close "$energy" "$expect" "$rtol")"; ok=$?
+        if [ "$rc" -eq 0 ] && [ "$ok" -eq 0 ]; then
+            echo "E0=$energy  expected $expect  rel $rel  ($rtol)  OK"
         else
-            echo "*** FAIL: E0=${energy:-none} expected $expect"
+            echo "*** FAIL: E0=${energy:-none}  expected $expect  rel $rel  ($rtol)"
             fails=$((fails + 1))
         fi
     fi
@@ -155,17 +203,56 @@ echo "KEnRef PBC wholeness gate"
 echo "  binary   $BIN"
 echo "  workdir  $WORK"
 echo
+# D: the torn protein's energy, put through case A's comparison, must FAIL it. The engine never
+# reports that energy -- it repairs, and with the repair off the split-check refuses (case C) --
+# so it is computed by energycalc, which does neither, from the step-0 frame exactly as GROMACS
+# holds it: KEnRef repairs its own copy of the coordinates, never the state it was handed.
+skipped=0
+torn_case() {
+    local label=gb3_torn_energy d="$WORK/gb3_torn"
+    printf '%-26s ' "$label"
+    if [ ! -x "$ENERGYCALC" ]; then
+        echo "SKIPPED: no energycalc at $ENERGYCALC (set ENERGYCALC=)"
+        skipped=1; return
+    fi
+    rm -rf "$d"; mkdir -p "$d"; cp "$GB3_TPR" "$d/md.tpr"
+    ( cd "$d" && "$MPIRUN" --oversubscribe -np 1 "$BIN" --k 1.0 --n 0.25 --max-force 999 \
+          --params "$WORK/gb3.toml" -- -nsteps 0 -ntomp 1 -deffnm md ) > "$d/frame.log" 2>&1
+    ( cd "$d" && "$ENERGYCALC" -m SIGMA -g guideC-alpha -d "$GB3_SET/KEnRefAtomIndex.ndx" \
+          -r "$GB3_SET/GB3_27_10us.pdb" -x "$GB3_SET" -z 700 -k 1.0 -n 0.25 -i md.trr -o torn.out ) \
+          > "$d/energycalc.log" 2>&1
+    local torn rel ok
+    torn="$(awk 'NR == 1 {print $2}' "$d/torn.out" 2>/dev/null)"
+    rel="$(kn_close "$torn" "$EXPECT_GB3" "$KN_GB3_RTOL")"; ok=$?
+    if [ "$rel" = n/a ]; then
+        echo "*** FAIL: no torn energy computed, see $d/energycalc.log"; fails=$((fails + 1))
+    elif [ "$ok" -ne 0 ]; then
+        echo "E=$torn  vs $EXPECT_GB3  rel $rel > $KN_GB3_RTOL  REJECTED as required"
+    else
+        echo "*** FAIL: torn E=$torn is within $KN_GB3_RTOL of $EXPECT_GB3: case A cannot tell"
+        echo "                           repaired from torn (see $d)"; fails=$((fails + 1))
+    fi
+}
+
 echo "A/B) the repair must fix the torn fixture AND leave the whole one alone:"
-run_case gb3_broken_repaired "$GB3_TPR" "$WORK/gb3.toml" "$EXPECT_GB3"
-run_case ubiquitin_whole     "$UBQ_TPR" "$WORK/ubq.toml" "$EXPECT_UBQ"
+run_case gb3_broken_repaired "$GB3_TPR" "$WORK/gb3.toml" "$EXPECT_GB3" "$KN_GB3_RTOL"
+run_case ubiquitin_whole     "$UBQ_TPR" "$WORK/ubq.toml" "$EXPECT_UBQ" exact
 echo
 echo "C) repair disabled -- the split-check must still catch the tear:"
-run_case gb3_repair_disabled "$GB3_TPR" "$WORK/gb3.toml" REFUSE KENREF_NO_MAKEWHOLE=1
+run_case gb3_repair_disabled "$GB3_TPR" "$WORK/gb3.toml" REFUSE exact KENREF_NO_MAKEWHOLE=1
+echo
+echo "D) the torn protein's energy must fail A's tolerance:"
+torn_case
 
 echo
+total=$((4 - skipped))
 if [ "$fails" -eq 0 ]; then
-    echo "rt_validate: PASS (3/3)"
+    if [ "$skipped" -eq 1 ]; then
+        echo "rt_validate: PASS ($total/$total, D SKIPPED)"
+    else
+        echo "rt_validate: PASS ($total/$total)"
+    fi
 else
-    echo "rt_validate: FAIL ($fails of 3)"
+    echo "rt_validate: FAIL ($fails of $total)"
 fi
 exit $((fails == 0 ? 0 : 1))

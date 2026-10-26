@@ -73,9 +73,10 @@ export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 # On AVX_256 only, gb3_broken's step-0 energy is 3.65161e-05 at np=1 but 3.6516e-05 at np=2,
 # np=4 and np=4/-npme 1 -- a reproducible 2.7e-06 relative gap (four independent
 # confirmations, deterministic within each configuration; AVX_512 shows exact independence
-# across six runs spanning 2026-10-04..14). The reference below is the np=1 value, so part 1
-# reports the three DD cells as failures. That is this check doing its job: part 1 exists to
-# assert the step-0 energy does NOT move with rank count, and on AVX_256 it does.
+# across six runs spanning 2026-10-04..14). Part 1 compares every DD cell EXACTLY against the
+# np=1 energy of the same run, so it reports the three DD cells as failures. That is this check
+# doing its job: part 1 exists to assert the step-0 energy does NOT move with rank count, and on
+# AVX_256 it does.
 #
 # Recording a SECOND value for the DD cells would silence it, and would also destroy the
 # check: a per-rank-count reference cannot detect a rank-count dependence. If this ever needs
@@ -113,6 +114,32 @@ case "$KN_WIDTH" in
        echo "  reference, MEASURE it rather than borrowing another width's number." >&2
        exit 2 ;;
 esac
+
+# The repaired-GB3 energy against the table: within a relative 1e-05, not an exact string. See
+# the note in rt_validate.sh for the measurements: identical CI configurations gave 3.6515e-05
+# and 3.65151e-05 (2.7e-06 apart, the runner's hardware); the torn protein's 0.00125246 is 33
+# relative away; PLUMED's put-in-box rounding under DD is ~3e-08.
+# ONLY np=1 is compared against the table, with that tolerance. Every DD cell is then compared
+# against np=1's energy, from the same binary on the same machine, EXACTLY -- which is the
+# property part 1 tests, and which is why the 2.7e-06 AVX_256 gap above stays red: it is the
+# same size as the hardware noise, but it is not hardware noise.
+KN_GB3_RTOL="1e-05"
+
+# kn_close GOT WANT RTOL|exact -> prints |GOT-WANT|/|WANT| ("n/a" when either is not a number);
+# status 0 iff that is <= RTOL, or, for "exact", iff the two strings are identical.
+kn_close() {
+    local out rc
+    out="$(awk -v g="$1" -v w="$2" -v t="$3" 'BEGIN {
+        num = "^[-+]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][-+]?[0-9]+)?$"
+        if (g !~ num || w !~ num || w + 0 == 0) { print "n/a"; exit 1 }
+        d = (g - w) / w; if (d < 0) d = -d
+        printf "%.1e\n", d
+        exit (t == "exact" ? 0 : !(d <= t + 0)) }')"
+    rc=$?
+    echo "$out"
+    if [ "$3" = exact ]; then [ -n "$1" ] && [ "$1" = "$2" ]; return; fi
+    return $rc
+}
 
 GB3_SET="$REPO/res/sigma/md_single"
 GB3_TPR="$GB3_SET/md-00_PBC-BROKEN.tpr"
@@ -157,10 +184,10 @@ one_run() {   # dir tpr toml np extra-mdrun-args...
 }
 
 # ---- part 1: rank-count independence -------------------------------------------------
-ranks_independent() {   # label tpr toml expect
-    local label="$1" tpr="$2" toml="$3" expect="$4"
-    echo "  $label  (expected step-0 energy $expect)"
-    local cfg np extra
+ranks_independent() {   # label tpr toml expect rtol|exact
+    local label="$1" tpr="$2" toml="$3" expect="$4" rtol="$5"
+    echo "  $label  (np=1 against $expect, $rtol; every DD cell against np=1, exact)"
+    local cfg np extra serial="" rel ok
     for cfg in "1:" "2:-npme 0" "4:-npme 0" "4:-npme 1"; do
         np="${cfg%%:*}"; extra="${cfg#*:}"
         local tag="${label}_np${np}${extra:+_${extra// /}}"
@@ -171,10 +198,18 @@ ranks_independent() {   # label tpr toml expect
                | sed 's/^ *//')
         printf '    %-24s rc=%-3s %-34s E0=%-13s E%-4s=%-13s ' \
                "np=$np ${extra:-(serial)}" "$rc" "${grid:-no DD (single rank)}" "$e0" "$NSTEPS" "$elast"
-        if [ "$rc" -eq 0 ] && [ "$e0" = "$expect" ]; then
-            echo OK
+        if [ "$np" = 1 ]; then
+            serial="$e0"
+            rel="$(kn_close "$e0" "$expect" "$rtol")"; ok=$?
+            rel="rel $rel vs table"
         else
-            echo "*** FAIL"
+            rel="$(kn_close "$e0" "$serial" exact)"; ok=$?
+            rel="rel $rel vs np=1"
+        fi
+        if [ "$rc" -eq 0 ] && [ "$ok" -eq 0 ]; then
+            echo "$rel  OK"
+        else
+            echo "$rel  *** FAIL"
             fails=$((fails + 1))
         fi
     done
@@ -224,8 +259,8 @@ echo "  workdir  $WORK"
 echo "  repeats  $N   steps $NSTEPS   self-check ON"
 echo
 echo "1) rank-count independence -- the step-0 energy must not move:"
-ranks_independent gb3_broken "$GB3_TPR" "$WORK/gb3.toml" "$EXPECT_GB3"
-ranks_independent ubiquitin  "$UBQ_TPR" "$WORK/ubq.toml" "$EXPECT_UBQ"
+ranks_independent gb3_broken "$GB3_TPR" "$WORK/gb3.toml" "$EXPECT_GB3" "$KN_GB3_RTOL"
+ranks_independent ubiquitin  "$UBQ_TPR" "$WORK/ubq.toml" "$EXPECT_UBQ" exact
 echo
 echo "2) repeatability at a FIXED rank count (E0 asserts; the rest is reported):"
 repeatability ubiquitin_serial "$UBQ_TPR" "$WORK/ubq.toml" 1

@@ -193,24 +193,48 @@ runlog() { local label=$1; shift
 #   native  KEnRefForceProvider.cpp  ->  "Step: 0 Energy: <v>"      (ensemble master rank, every 10 steps)
 #   plumed  KEnRefBias::calculate    ->  "  Step 0  KEnRef energy = <v>"
 # Both are std::cout at default precision (6 significant digits). That shared formatting
-# is what makes an EXACT string comparison meaningful, and it is how rt_validate.sh and
-# rt_validate_plumed.sh already assert. Do not relax it into a tolerance: when these two
-# disagree it is a real integration defect, not float noise.
+# is what makes an EXACT string comparison meaningful between the two engines, and the
+# "engines agree" check below stays exact: when these two disagree it is a real integration
+# defect, not float noise. Against the TABLE, every set is exact too, except the two SIGMA
+# sets: that energy is the repaired-GB3 residual (3.65e-05), whose 6th figure moves with the
+# machine, so it must be within a relative 1e-05 instead. See the note in rt_validate.sh for
+# the measurements: identical CI configurations gave 3.6515e-05 and 3.65151e-05 (2.7e-06 apart,
+# the runner's hardware); the torn protein's 0.00125246 is 33 relative away; PLUMED's
+# put-in-box rounding under DD is ~3e-08. Same quantity, same tolerance, in all four scripts.
 e0_native() { grep -a -m1 -E '^Step: 0 Energy:'    "$1" | awk '{print $4}'; }
 e0_plumed() { grep -a -m1 -E 'Step 0  KEnRef energy' "$1" | awk '{print $NF}'; }
 
-check() {   # label got want
-  local label=$1 got=$2 want=$3
-  if [ -n "$got" ] && [ "$got" = "$want" ]; then
-      printf '  %-24s %-14s OK\n' "$label" "$got"; checks_ok=$((checks_ok+1))
+KN_GB3_RTOL="1e-05"
+
+# kn_close GOT WANT RTOL|exact -> prints |GOT-WANT|/|WANT| ("n/a" when either is not a number);
+# status 0 iff that is <= RTOL, or, for "exact", iff the two strings are identical.
+kn_close() {
+    local out rc
+    out="$(awk -v g="$1" -v w="$2" -v t="$3" 'BEGIN {
+        num = "^[-+]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][-+]?[0-9]+)?$"
+        if (g !~ num || w !~ num || w + 0 == 0) { print "n/a"; exit 1 }
+        d = (g - w) / w; if (d < 0) d = -d
+        printf "%.1e\n", d
+        exit (t == "exact" ? 0 : !(d <= t + 0)) }')"
+    rc=$?
+    echo "$out"
+    if [ "$3" = exact ]; then [ -n "$1" ] && [ "$1" = "$2" ]; return; fi
+    return $rc
+}
+
+check() {   # label got want rtol|exact
+  local label=$1 got=$2 want=$3 rtol=${4:-exact} rel ok
+  rel="$(kn_close "$got" "$want" "$rtol")"; ok=$?
+  if [ "$ok" -eq 0 ]; then
+      printf '  %-24s %-14s OK  (rel %s, %s)\n' "$label" "$got" "$rel" "$rtol"; checks_ok=$((checks_ok+1))
   else
-      printf '  %-24s %-14s *** MISMATCH (expected %s)\n' "$label" "${got:-none}" "$want"; checks_bad=$((checks_bad+1))
+      printf '  %-24s %-14s *** MISMATCH (expected %s; rel %s, %s)\n' "$label" "${got:-none}" "$want" "$rel" "$rtol"; checks_bad=$((checks_bad+1))
   fi
 }
 
-# args: MODEL(SIGMA|PLATEAUS|RELAX)  SET(res path)  NREP(1|2)  EXPKIND(file|folder)  EXPVAL(abs)  K  E0
+# args: MODEL(SIGMA|PLATEAUS|RELAX)  SET(res path)  NREP(1|2)  EXPKIND(file|folder)  EXPVAL(abs)  K  E0  RTOL(exact|<rel>)
 do_set() {
-  local MODEL=$1 SET=$2 NREP=$3 EXPKIND=$4 EXPVAL=$5 K=$6 E0=$7
+  local MODEL=$1 SET=$2 NREP=$3 EXPKIND=$4 EXPVAL=$5 K=$6 E0=$7 RTOL=${8:-exact}
   local name=$(basename "$SET"); local tag="${MODEL,,}_${name}_gmx${GMX_VER_CUR}"
   # md-00_PBC-BROKEN.tpr: the protein is SPLIT across a periodic boundary (see res/PBC-BROKEN.md).
   # Deliberate: it makes this smoke test cover the make-whole path on real data.
@@ -251,8 +275,8 @@ do_set() {
   en=$(e0_native "$WORK/${tag}_kenref.log")
   ep=$(e0_plumed "$WORK/${tag}_plumed.log")
   echo "----- $tag: step-0 energy -----"
-  check "native vs reference" "$en" "$E0"
-  check "plumed vs reference" "$ep" "$E0"
+  check "native vs reference" "$en" "$E0" "$RTOL"
+  check "plumed vs reference" "$ep" "$E0" "$RTOL"
   # Checked separately from the two above: if both engines move together the reference is
   # stale (a build or physics change); if only one moves the two paths have diverged.
   if [ -n "$en" ] && [ "$en" = "$ep" ]; then
@@ -339,8 +363,8 @@ E0_RELAX_DOUBLE=$(expect_e0 relax_md_double)       || exit 1
 run_matrix() {
 do_set PLATEAUS "$REPO/res/plateau/md_single" 1 file   "$REPO/res/plateau/md_single/singleton_data_GB3_3-5_all.csv" 1e8 "$E0_PLATEAUS_SINGLE"
 do_set PLATEAUS "$REPO/res/plateau/md_double" 2 file   "$REPO/res/plateau/md_double/singleton_data_GB3_all.csv"     1e8 "$E0_PLATEAUS_DOUBLE"
-do_set SIGMA    "$REPO/res/sigma/md_single"   1 folder "$REPO/res/sigma/md_single/"                                 1.0 "$E0_SIGMA_SINGLE"
-do_set SIGMA    "$REPO/res/sigma/md_double"   2 folder "$REPO/res/sigma/md_double/"                                 1.0 "$E0_SIGMA_DOUBLE"
+do_set SIGMA    "$REPO/res/sigma/md_single"   1 folder "$REPO/res/sigma/md_single/"                                 1.0 "$E0_SIGMA_SINGLE" "$KN_GB3_RTOL"
+do_set SIGMA    "$REPO/res/sigma/md_double"   2 folder "$REPO/res/sigma/md_double/"                                 1.0 "$E0_SIGMA_DOUBLE" "$KN_GB3_RTOL"
 do_set RELAX    "$REPO/res/relax/md_double"   2 folder "$REPO/res/relax/md_double/"                                 1   "$E0_RELAX_DOUBLE"
 }
 
