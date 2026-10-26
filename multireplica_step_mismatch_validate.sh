@@ -39,8 +39,8 @@
 # which knows the per-width references; here a replica that reaches its last
 # step is the pass condition.
 #
-# Usage:  GMX=/path/to/gmx_mpi ./ms_validate.sh
-#         BIN=/path/to/KEnRef MPIRUN=/path/to/mpirun GMX=... ./ms_validate.sh
+# Usage:  GMX=/path/to/gmx_mpi ./multireplica_step_mismatch_validate.sh
+#         BIN=/path/to/KEnRef MPIRUN=/path/to/mpirun GMX=... ./multireplica_step_mismatch_validate.sh
 # GMX is any GROMACS gmx binary of the release KEnRef was built against; it only
 # writes the per-replica tprs (convert-tpr) and the checkpoints C and D restart from.
 # =============================================================================
@@ -51,17 +51,17 @@ BIN="${BIN:-$REPO/cmake-build-cli-gmx/KEnRef}"
 MPIRUN="${MPIRUN:-mpirun}"
 GMX="${GMX:-$(command -v gmx_mpi || command -v gmx || echo gmx_mpi)}"
 TO="${TO:-120}"
-WORK="${WORK:-${TMPDIR:-/tmp}/kenref-ms-validate.$$}"
+WORK="${WORK:-${TMPDIR:-/tmp}/kenref-multireplica-step-mismatch-validate.$$}"
 
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 
 SET="$REPO/res/sigma/md_double"
 TPR="$SET/md-00_PBC-BROKEN.tpr"
 
-[ -x "$BIN" ] || { echo "ms_validate: no KEnRef binary at $BIN (set BIN=)" >&2; exit 2; }
-command -v "$MPIRUN" >/dev/null || { echo "ms_validate: no mpirun (set MPIRUN=)" >&2; exit 2; }
-command -v "$GMX" >/dev/null || { echo "ms_validate: no gmx binary (set GMX=)" >&2; exit 2; }
-command -v timeout >/dev/null || { echo "ms_validate: needs timeout(1) to tell a hang from a run" >&2; exit 2; }
+[ -x "$BIN" ] || { echo "multireplica_step_mismatch_validate: no KEnRef binary at $BIN (set BIN=)" >&2; exit 2; }
+command -v "$MPIRUN" >/dev/null || { echo "multireplica_step_mismatch_validate: no mpirun (set MPIRUN=)" >&2; exit 2; }
+command -v "$GMX" >/dev/null || { echo "multireplica_step_mismatch_validate: no gmx binary (set GMX=)" >&2; exit 2; }
+command -v timeout >/dev/null || { echo "multireplica_step_mismatch_validate: needs timeout(1) to tell a hang from a run" >&2; exit 2; }
 
 mkdir -p "$WORK"
 cat > "$WORK/gb3.toml" <<EOF
@@ -79,12 +79,12 @@ fails=0
 mk_tpr() {   # dir nsteps
     mkdir -p "$1"
     "$GMX" convert-tpr -s "$TPR" -nsteps "$2" -o "$1/md.tpr" > "$1/convert.log" 2>&1 \
-        || { echo "ms_validate: convert-tpr failed, see $1/convert.log" >&2; exit 2; }
+        || { echo "multireplica_step_mismatch_validate: convert-tpr failed, see $1/convert.log" >&2; exit 2; }
 }
 
 mk_cpt() {   # dir step -- plain GROMACS, one simulation, leaves md.cpt at <step>
     ( cd "$1" && "$GMX" mdrun -nsteps "$2" -ntomp 1 -deffnm md -cpo md.cpt ) > "$1/plain.log" 2>&1 \
-        || { echo "ms_validate: plain mdrun failed, see $1/plain.log" >&2; exit 2; }
+        || { echo "multireplica_step_mismatch_validate: plain mdrun failed, see $1/plain.log" >&2; exit 2; }
 }
 
 run_case() {   # case expect(RUN|KENREF|GMX) extra-mdrun-args...
@@ -159,8 +159,8 @@ run_case D GMX -cpi md.cpt
 
 echo
 if [ "$fails" -eq 0 ]; then
-    echo "ms_validate: PASS (5/5)"
+    echo "multireplica_step_mismatch_validate: PASS (5/5)"
 else
-    echo "ms_validate: FAIL ($fails of 5)"
+    echo "multireplica_step_mismatch_validate: FAIL ($fails of 5)"
 fi
 exit $((fails == 0 ? 0 : 1))
