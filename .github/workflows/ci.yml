@@ -5,6 +5,8 @@ name: CI
 #   consumer-abi        a consumer built by a DIFFERENT compiler than the library  <- caught the icpx bug
 #   pkgconfig-consumer  consumption through pkg-config alone, with and without eigen3.pc
 #   fd                  the ~30 s finite-difference kernel check (nightly; too slow per push)
+#   gmx                 the GROMACS interface against a GROMACS built from source, its gtests, and the
+#                       multireplica_step_mismatch_validate.sh gate (no energy gates; see the job)
 #
 # Every job builds INSIDE the source tree. The gtests open their fixtures relative to the CWD
 # ("../../res/google_tests/..."), so an out-of-tree build directory makes every fixture-based test fail
@@ -245,3 +247,115 @@ jobs:
       - name: Finite-difference test
         working-directory: build/google_tests
         run: ./Google_tests_kenref_core_exe --gtest_filter="KEnRefTestSuite.TestCoordArrayToSigmaEnergyFD"
+
+  gmx:
+    # Until this job existed every cell on this branch built with BUILD_KENREF_GMX=OFF, so a GROMACS-side
+    # regression was invisible here and was found by hand.
+    #
+    # The same job as master's, minus two things, both deliberate:
+    #   * No energy gates. rt_validate.sh on this branch holds ONE reference energy, the AVX_512 one,
+    #     compared as an exact string; the per-width references and the GB3 tolerance exist on master
+    #     only. On these AVX2_256 runners it would be red for a reason that has nothing to do with the
+    #     code. multireplica_step_mismatch_validate.sh asserts no energy, so it runs here.
+    #   * No PLUMED: rt_validate_plumed.sh needs a PLUMED containing plumed/plumed2#1515; that cell stays
+    #     on master.
+    #
+    # GROMACS is built from source because kenref-gmx needs GROMACS's BUILD tree (config.h) and SOURCE tree
+    # (internal headers), not just an install -- see "GROMACS" in CMakeLists.txt. The three trees are cached
+    # under the COMMIT the tag resolves to, never the tag name alone: a moved tag must not restore a stale
+    # GROMACS. The build step and the key are master's, so the trees are interchangeable.
+    #
+    # Toolchain: clang with its default libstdc++, for GROMACS and KEnRef alike.
+    name: GROMACS ${{ matrix.gromacs }} interface
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        gromacs: ['2026.4', '2025.5']
+    env:
+      # AVX2_256 is what the runners execute natively.
+      ACCEL: AVX2_256
+      GMX_ROOT: /home/runner/deps/gromacs-${{ matrix.gromacs }}
+      OMP_NUM_THREADS: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang libomp-dev libopenmpi-dev openmpi-bin libfftw3-dev
+          clang --version | head -1; mpirun --version | head -1
+
+      - name: Resolve the GROMACS tag to a commit
+        id: gmxrev
+        run: |
+          url=https://gitlab.com/gromacs/gromacs.git
+          tag=v${{ matrix.gromacs }}
+          # An annotated tag lists its commit as ^{}; a lightweight tag only as itself.
+          sha=$(git ls-remote "$url" "refs/tags/$tag^{}" | cut -f1)
+          [ -n "$sha" ] || sha=$(git ls-remote "$url" "refs/tags/$tag" | cut -f1)
+          [ -n "$sha" ] || { echo "cannot resolve $tag at $url"; exit 1; }
+          echo "GROMACS $tag = $sha"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Restore GROMACS
+        id: gmxcache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.GMX_ROOT }}
+          key: gromacs-${{ runner.os }}-${{ steps.gmxrev.outputs.sha }}-clang-${{ env.ACCEL }}-mpi-v1
+
+      - name: Build GROMACS ${{ matrix.gromacs }} (cache miss only)
+        if: steps.gmxcache.outputs.cache-hit != 'true'
+        run: |
+          set -e
+          mkdir -p "$GMX_ROOT"
+          git clone --depth 1 --branch v${{ matrix.gromacs }} https://gitlab.com/gromacs/gromacs.git "$GMX_ROOT/src"
+          got=$(git -C "$GMX_ROOT/src" rev-parse HEAD)
+          [ "$got" = "${{ steps.gmxrev.outputs.sha }}" ] \
+            || { echo "cloned $got, but the cache key names ${{ steps.gmxrev.outputs.sha }}"; exit 1; }
+          rm -rf "$GMX_ROOT/src/.git"
+          # GMX_MPI: kenref-gmx refuses a thread-MPI GROMACS (multi-simulation needs library MPI).
+          # GMX_INSTALL_LEGACY_API: without it GROMACS does not install the headers kenref-gmx includes.
+          cmake -S "$GMX_ROOT/src" -B "$GMX_ROOT/build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+            -DGMX_MPI=ON -DGMX_INSTALL_LEGACY_API=ON -DGMX_SIMD=${{ env.ACCEL }} \
+            -DGMX_GPU=OFF -DGMX_FFT_LIBRARY=fftw3 -DGMX_BUILD_HELP=OFF -DBUILD_TESTING=OFF \
+            -DCMAKE_INSTALL_PREFIX="$GMX_ROOT/install"
+          cmake --build "$GMX_ROOT/build" -j "$(nproc)"
+          cmake --install "$GMX_ROOT/build"
+          # KEnRef reads the build tree's CMakeCache.txt and generated headers, never its objects.
+          find "$GMX_ROOT/build" -name '*.o' -delete
+          du -sh "$GMX_ROOT"/*
+
+      - name: Configure KEnRef with the GROMACS interface
+        run: |
+          # In-tree build dir: the gtests open their fixtures relative to the CWD (see the header comment).
+          # GROMACS_BUILD_DIR is the only GROMACS input; its source and install are read from its cache.
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+            -DBUILD_KENREF_CORE=ON -DBUILD_KENREF_GMX=ON -DBUILD_KENREF_PLUMED=OFF -DKENREF_WITH_PLUMED=OFF \
+            -DBUILD_TESTS=ON -DACCEL=${{ env.ACCEL }} \
+            -DKENREF_EIGEN_GIT_TAG=${{ env.KENREF_EIGEN_GIT_TAG }} \
+            -DGROMACS_BUILD_DIR="$GMX_ROOT/build"
+
+      - name: Build
+        id: build
+        run: cmake --build build -j "$(nproc)"
+
+      - name: GROMACS-interface gtests
+        # Includes testMoleculeGraph (the PBC repair and the bonds it walks along), testSubscribeOnce,
+        # testOwnershipCheck (the DD one-writer property) and testReplicaSteps (the mismatched-steps refusal).
+        working-directory: build/google_tests
+        run: ./Google_tests_kenref_gmxinterface_exe
+
+      - name: multireplica_step_mismatch_validate.sh (mismatched steps refused, not hung)
+        # Seconds, not minutes: two replicas, 20 steps, and the refusals come at setup. GMX only writes the
+        # per-replica tprs and checkpoints; TO bounds a regression to a hang of 120 s, not the job timeout.
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          BIN="$PWD/build/KEnRef" GMX="$GMX_ROOT/install/bin/gmx_mpi" WORK="$RUNNER_TEMP/multireplica" TO=120 \
+            ./multireplica_step_mismatch_validate.sh
