@@ -44,6 +44,34 @@ string(REPLACE ";" ":" _kn_pref_s "${_kn_prefixes}")
 # `set -u` (the plumed-side build scripts use `set -euo pipefail`), where a bare ${PKG_CONFIG_PATH} on a
 # machine that has never set it is an "unbound variable" error that ABORTS the caller's build.
 set(_kn_env "#!/bin/sh\n# KEnRef ${_kn_comp} ${PROJECT_VERSION} — `source` this file to use the installed KEnRef.\n")
+# The GROMACS this build links. KEnRef and energycalc/s2calc need its libgromacs at run time, and nothing else
+# here provides it, so without this `source env.sh; KEnRef` fails with "libgromacs_mpi.so.NN: not found". Located from
+# the imported library itself, so it is the GROMACS actually linked, not whatever GROMACS_DIR was guessed.
+# Preferred: GROMACS's own GMXRC.bash (the file its bin/GMXRC hands every sh-family shell to). It sets PATH,
+# LD_LIBRARY_PATH, GMXDATA etc. consistently, and replaces its previous entries, so re-sourcing is harmless.
+# It is not nounset-clean (it reads $GMXLDLIB unset), so nounset is suspended around it and restored. Its
+# directory is checked at run time, and if it is gone only libgromacs's directory is prepended. It comes first,
+# so the KEnRef entries prepended after it stay ahead of GROMACS's.
+if(BUILD_KENREF_GMX AND TARGET Gromacs::libgromacs)
+    get_target_property(_kn_gmx_lib Gromacs::libgromacs LOCATION)
+    if(_kn_gmx_lib)
+        get_filename_component(_kn_gmx_libdir "${_kn_gmx_lib}" DIRECTORY)
+        get_filename_component(_kn_gmx_prefix "${_kn_gmx_libdir}" DIRECTORY)
+        set(_kn_gmxrc "${_kn_gmx_prefix}/bin/GMXRC.bash")
+        string(APPEND _kn_env "# GROMACS this KEnRef was built against\n")
+        string(APPEND _kn_env "if [ -r \"${_kn_gmxrc}\" ]; then\n")
+        string(APPEND _kn_env "    case \$- in *u*) _kn_nounset=1; set +u ;; *) _kn_nounset= ;; esac\n")
+        string(APPEND _kn_env "    . \"${_kn_gmxrc}\"\n")
+        string(APPEND _kn_env "    if [ -n \"\$_kn_nounset\" ]; then set -u; fi\n")
+        string(APPEND _kn_env "    unset _kn_nounset\n")
+        string(APPEND _kn_env "else\n")
+        string(APPEND _kn_env "    export LD_LIBRARY_PATH=\"${_kn_gmx_libdir}:\${LD_LIBRARY_PATH:-}\"\n")
+        string(APPEND _kn_env "fi\n")
+    else()
+        message(WARNING "env.sh: Gromacs::libgromacs has no LOCATION, so env.sh will not set up GROMACS; "
+                        "source its GMXRC yourself before running KEnRef.")
+    endif()
+endif()
 if(_kn_bins)
     string(APPEND _kn_env "export PATH=\"${_kn_bins_s}:\${PATH:-}\"\n")
 endif()

@@ -49,7 +49,10 @@ target_include_directories(kenref_gmxinterface PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include_core>  # For CLI11 and KENREF headers
     $<INSTALL_INTERFACE:include/gmxinterface>
     $<INSTALL_INTERFACE:include/core>  # For CLI11 in installed version
-    ${EIGEN3_INCLUDE_DIR}
+    # Build-only, as on the core targets. A fetched Eigen lives in this build dir, and CMake refuses to
+    # export a path inside it. An installed consumer gets Eigen through KENREF::kenref_core, which links
+    # Eigen3::Eigen.
+    $<BUILD_INTERFACE:${EIGEN3_INCLUDE_DIR}>
 )
 
 # ============================================================================
