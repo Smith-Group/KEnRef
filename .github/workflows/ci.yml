@@ -6,7 +6,8 @@ name: CI
 #   pkgconfig-consumer  consumption through pkg-config alone, with and without eigen3.pc
 #   fd                  the ~30 s finite-difference kernel check (nightly; too slow per push)
 #   gmx                 the GROMACS interface against a GROMACS built from source, its gtests, the
-#                       rt_validate.sh wholeness gate, and (one matrix cell) PLUMED + rt_validate_plumed.sh
+#                       rt_validate.sh wholeness gate, the ms_validate.sh multi-replica gate, and (one
+#                       matrix cell) PLUMED + rt_validate_plumed.sh
 #   nightly-long        placeholder for the long runtime checks (TODO list inside)
 #
 # Every job builds INSIDE the source tree. The gtests open their fixtures relative to the CWD
@@ -358,9 +359,19 @@ jobs:
         working-directory: build/google_tests
         run: ./Google_tests_kenref_gmxinterface_exe
 
-      - name: rt_validate.sh (repaired / whole / refused)
+      - name: rt_validate.sh (repaired / whole / refused / torn energy rejected)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: BIN="$PWD/build/KEnRef" WORK="$RUNNER_TEMP/rt" ./rt_validate.sh
+        # Case D takes energycalc from beside $BIN, which this build produces; ENERGYCALC= is named anyway
+        # so a missing energycalc fails here instead of turning into a SKIPPED line nobody reads.
+        run: |
+          test -x "$PWD/build/energycalc" || { echo "::error::no build/energycalc for rt_validate.sh case D"; exit 1; }
+          BIN="$PWD/build/KEnRef" ENERGYCALC="$PWD/build/energycalc" WORK="$RUNNER_TEMP/rt" ./rt_validate.sh
+
+      - name: ms_validate.sh (multi-replica -- mismatched steps refused, not hung)
+        # Seconds, not minutes: two replicas, 20 steps, and the refusals come at setup. GMX only writes the
+        # per-replica tprs and checkpoints; TO bounds a regression to a hang of 120 s, not the job timeout.
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: BIN="$PWD/build/KEnRef" GMX="$GMX_ROOT/install/bin/gmx_mpi" WORK="$RUNNER_TEMP/ms" TO=120 ./ms_validate.sh
 
       # ---------------------------------------------------------------- PLUMED (one matrix cell)
       # PLUMED is built against the KEnRef core installed from THIS checkout, so its install is never
@@ -444,4 +455,6 @@ jobs:
                >= 4 MPI slots (--oversubscribe on a 4-core runner).
             5. NSTEPS=500 rt_validate.sh (and rt_validate_plumed.sh at 500 frames): the old split-check
                false refusal only appeared at ~step 120, invisible to the 2-step default.
+          Not here on purpose: ms_validate.sh (the multi-replica gate) takes seconds, so it runs per push
+          in the gmx job rather than waiting for this job to have a build of its own.
           EOF
