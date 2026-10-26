@@ -16,14 +16,20 @@
 #include "core/IoUtils.h"
 #include "core/restore_no_jump.h"
 
-// NOTE: DISABLED because this is a faithful port of a PRE-EXISTING FAILING test. The original
-// KEnRefForceProviderTestSuite.TestRestoreNoJump also fails (verified in the gmx build): the two
-// fixture frames (ensemble_coord_10ns vs ensemble_coord_moldel2_PBC_Broken) genuinely differ in
-// ~28 atoms by ~0.1 Å — real coordinate differences that restoreNoJump correctly leaves untouched
-// — so the 1e-13 equality assertion cannot hold on this data. The restoreNoJump logic itself is
-// bit-identical to the original. TODO(user): fix the fixtures so model1 == model0 up to PBC jumps
-// (or adjust the assertion/epsilon) and re-enable. Tracked during the model-abstraction restructure.
-TEST(RestoreNoJumpTestSuite, DISABLED_TestRestoreNoJump) {
+// RE-ENABLED. The note that used to stand here said the two fixture frames "genuinely differ in
+// ~28 atoms by ~0.1 Å — real coordinate differences that restoreNoJump correctly leaves untouched".
+// Both halves of that were wrong, and it is worth saying so plainly because it points the next
+// reader at the fixtures instead of at the cause. The frames did not differ by 0.1 Å: they were
+// identical except for 80 z-coordinates displaced by exactly one box vector. And restoreNoJump did
+// not leave them untouched — it shifted every one of them. The 0.1 Å was an OUTPUT of the test,
+// manufactured by it: the box constant was 6.40261993 nm, the box of the run's 00ns frame, while
+// the coordinates are the 10ns frame, whose box is 6.3914690 nm. The run is NPT and the box shrinks,
+// so each of the 80 atoms was re-imaged 0.1115 Å too far. 28 of them lie in the asserted selections.
+// Two things kept this invisible: the repair is a bitwise no-op on whole input at ANY box, so only a
+// torn fixture could see it; and the float tolerance had been widened to 0.119, just above the
+// 0.1162 Å error, while the double tolerance of 1e-13 was never reachable on 2-decimal-place
+// fixtures at any box at all. The fixtures are now written at full precision from the frame's .trr.
+TEST(RestoreNoJumpTestSuite, TestRestoreNoJump) {
     std::vector<std::string> files{"../../res/google_tests/ensemble_coord_10ns.csv",
                                    "../../res/google_tests/ensemble_coord_moldel2_PBC_Broken.csv"};
     std::vector<CoordsMatrixType<KEnRef_Real_t>> coordsVector;
@@ -88,19 +94,25 @@ TEST(RestoreNoJumpTestSuite, DISABLED_TestRestoreNoJump) {
         }
     }
 
-    // Box: was a GROMACS `matrix` (real[3][3]); now an Eigen 3x3 with the same layout
-    // (box(i,j) = i-th box vector's j-th component). Cubic box of side 6.40261993 nm.
+    // Box of the frame the fixtures are generated from: res/10nsstart+fitting/10ns.trr, which
+    // carries it as 6.3914690017700195 nm. NOT the 00ns frame's 6.40262 nm -- see the note above the test.
+    // Eigen 3x3 with the GROMACS `matrix` layout (box(i,j) = i-th box vector's j-th component).
+    constexpr KEnRef_Real_t kBoxNm = 6.3914690017700195;
     Eigen::Matrix<KEnRef_Real_t, 3, 3> box_;
-    box_ << 6.40261993, 0,          0,
-            0,          6.40261993, 0,
-            0,          0,          6.40261993;
+    box_ << kBoxNm, 0,       0,
+            0,       kBoxNm, 0,
+            0,       0,       kBoxNm;
 
-    KEnRef_Real_t epsilon;
-    if constexpr (std::is_same_v<KEnRef_Real_t, float>) {
-        epsilon = 0.119;
-    } else {
-        epsilon = 1e-13;
-    }
+    // Derived from the scalar type, not tuned to the data. With the fixtures now at full precision
+    // and the box kept in KEnRef_Real_t - this core overload takes an Eigen 3x3, where the
+    // GROMACS-side restoreNoJump takes a `matrix`, i.e. a float real[3][3] in a mixed-precision
+    // build - no truncation enters anywhere and the restoration comes out EXACT: the measured max
+    // residual over the asserted selections is 0.0 in a double build, against 1.907e-06 A on the
+    // GROMACS side. What is left is representation alone, one ulp of a ~64 A coordinate: 1.4e-14
+    // for double, 7.6e-06 for float. So this recovers the tight assertion the test originally
+    // asked for and could not have, and sits 1e11 below the 0.1162 A wrong-box error it catches.
+    constexpr KEnRef_Real_t epsilon =
+        std::is_same_v<KEnRef_Real_t, float> ? KEnRef_Real_t(1e-4) : KEnRef_Real_t(1e-12);
     std::cout << "Testing no jump on C-Alpha guide atoms" << std::endl;
     kenref::restoreNoJump(all_guideAtomsX_ZEROIndexed[1], all_guideAtomsX_ZEROIndexed[0], box_, true, 1, false);
     TestHelper<KEnRef_Real_t>::EXPECT_MATRIX_NEAR(all_guideAtomsX_ZEROIndexed[1], all_guideAtomsX_ZEROIndexed[0], epsilon);
@@ -108,4 +120,30 @@ TEST(RestoreNoJumpTestSuite, DISABLED_TestRestoreNoJump) {
     std::cout << "\n\nTesting no jump on Hydrogen subset of atoms" << std::endl;
     kenref::restoreNoJump(all_subAtomsX[1], all_subAtomsX[0], box_, true, 1, true);
     TestHelper<KEnRef_Real_t>::EXPECT_MATRIX_NEAR(all_subAtomsX[1], all_subAtomsX[0], epsilon);
+
+    // ---- contrast against known-whole input -------------------------------------------------
+    // Project testing rule: never validate on the broken fixture alone. restoreNoJump must be a
+    // BITWISE no-op when nothing is torn. That is the property which distinguishes a repair that
+    // works from one that merely never fires, and it is what the two legs above cannot show: they
+    // only ever exercise rows the repair does touch. It is also the property that let the wrong
+    // box hide for a year, since it holds at any box whatsoever.
+    std::cout << "\n\nTesting that restoreNoJump is a no-op on whole input" << std::endl;
+    CoordsMatrixType<KEnRef_Real_t> whole = coordsVector[0];
+    kenref::restoreNoJump(whole, coordsVector[0], box_, true, 1, false);
+    EXPECT_TRUE((whole.array() == coordsVector[0].array()).all())
+        << "restoreNoJump perturbed already-whole coordinates";
+
+    // ---- exact leg, independent of the committed fixtures -------------------------------------
+    // Tear the whole frame by exactly one box vector in z for every 7th atom, then require it back.
+    std::cout << "\n\nTesting exact restoration of a synthetic one-box tear" << std::endl;
+    CoordsMatrixType<KEnRef_Real_t> torn = coordsVector[0];
+    const KEnRef_Real_t boxAngstrom = kBoxNm * 10;   // restoreNoJump(toAngstrom=true) scales by 10
+    int tornCount = 0;
+    for (int i = 0; i < torn.rows(); i += 7) {
+        torn(i, 2) -= boxAngstrom;
+        ++tornCount;
+    }
+    ASSERT_GT(tornCount, 0) << "the synthetic tear must actually tear something";
+    kenref::restoreNoJump(torn, coordsVector[0], box_, true, 1, false);
+    TestHelper<KEnRef_Real_t>::EXPECT_MATRIX_NEAR(torn, coordsVector[0], epsilon);
 }
