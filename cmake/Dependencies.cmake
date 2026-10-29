@@ -407,7 +407,8 @@ set(KENREF_GMX_GROMACS_GIT_URL   "https://gitlab.com/gromacs/gromacs.git" CACHE 
     "Upstream GROMACS git URL, cloned for a tag with no known SHA-256 (stock gromacs)")
 # The tag to fetch. Pinned to a known-good release that KEnRef is developed/tested against rather than a moving
 # branch, so an auto-fetch is reproducible. (The force provider does not version-gate — override at will.)
-set(KENREF_GMX_GROMACS_GIT_TAG   "v2025.4"                                CACHE STRING
+# 2026.4 since 2026-10-29 (2025.4 before); CI builds and tests against 2026.4 and 2025.5.
+set(KENREF_GMX_GROMACS_GIT_TAG   "v2026.4"                                CACHE STRING
     "GROMACS git tag/branch to fetch for the kenref-gmx force provider")
 # Fetch INTO the kenref build dir (tied to this build; no cross-version collision with a system gromacs).
 set(KENREF_GMX_GROMACS_FETCH_DIR "${CMAKE_BINARY_DIR}/gromacs-src"        CACHE PATH
