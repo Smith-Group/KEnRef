@@ -308,8 +308,10 @@ jobs:
       GMX_ROOT: /home/runner/deps/gromacs-${{ matrix.gromacs }}
       KENREF_PREFIX: /home/runner/deps/kenref-prefix
       # Upstream PLUMED master, pinned. Must contain plumed/plumed2#1515 (1e03000ea), the commit that makes
-      # KEnRefBias call makeRequestedAtomsWhole(); the gate below fails on a kernel without that call.
-      PLUMED_COMMIT: c2a5cd1525e2a71f82b9aeeef7adb0b44b2b106c
+      # KEnRefBias call makeRequestedAtomsWhole(), and #1523 (f3998f941), which records the RUNPATH to a
+      # KEnRef that is not on LIBRARY_PATH. The gate below fails on a kernel without the first; the link of
+      # the plumed exe fails without the second.
+      PLUMED_COMMIT: f3998f941790d172f883ae5f68d140a87e8208b0
       PLUMED_PREFIX: /home/runner/deps/plumed-install
       OMP_NUM_THREADS: 1
     steps:
@@ -426,19 +428,18 @@ jobs:
           set -e
           mkdir -p /home/runner/deps/plumed-src && cd /home/runner/deps/plumed-src
           git init -q && git remote add origin https://github.com/plumed/plumed2.git
-          # Deep enough to reach 1e03000ea (16 commits below the pin), so the ancestry check can run.
+          # Deep enough to reach 1e03000ea (18 commits below the pin), so the ancestry checks can run.
           git fetch -q --depth 100 origin "$PLUMED_COMMIT" && git checkout -q FETCH_HEAD
           git merge-base --is-ancestor 1e03000ea9ff6947e8a49012de86a1c3adea7879 HEAD \
             || { echo "PLUMED_COMMIT does not contain plumed/plumed2#1515 (1e03000ea)"; exit 1; }
+          # #1523 was squash-merged as f3998f941; its PR commit (ef33e6e20) is not in master's history.
+          git merge-base --is-ancestor f3998f941790d172f883ae5f68d140a87e8208b0 HEAD \
+            || { echo "PLUMED_COMMIT does not contain plumed/plumed2#1523 (f3998f941)"; exit 1; }
           # The core is found through its .pc files in $KENREF_PREFIX (lib/ for KEnRef's, share/ for the
           # Eigen it installs alongside). PLUMED never fetches KEnRef here: the installed one is found first.
+          # PLUMED records the KEnRef libdir it found there in the RUNPATH itself (#1523), so LIBRARY_PATH is
+          # not set: setting it would hide a regression of #1523 instead of failing the link of the plumed exe.
           export PKG_CONFIG_PATH="$KENREF_PREFIX/lib/pkgconfig:$KENREF_PREFIX/share/pkgconfig"
-          # Before configure, not just before make: with rpath on (PLUMED's default for KEnRef builds),
-          # configure bakes $libdir:$LIBRARY_PATH into -Wl,-R for libplumedKernel.so and the plumed exe.
-          # That -R is also how ld finds libkenref_core.so.2, which the kernel needs, when it links the exe.
-          # Without it the link fails ("libkenref_core.so.2, needed by libplumedKernel.so, not found").
-          # TODO: drop this once PLUMED records the KEnRef libdir itself (Smith-Group ef33e6e20, unmerged).
-          export LIBRARY_PATH="$KENREF_PREFIX/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
           ./configure --prefix="$PLUMED_PREFIX" CC="ccache clang" CXX="ccache clang++" \
             --enable-kenref --disable-doc --disable-python
           grep -m1 'KEnRef: using' config.log || true
@@ -450,8 +451,8 @@ jobs:
         if: ${{ matrix.plumed && !cancelled() && steps.plumed.outcome == 'success' }}
         run: |
           set -o pipefail
-          # The plumed binary and libplumedKernel.so carry a RUNPATH to $KENREF_PREFIX/lib (see LIBRARY_PATH
-          # in the build step). LD_LIBRARY_PATH names it again, so the run never depends on the RUNPATH.
+          # The plumed binary and libplumedKernel.so carry a RUNPATH to $KENREF_PREFIX/lib (#1523, see the
+          # build step). LD_LIBRARY_PATH names it again, so the run never depends on the RUNPATH.
           export LD_LIBRARY_PATH="$KENREF_PREFIX/lib:$PLUMED_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           ldd "$PLUMED_PREFIX/bin/plumed" | grep -iE 'kenref|plumed' || true
           PLUMED="$PLUMED_PREFIX/bin/plumed" BIN="$PWD/build/KEnRef" WORK="$RUNNER_TEMP/rtp" \
