@@ -31,6 +31,11 @@ consumer edit.
 - Scalar type is `KEnRef_Real_t`, set by the `KENREF_DOUBLE` compile option (double by default).
 - SIMD width comes from the `ACCEL` cmake option's `-march` (default `AVX2_256`; also `AVX_512`,
   `AVX_256`).
+- Eigen is pinned (`KENREF_EIGEN_GIT_TAG` in `cmake/Dependencies.cmake`, 5.0.1), because its alignment is part
+  of libkenref_core's ABI. **Review the pin every six months**: `.github/workflows/eigen-release-check.yml`
+  (master) opens an issue on 1 January and 1 July when Eigen has a newer release. Moving the pin also means
+  re-measuring the per-width reference energies, updating the archive SHA-256, and adding the new archive to a
+  `deps/eigen-<ver>` mirror release on this repository.
 
 ## Numerical correctness: validate against R
 Every numerical function is a faithful port of an R `ke` reference and must be validated against
