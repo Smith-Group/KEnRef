@@ -34,6 +34,15 @@ Downloads of *sub-dependencies* (Eigen, and — for a committed `=ON` component 
 one switch: **`--download ON|OFF`** (`-DKENREF_FETCH_MISSING`, default `ON`). With `--download OFF` a missing
 piece is a clean error telling you what to provide.
 
+**What is downloaded, and from where.** Eigen and the stock GROMACS come as release archives, checked against a
+SHA-256 recorded in `cmake/Dependencies.cmake`; a file with the wrong hash is refused. Eigen 5.0.1 comes from
+gitlab.com, or else from an unmodified copy on the KEnRef release `deps/eigen-5.0.1`. GROMACS 2026.4 (the
+default; 2025.5 and 2025.4 are known too) comes from ftp.gromacs.org. Any other version is git-cloned,
+unverified and with a warning, unless you give its hash (`-DKENREF_EIGEN_ARCHIVE_SHA256=…`,
+`-DKENREF_GMX_GROMACS_TARBALL_SHA256=…`). A fetched Eigen is installed into the build dir;
+`-DKENREF_EIGEN_SHARED_INSTALL=ON` installs it once per version under `~/.cache/kenref/eigen-<version>` instead,
+and every build dir with the same setting reuses it without downloading.
+
 ## Quick start (a few commands)
 
 ```bash

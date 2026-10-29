@@ -275,7 +275,7 @@ endif()
 # tree (include/eigen3 + share/{pkgconfig,eigen3}) into the kenref prefix at `cmake --install`.
 option(KENREF_INSTALL_EIGEN "Install the KEnRef-built Eigen into the kenref prefix (ships with the project)" ON)
 if(KENREF_EIGEN_FETCHED AND KENREF_INSTALL_EIGEN)
-    install(DIRECTORY "${KENREF_EIGEN_INSTALL_DIR}/" DESTINATION ".")
+    install(DIRECTORY "${KENREF_EIGEN_STAGED_DIR}/" DESTINATION ".")
 endif()
 
 # Install pkg-config files in BOTH standard locations (core ones always; kenref_plumed.pc only when the
