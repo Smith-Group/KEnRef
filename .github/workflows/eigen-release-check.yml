@@ -1,0 +1,72 @@
+name: Eigen release check
+
+# Every six months, compare the newest Eigen release with the one KEnRef pins (KENREF_EIGEN_GIT_TAG in
+# cmake/Dependencies.cmake), and open an issue when Eigen has released something newer. Moving the pin is a
+# decision, not a chore -- Eigen's alignment settings are part of libkenref_core's ABI -- so this only asks.
+#
+# One issue per release: its title names the version, and an issue with that title, open OR closed, is never
+# opened again. Closing it declines that release; the next one opens a new issue.
+#
+# If gitlab.com cannot be reached the run FAILS rather than passing quietly: a check that silently stops
+# checking is worse than none. GitHub mails a failed scheduled run to whoever last changed its cron line.
+#
+# Scheduled workflows run only from the default branch (master), and GitHub disables them in a repository
+# with no activity for 60 days; workflow_dispatch runs it by hand.
+
+on:
+  schedule:
+    - cron: '0 6 1 1,7 *'    # 06:00 UTC on 1 January and 1 July
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compare the newest Eigen release with the pin
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          pinned=$(sed -n 's/^set(KENREF_EIGEN_GIT_TAG *"\([^"]*\)".*/\1/p' cmake/Dependencies.cmake)
+          [ -n "$pinned" ] || { echo "::error::no KENREF_EIGEN_GIT_TAG in cmake/Dependencies.cmake"; exit 1; }
+
+          # Newest first. Only plain version tags count: 3.4-rc1 and its kind are not releases to pin.
+          api='https://gitlab.com/api/v4/projects/libeigen%2Feigen/releases?per_page=100'
+          json=$(curl -fsS --retry 5 --retry-all-errors --retry-delay 60 --max-time 60 "$api") \
+            || { echo "::error::cannot reach the Eigen releases API ($api)"; exit 1; }
+          latest=$(jq -r '.[] | select(.upcoming_release != true) | .tag_name' <<<"$json" \
+                   | grep -E '^[0-9]+(\.[0-9]+)+$' | sort -V | tail -1 || true)
+          [ -n "$latest" ] || { echo "::error::the Eigen releases API listed no release"; exit 1; }
+          echo "pinned: $pinned   newest release: $latest"
+
+          if [ "$(printf '%s\n%s\n' "$pinned" "$latest" | sort -V | tail -1)" = "$pinned" ]; then
+            echo "The pin is current."
+            exit 0
+          fi
+
+          title="Eigen $latest is released (KEnRef pins $pinned)"
+          seen=$(gh issue list --repo "$GITHUB_REPOSITORY" --state all --limit 100 \
+                   --search "\"Eigen $latest is released\" in:title" --json title \
+                   --jq "[.[] | select(.title == \"$title\")] | length")
+          if [ "$seen" != 0 ]; then
+            echo "An issue titled \"$title\" already exists; not opening another."
+            exit 0
+          fi
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body-file - <<EOF
+          Eigen $latest is the newest release on gitlab.com (https://gitlab.com/libeigen/eigen/-/releases/$latest); KEnRef pins $pinned.
+
+          Opened by the six-monthly check in \`.github/workflows/eigen-release-check.yml\`. Eigen's alignment settings are part of libkenref_core's ABI, so moving the pin is a decision. To move it:
+
+          - \`cmake/Dependencies.cmake\`: \`KENREF_EIGEN_GIT_TAG\`, and the archive's SHA-256 as \`_KENREF_EIGEN_SHA256_<version>\`.
+          - \`.github/workflows/ci.yml\` on each branch that moves: \`KENREF_EIGEN_GIT_TAG\` (\`KENREF_EIGEN_VERSION\` on release/1.x) and \`KENREF_EIGEN_SHA256\`, which together are the Eigen cache key.
+          - The mirror: a KEnRef release \`deps/eigen-<version>\` carrying the unmodified \`eigen-<version>.tar.gz\`.
+          - A full CI run, including consumer-abi and pkgconfig-consumer.
+
+          Close this issue to decline $latest; the check opens a new one only for a newer release.
+          EOF
