@@ -13,8 +13,9 @@ name: CI
 # workflow is correct. Resolve conflicts toward the newer branch.
 #
 # Two things differ from the 2.x workflow beyond the missing jobs:
-#   * Eigen is built from source here. This branch requires Eigen >= 5.0 and has no fetch fallback
-#     (no cmake/Dependencies.cmake), and the distro package is 3.4.
+#   * Eigen is installed by .github/scripts/install-eigen.sh, from its SHA-256-verified release archive.
+#     This branch requires Eigen >= 5.0 and has no fetch fallback (no cmake/Dependencies.cmake), and the
+#     distro package is 3.4. The prefix it makes is the cache entry 2.x and master stage with CMake.
 #   * MPI is installed even though only the core is built: find_package(MPI REQUIRED) is unconditional
 #     in this branch's top-level CMakeLists.txt.
 #
@@ -40,6 +41,10 @@ env:
   # Pinned, not "latest": Eigen's alignment settings are part of libkenref_core's ABI, so an unpinned
   # dependency makes a green run un-reproducible a week later.
   KENREF_EIGEN_VERSION: '5.0.1'
+  # The SHA-256 of eigen-5.0.1.tar.gz. It is part of the Eigen cache key, which every job on every branch
+  # shares: master, release/2.x and this branch restore ONE entry. A branch can restore the default branch's
+  # caches, so the entry master saves serves the release and ci/ branches too.
+  KENREF_EIGEN_SHA256: e9c326dc8c05cd1e044c71f30f1b2e34a6161a3b6ecf445d56b53ff1669e3dec
 
 jobs:
   build-test:
@@ -70,26 +75,16 @@ jobs:
           sudo apt-get install -y ninja-build libomp-dev libopenmpi-dev openmpi-bin
           if [ "${{ matrix.compiler }}" = clang ]; then sudo apt-get install -y clang; fi
 
-      - name: Cache Eigen
+      - name: Restore Eigen
         id: cache-eigen
         uses: actions/cache@v4
         with:
-          path: ~/eigen-install
-          key: eigen-${{ env.KENREF_EIGEN_VERSION }}-${{ runner.os }}
+          path: ~/.cache/kenref/eigen-${{ env.KENREF_EIGEN_VERSION }}
+          key: eigen-${{ runner.os }}-${{ env.KENREF_EIGEN_VERSION }}-${{ env.KENREF_EIGEN_SHA256 }}
 
-      - name: Build Eigen ${{ env.KENREF_EIGEN_VERSION }}
+      - name: Install Eigen ${{ env.KENREF_EIGEN_VERSION }} (cache miss only)
         if: steps.cache-eigen.outputs.cache-hit != 'true'
-        run: |
-          git clone --depth 1 --branch "${KENREF_EIGEN_VERSION}" \
-            https://gitlab.com/libeigen/eigen.git /tmp/eigen-src
-          # Header-only install: Eigen's optional reference BLAS/LAPACK take minutes to compile, KEnRef
-          # uses Eigen header-only, and distro packages do not ship them either.
-          cmake -S /tmp/eigen-src -B /tmp/eigen-build \
-            -DCMAKE_INSTALL_PREFIX="$HOME/eigen-install" \
-            -DEIGEN_BUILD_BLAS=OFF -DEIGEN_BUILD_LAPACK=OFF -DEIGEN_BUILD_TESTING=OFF \
-            -DBUILD_TESTING=OFF -DEIGEN_BUILD_DOC=OFF -DEIGEN_BUILD_DEMOS=OFF \
-            -DCMAKE_EXPORT_PACKAGE_REGISTRY=OFF
-          cmake --build /tmp/eigen-build --target install
+        run: .github/scripts/install-eigen.sh
 
       - name: Configure
         run: |
@@ -103,7 +98,7 @@ jobs:
             -DBUILD_KENREF_CORE=ON -DBUILD_KENREF_GMX=OFF \
             -DBUILD_TESTS=${{ matrix.build_only && 'OFF' || 'ON' }} \
             -DACCEL=${{ matrix.accel }} \
-            -DEigen3_DIR="$HOME/eigen-install/share/eigen3/cmake"
+            -DEigen3_DIR="$HOME/.cache/kenref/eigen-$KENREF_EIGEN_VERSION/share/eigen3/cmake"
 
       - name: Build
         run: cmake --build build -j "$(nproc)"
@@ -136,31 +131,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ninja-build libomp-dev libopenmpi-dev openmpi-bin
 
-      - name: Cache Eigen
+      - name: Restore Eigen
         id: cache-eigen
         uses: actions/cache@v4
         with:
-          path: ~/eigen-install
-          key: eigen-${{ env.KENREF_EIGEN_VERSION }}-${{ runner.os }}
+          path: ~/.cache/kenref/eigen-${{ env.KENREF_EIGEN_VERSION }}
+          key: eigen-${{ runner.os }}-${{ env.KENREF_EIGEN_VERSION }}-${{ env.KENREF_EIGEN_SHA256 }}
 
-      - name: Build Eigen ${{ env.KENREF_EIGEN_VERSION }}
+      - name: Install Eigen ${{ env.KENREF_EIGEN_VERSION }} (cache miss only)
         if: steps.cache-eigen.outputs.cache-hit != 'true'
-        run: |
-          git clone --depth 1 --branch "${KENREF_EIGEN_VERSION}" \
-            https://gitlab.com/libeigen/eigen.git /tmp/eigen-src
-          cmake -S /tmp/eigen-src -B /tmp/eigen-build \
-            -DCMAKE_INSTALL_PREFIX="$HOME/eigen-install" \
-            -DEIGEN_BUILD_BLAS=OFF -DEIGEN_BUILD_LAPACK=OFF -DEIGEN_BUILD_TESTING=OFF \
-            -DBUILD_TESTING=OFF -DEIGEN_BUILD_DOC=OFF -DEIGEN_BUILD_DEMOS=OFF \
-            -DCMAKE_EXPORT_PACKAGE_REGISTRY=OFF
-          cmake --build /tmp/eigen-build --target install
+        run: .github/scripts/install-eigen.sh
 
       - name: Configure
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_KENREF_CORE=ON -DBUILD_KENREF_GMX=OFF -DBUILD_TESTS=ON \
             -DACCEL=AVX2_256 \
-            -DEigen3_DIR="$HOME/eigen-install/share/eigen3/cmake"
+            -DEigen3_DIR="$HOME/.cache/kenref/eigen-$KENREF_EIGEN_VERSION/share/eigen3/cmake"
 
       - name: Build
         run: cmake --build build -j "$(nproc)"
@@ -179,7 +166,7 @@ jobs:
     #     GROMACS_INSTALL_DIR); master reads the other two from GROMACS_BUILD_DIR's cache.
     #   * CMAKE_INSTALL_PREFIX is passed even though nothing is installed: its default is derived from a
     #     ".../gromacs-4-kenref/YYYY/X.Y/..." install path, and any other path only draws a warning.
-    #   * Eigen is built separately, as in build-test above.
+    #   * Eigen is installed separately, as in build-test above.
     #   * There are no energy gates (rt_validate.sh and the rest arrived with 2.x). The one runtime gate
     #     ported here, multireplica_step_mismatch_validate.sh, asserts no energy, so it needs no
     #     per-width reference.
@@ -192,7 +179,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        gromacs: ['2026.4', '2025.5']
+        # SHA-256 of each release tarball on ftp.gromacs.org (their MD5s match manual.gromacs.org's).
+        include:
+          - gromacs: '2026.4'
+            gromacs_sha256: 58eda60979b124fcf9dff8b1b63cedfbc72fdb36d99e921dc1bdc310571098b6
+          - gromacs: '2025.5'
+            gromacs_sha256: 7d0c7791675d0171af71dbfb35bfbb90bc4deb08266e62fbdcdac996f1f60174
     env:
       # AVX2_256 is what the runners execute natively.
       ACCEL: AVX2_256
@@ -207,56 +199,38 @@ jobs:
           sudo apt-get install -y ninja-build clang libomp-dev libopenmpi-dev openmpi-bin libfftw3-dev
           clang --version | head -1; mpirun --version | head -1
 
-      - name: Cache Eigen
+      - name: Restore Eigen
         id: cache-eigen
         uses: actions/cache@v4
         with:
-          path: ~/eigen-install
-          key: eigen-${{ env.KENREF_EIGEN_VERSION }}-${{ runner.os }}
+          path: ~/.cache/kenref/eigen-${{ env.KENREF_EIGEN_VERSION }}
+          key: eigen-${{ runner.os }}-${{ env.KENREF_EIGEN_VERSION }}-${{ env.KENREF_EIGEN_SHA256 }}
 
-      - name: Build Eigen ${{ env.KENREF_EIGEN_VERSION }}
+      - name: Install Eigen ${{ env.KENREF_EIGEN_VERSION }} (cache miss only)
         if: steps.cache-eigen.outputs.cache-hit != 'true'
-        run: |
-          git clone --depth 1 --branch "${KENREF_EIGEN_VERSION}" \
-            https://gitlab.com/libeigen/eigen.git /tmp/eigen-src
-          cmake -S /tmp/eigen-src -B /tmp/eigen-build \
-            -DCMAKE_INSTALL_PREFIX="$HOME/eigen-install" \
-            -DEIGEN_BUILD_BLAS=OFF -DEIGEN_BUILD_LAPACK=OFF -DEIGEN_BUILD_TESTING=OFF \
-            -DBUILD_TESTING=OFF -DEIGEN_BUILD_DOC=OFF -DEIGEN_BUILD_DEMOS=OFF \
-            -DCMAKE_EXPORT_PACKAGE_REGISTRY=OFF
-          cmake --build /tmp/eigen-build --target install
-
-      - name: Resolve the GROMACS tag to a commit
-        id: gmxrev
-        run: |
-          url=https://gitlab.com/gromacs/gromacs.git
-          tag=v${{ matrix.gromacs }}
-          # An annotated tag lists its commit as ^{}; a lightweight tag only as itself.
-          sha=$(git ls-remote "$url" "refs/tags/$tag^{}" | cut -f1)
-          [ -n "$sha" ] || sha=$(git ls-remote "$url" "refs/tags/$tag" | cut -f1)
-          [ -n "$sha" ] || { echo "cannot resolve $tag at $url"; exit 1; }
-          echo "GROMACS $tag = $sha"
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+        run: .github/scripts/install-eigen.sh
 
       - name: Restore GROMACS
         id: gmxcache
         uses: actions/cache@v4
         with:
           path: ${{ env.GMX_ROOT }}
-          # Keyed by the COMMIT the tag resolves to, never the tag name alone: a moved tag must not
-          # restore a stale GROMACS.
-          key: gromacs-${{ runner.os }}-${{ steps.gmxrev.outputs.sha }}-clang-${{ env.ACCEL }}-mpi-v1
+          # Keyed by the release AND the tarball's SHA-256, which the build step verifies: a re-rolled
+          # tarball cannot restore a stale GROMACS.
+          key: gromacs-${{ runner.os }}-${{ matrix.gromacs }}-${{ matrix.gromacs_sha256 }}-clang-${{ env.ACCEL }}-mpi-v1
 
       - name: Build GROMACS ${{ matrix.gromacs }} (cache miss only)
         if: steps.gmxcache.outputs.cache-hit != 'true'
         run: |
           set -e
-          mkdir -p "$GMX_ROOT"
-          git clone --depth 1 --branch v${{ matrix.gromacs }} https://gitlab.com/gromacs/gromacs.git "$GMX_ROOT/src"
-          got=$(git -C "$GMX_ROOT/src" rev-parse HEAD)
-          [ "$got" = "${{ steps.gmxrev.outputs.sha }}" ] \
-            || { echo "cloned $got, but the cache key names ${{ steps.gmxrev.outputs.sha }}"; exit 1; }
-          rm -rf "$GMX_ROOT/src/.git"
+          # The release tarball, not a gitlab.com clone: one download, verified, and gitlab.com is not
+          # touched at all (its overload failed ~30 jobs on 2026-10-26).
+          tarball="$RUNNER_TEMP/gromacs-${{ matrix.gromacs }}.tar.gz"
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 15 -o "$tarball" \
+            "https://ftp.gromacs.org/gromacs/gromacs-${{ matrix.gromacs }}.tar.gz"
+          echo "${{ matrix.gromacs_sha256 }}  $tarball" | sha256sum -c -
+          mkdir -p "$GMX_ROOT/src"
+          tar xzf "$tarball" -C "$GMX_ROOT/src" --strip-components=1
           # GMX_MPI: kenref-gmx refuses a thread-MPI GROMACS (multi-simulation needs library MPI).
           # GMX_INSTALL_LEGACY_API: without it GROMACS does not install the headers kenref-gmx includes.
           cmake -S "$GMX_ROOT/src" -B "$GMX_ROOT/build" -G Ninja \
@@ -279,7 +253,7 @@ jobs:
             -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
             -DBUILD_KENREF_CORE=ON -DBUILD_KENREF_GMX=ON -DBUILD_TESTS=ON \
             -DACCEL=${{ env.ACCEL }} \
-            -DEigen3_DIR="$HOME/eigen-install/share/eigen3/cmake" \
+            -DEigen3_DIR="$HOME/.cache/kenref/eigen-$KENREF_EIGEN_VERSION/share/eigen3/cmake" \
             -DGROMACS_SRC_DIR="$GMX_ROOT/src" \
             -DGROMACS_BUILD_DIR="$GMX_ROOT/build" \
             -DGROMACS_INSTALL_DIR="$GMX_ROOT/install" \
