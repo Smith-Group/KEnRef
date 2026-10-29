@@ -7,15 +7,16 @@
 #      CMAKE_PREFIX_PATH / <Pkg>_ROOT / <Pkg>_DIR hints and default system
 #      locations (/usr, /usr/local, ...);
 #   2. if not found AND KENREF_FETCH_MISSING=ON, downloads & builds it as a
-#      sub-build — FetchContent for CMake/header-only deps; ExternalProject for
-#      autotools deps such as PLUMED (see the scaffolding at the bottom);
+#      sub-build — from a SHA-256-verified release archive when KEnRef knows the
+#      hash (Eigen, GROMACS), else by git clone; PLUMED (autotools) is built by
+#      build.sh, not here;
 #   3. otherwise fails with an actionable message.
 #
 # Macros (not functions) so the imported targets they create live in the caller's
 # scope. Include this file, then call the kenref_provide_*() you need.
 #
 # WIRED: Eigen3 (find/fetch), MPI (find, required), OpenMP (find, optional), FFTW3 (detect),
-#        GROMACS (find; ExternalProject scaffold), PLUMED (detect; build.sh owns the autotools build).
+#        GROMACS (find/fetch), PLUMED (detect; build.sh owns the autotools build).
 # ============================================================================
 include_guard(GLOBAL)
 include(FetchContent)
@@ -37,18 +38,120 @@ if(KENREF_DEPS_CACHE)
 endif()
 message(STATUS "Fetched-deps cache (FETCHCONTENT_BASE_DIR): ${FETCHCONTENT_BASE_DIR}")
 
+# Download one archive to <dest> and accept it only if its SHA-256 matches. The URLs are tried in order, for up
+# to three rounds: a second host covers an outage of the first, and the rounds cover a host that is merely
+# overloaded, which is how gitlab.com failed ~30 CI jobs on 2026-10-26. A URL that serves the WRONG file is
+# reported and not tried again -- that is not a network problem, and retrying cannot fix it. An earlier
+# download at <dest> is re-hashed and reused. (Not ExternalProject's URL/URL_HASH: when every URL serves the
+# wrong file it reports only "Each download failed!", without a single hash.)
+function(_kenref_download_verified what dest sha256)
+    string(TOLOWER "${sha256}" sha256)
+    if(EXISTS "${dest}")
+        file(SHA256 "${dest}" _got)
+        if(_got STREQUAL sha256)
+            message(STATUS "${what}: reusing ${dest} (SHA-256 verified)")
+            return()
+        endif()
+        file(REMOVE "${dest}")
+    endif()
+    get_filename_component(_dir "${dest}" DIRECTORY)
+    file(MAKE_DIRECTORY "${_dir}")
+    # A name of its own: build dirs that share KENREF_DEPS_CACHE may be downloading the same file at once.
+    string(RANDOM LENGTH 8 _suffix)
+    set(_part "${dest}.part-${_suffix}")
+    set(_urls ${ARGN})
+    set(_log "")
+    foreach(_round 1 2 3)
+        if(NOT _urls)
+            break()
+        endif()
+        if(_round GREATER 1)
+            math(EXPR _wait "15 * (${_round} - 1)")
+            message(STATUS "${what}: no URL succeeded; trying again in ${_wait} s")
+            execute_process(COMMAND "${CMAKE_COMMAND}" -E sleep ${_wait})
+        endif()
+        foreach(_url IN LISTS _urls)
+            message(STATUS "${what}: downloading ${_url}")
+            file(DOWNLOAD "${_url}" "${_part}" STATUS _st INACTIVITY_TIMEOUT 60 TIMEOUT 1800)
+            list(GET _st 0 _code)
+            if(_code EQUAL 0)
+                file(SHA256 "${_part}" _got)
+                if(_got STREQUAL sha256)
+                    file(RENAME "${_part}" "${dest}")
+                    message(STATUS "${what}: SHA-256 verified")
+                    return()
+                endif()
+                file(REMOVE "${_part}")
+                message(WARNING "${what}: ${_url} served a file with SHA-256 ${_got}, not the expected ${sha256}. "
+                                "It was discarded and that URL is not tried again.")
+                string(APPEND _log "\n  ${_url}: the wrong file (SHA-256 ${_got})")
+                list(REMOVE_ITEM _urls "${_url}")
+            else()
+                file(REMOVE "${_part}")
+                list(GET _st 1 _msg)
+                string(APPEND _log "\n  ${_url}: round ${_round}: ${_msg} (curl ${_code})")
+            endif()
+        endforeach()
+    endforeach()
+    message(FATAL_ERROR "${what}: no URL gave a file with SHA-256 ${sha256}.${_log}")
+endfunction()
+
+# Unpack an archive whose content sits under ONE top-level directory (eigen-5.0.1/, gromacs-2025.4/) so that
+# the directory's content becomes <dest>. It is unpacked beside <dest> and renamed into place, so an
+# interrupted unpack never leaves a <dest> that looks complete.
+function(_kenref_extract_archive archive dest)
+    set(_tmp "${dest}.unpack")
+    file(REMOVE_RECURSE "${_tmp}" "${dest}")
+    file(ARCHIVE_EXTRACT INPUT "${archive}" DESTINATION "${_tmp}")
+    file(GLOB _top LIST_DIRECTORIES true "${_tmp}/*")
+    list(LENGTH _top _n)
+    if(NOT _n EQUAL 1 OR NOT IS_DIRECTORY "${_top}")
+        message(FATAL_ERROR "${archive}: expected a single top-level directory, found: ${_top}")
+    endif()
+    file(RENAME "${_top}" "${dest}")
+    file(REMOVE_RECURSE "${_tmp}")
+endfunction()
+
 # ----------------------------------------------------------------------------
 # Eigen3 (header-only)  ->  imported target Eigen3::Eigen
 # Also sets EIGEN3_INCLUDE_DIR (raw path) in the caller's scope: a few KEnRef
 # targets consume it directly (kenref_and_eigen3 header-copy, the .pc Cflags).
 # ----------------------------------------------------------------------------
 set(KENREF_EIGEN_MIN_VERSION "3.4.0"                                  CACHE STRING "Minimum acceptable Eigen3 version")
-set(KENREF_EIGEN_GIT_URL     "https://gitlab.com/libeigen/eigen.git"  CACHE STRING "Eigen git URL for the fetch fallback")
+set(KENREF_EIGEN_GIT_URL     "https://gitlab.com/libeigen/eigen.git"  CACHE STRING "Eigen git URL: resolves 'latest', and is cloned for a tag with no known SHA-256")
 # PINNED, not "latest". Eigen's alignment settings are part of libkenref_core's ABI, so "whatever was
 # released most recently" makes a build silently un-reproducible: the same commit fetched a week apart
 # can produce a differently-ABI'd library. Pass -DKENREF_EIGEN_GIT_TAG=latest to opt back in.
+# The pin is reviewed every six months: .github/workflows/eigen-release-check.yml (on master) opens an issue
+# when Eigen has released something newer. A bump changes this tag, adds its SHA-256 below, updates
+# KENREF_EIGEN_SHA256 in ci.yml (the CI cache key), and needs the mirror release deps/eigen-<version>.
 set(KENREF_EIGEN_GIT_TAG     "5.0.1"                                  CACHE STRING "Eigen tag to fetch when not found (explicit tag, or 'latest' to resolve the newest release tag)")
 set(KENREF_EIGEN_INSTALL_DIR "${CMAKE_BINARY_DIR}/eigen-install"      CACHE PATH   "Prefix a FETCHED Eigen is INSTALLED to (default: build folder; set e.g. /usr/local or $ENV{HOME}/.local to persist)")
+
+# A tag with a known SHA-256 is fetched as its release archive and verified; nothing else is. Any other tag is
+# cloned from KENREF_EIGEN_GIT_URL, unverified and without the mirror, unless KENREF_EIGEN_ARCHIVE_SHA256 names
+# the hash of its archive.
+set(_KENREF_EIGEN_SHA256_5.0.1 "e9c326dc8c05cd1e044c71f30f1b2e34a6161a3b6ecf445d56b53ff1669e3dec")
+set(KENREF_EIGEN_ARCHIVE_SHA256 "" CACHE STRING
+    "SHA-256 of eigen-<tag>.tar.gz, for a tag KEnRef has no hash for (overrides a known one)")
+# Tried in order, <ver> replaced by the tag. The second is an unmodified copy of the first, attached to a KEnRef
+# release, for when gitlab.com is down or overloaded.
+set(KENREF_EIGEN_ARCHIVE_URLS
+    "https://gitlab.com/libeigen/eigen/-/archive/<ver>/eigen-<ver>.tar.gz;https://github.com/Smith-Group/KEnRef/releases/download/deps%2Feigen-<ver>/eigen-<ver>.tar.gz"
+    CACHE STRING "Eigen release-archive URLs, tried in order (<ver> is replaced by the tag)")
+# OFF keeps a fetched Eigen inside the build dir, which removing the build dir cleans up. ON installs it once
+# per version under KENREF_EIGEN_SHARED_ROOT and every build dir that also sets ON reuses it, without a download.
+# Either way Eigen3_DIR is pinned to the exact prefix (never an unpinned find_package), and the prefix ships with
+# kenref as before.
+option(KENREF_EIGEN_SHARED_INSTALL
+    "Install a fetched Eigen into KENREF_EIGEN_SHARED_ROOT/eigen-<version>, shared by build dirs, instead of KENREF_EIGEN_INSTALL_DIR" OFF)
+if(NOT "$ENV{XDG_CACHE_HOME}" STREQUAL "")
+    set(_kn_cache_home "$ENV{XDG_CACHE_HOME}")
+else()
+    set(_kn_cache_home "$ENV{HOME}/.cache")
+endif()
+set(KENREF_EIGEN_SHARED_ROOT "${_kn_cache_home}/kenref" CACHE PATH
+    "Parent of the shared per-version Eigen installs (used when KENREF_EIGEN_SHARED_INSTALL=ON)")
 
 # Resolve the newest Eigen RELEASE tag from the remote (git ls-remote), highest semver. Only used by the
 # fetch fallback below; sets _kn_eigen_fetch_tag. 'latest' -> newest; anything else -> use it verbatim.
@@ -82,55 +185,120 @@ function(_kenref_resolve_eigen_tag out_var)
     set(${out_var} "${_best}" PARENT_SCOPE)
 endfunction()
 
+# Fetch the Eigen release KENREF_EIGEN_GIT_TAG names and INSTALL it with Eigen's OWN cmake, so it becomes a
+# REAL, findable Eigen3 (headers + eigen3.pc + Eigen3Config), not a transient build-interface cache. Sets the
+# cache entry KENREF_EIGEN_STAGED_DIR to the install prefix.
+#
+# A completed install records what it was made from in <prefix>/share/eigen3/kenref-source.txt. A prefix that
+# records a DIFFERENT source is refused, never overwritten: a shared one may be in use by another build dir,
+# and a build-dir one means KENREF_EIGEN_GIT_TAG changed under it. A prefix with no record is reused when it
+# is KENREF_EIGEN_INSTALL_DIR (staged before the record existed), and installed over when it is a shared one
+# (an interrupted install).
+function(_kenref_stage_eigen)
+    _kenref_resolve_eigen_tag(_tag)
+    set(_sha "${KENREF_EIGEN_ARCHIVE_SHA256}")
+    if(NOT _sha)
+        set(_sha "${_KENREF_EIGEN_SHA256_${_tag}}")
+    endif()
+    if(_sha)
+        string(TOLOWER "${_sha}" _sha)
+        set(_source "Eigen ${_tag}, archive SHA-256 ${_sha}")
+    else()
+        set(_source "Eigen ${_tag}, git clone of ${KENREF_EIGEN_GIT_URL}")
+    endif()
+    if(KENREF_EIGEN_SHARED_INSTALL)
+        set(_prefix "${KENREF_EIGEN_SHARED_ROOT}/eigen-${_tag}")
+        file(MAKE_DIRECTORY "${KENREF_EIGEN_SHARED_ROOT}")
+        # Configures staging into one shared prefix at once: the second waits here, then reuses the first's.
+        file(LOCK "${_prefix}.lock" GUARD FUNCTION TIMEOUT 1800 RESULT_VARIABLE _lock)
+        if(_lock)
+            message(FATAL_ERROR "Eigen3: cannot lock ${_prefix}.lock: ${_lock}")
+        endif()
+    else()
+        set(_prefix "${KENREF_EIGEN_INSTALL_DIR}")
+    endif()
+    set(_record "${_prefix}/share/eigen3/kenref-source.txt")
+
+    if(EXISTS "${_record}")
+        file(STRINGS "${_record}" _have LIMIT_COUNT 1)
+        if(NOT _have STREQUAL _source)
+            message(FATAL_ERROR "Eigen3: ${_prefix} already holds\n    ${_have}\n  but this configure wants\n"
+                                "    ${_source}\n  It is not overwritten. Remove it, or stage elsewhere.")
+        endif()
+        message(STATUS "Eigen3: reusing ${_prefix} (${_source})")
+    elseif(NOT KENREF_EIGEN_SHARED_INSTALL AND EXISTS "${_prefix}/share/eigen3/cmake/Eigen3Config.cmake")
+        message(STATUS "Eigen3: reusing ${_prefix} (staged before KEnRef recorded the source)")
+    else()
+        message(STATUS "Eigen3: not found -> fetching ${_tag} + installing to ${_prefix}")
+        set(_src "${CMAKE_BINARY_DIR}/eigen-src")
+        if(_sha)
+            string(REPLACE "<ver>" "${_tag}" _urls "${KENREF_EIGEN_ARCHIVE_URLS}")
+            set(_archive "${FETCHCONTENT_BASE_DIR}/eigen-${_tag}.tar.gz")
+            _kenref_download_verified("Eigen3 ${_tag}" "${_archive}" "${_sha}" ${_urls})
+            _kenref_extract_archive("${_archive}" "${_src}")
+        else()
+            message(WARNING "Eigen3: KEnRef has no SHA-256 for ${_tag}, so it is cloned from ${KENREF_EIGEN_GIT_URL}: "
+                            "unverified, and without the mirror. To fetch its release archive instead, pass "
+                            "-DKENREF_EIGEN_ARCHIVE_SHA256=<SHA-256 of eigen-${_tag}.tar.gz>.")
+            find_package(Git REQUIRED)
+            file(REMOVE_RECURSE "${_src}")
+            execute_process(COMMAND "${GIT_EXECUTABLE}" -c advice.detachedHead=false clone --depth 1 --branch "${_tag}" "${KENREF_EIGEN_GIT_URL}" "${_src}"
+                            RESULT_VARIABLE _rc)
+            if(NOT _rc EQUAL 0)
+                message(FATAL_ERROR "Eigen3: git clone of ${_tag} from ${KENREF_EIGEN_GIT_URL} failed.")
+            endif()
+        endif()
+        # Complete Eigen install = headers + Eigen3Config/Version + eigen3.pc — exactly what distro
+        # packages (libeigen3-dev) ship. We turn OFF Eigen's OPTIONAL reference blas/lapack libs: they
+        # take minutes to compile, kenref uses Eigen header-only, and distros don't ship them either.
+        # (Set -DEIGEN_BUILD_BLAS=ON -DEIGEN_BUILD_LAPACK=ON via the build.sh `--` passthrough if you
+        #  really want them.) CMAKE_EXPORT_PACKAGE_REGISTRY=OFF prevents the ~/.cmake/packages pollution.
+        # built with KEnRef's build type (${KENREF_DEP_BUILD_TYPE}); same as kenref, never hardcoded.
+        set(_bld "${CMAKE_BINARY_DIR}/eigen-build")
+        file(REMOVE_RECURSE "${_bld}")
+        execute_process(COMMAND "${CMAKE_COMMAND}" -S "${_src}" -B "${_bld}"
+                        "-DCMAKE_INSTALL_PREFIX=${_prefix}" "-DCMAKE_BUILD_TYPE=${KENREF_DEP_BUILD_TYPE}"
+                        -DEIGEN_BUILD_BLAS=OFF -DEIGEN_BUILD_LAPACK=OFF -DEIGEN_BUILD_TESTING=OFF
+                        -DBUILD_TESTING=OFF -DEIGEN_BUILD_DOC=OFF -DEIGEN_BUILD_DEMOS=OFF
+                        -DCMAKE_EXPORT_PACKAGE_REGISTRY=OFF
+                        RESULT_VARIABLE _ec)
+        if(_ec EQUAL 0)
+            execute_process(COMMAND "${CMAKE_COMMAND}" --install "${_bld}" RESULT_VARIABLE _ei)
+        endif()
+        if(NOT (_ec EQUAL 0 AND _ei EQUAL 0))
+            message(FATAL_ERROR "Eigen3 install failed (see output above).")
+        endif()
+        file(WRITE "${_record}" "${_source}\n")
+    endif()
+    set(KENREF_EIGEN_STAGED_DIR "${_prefix}" CACHE INTERNAL "Prefix KEnRef staged its fetched Eigen in")
+endfunction()
+
 macro(kenref_provide_eigen)
     if(NOT TARGET Eigen3::Eigen)
         # 1) standard discovery (honors CMAKE_PREFIX_PATH, Eigen3_ROOT, Eigen3_DIR, system dirs). NO version
         #    constraint: Eigen 5.x's config uses SameMajorVersion compat and would REJECT a "3.4.0" request;
         #    KEnRef works with Eigen 3.4+ and 5.x alike, so accept whatever is found.
         find_package(Eigen3 CONFIG QUIET)
-        if(Eigen3_FOUND)
+        if(Eigen3_FOUND AND KENREF_EIGEN_STAGED_DIR AND Eigen3_DIR STREQUAL "${KENREF_EIGEN_STAGED_DIR}/share/eigen3/cmake")
+            # A reconfigure: Eigen3_DIR is cached from the configure that staged it, so it is found, and it is
+            # still ours to ship. (Before this branch existed a reconfigure reported it as external, and
+            # `cmake --install` then left Eigen out of the kenref prefix.)
+            set(KENREF_EIGEN_FETCHED TRUE)
+            message(STATUS "Eigen3: staged v${Eigen3_VERSION} (${Eigen3_DIR}) — will ship with kenref")
+        elseif(Eigen3_FOUND)
             message(STATUS "Eigen3: found v${Eigen3_VERSION} (${Eigen3_DIR})  [external — not shipped with kenref]")
             set(KENREF_EIGEN_FETCHED FALSE)
         elseif(KENREF_FETCH_MISSING)
-            # 2) fetch Eigen source (download only — SOURCE_SUBDIR cmake/ avoids add_subdirectory of Eigen's
-            #    build), then INSTALL it with Eigen's OWN cmake so it becomes a REAL, findable Eigen3
-            #    (headers + eigen3.pc + Eigen3Config), not a transient build-interface cache. Install prefix
-            #    defaults to the build folder (no sudo); point KENREF_EIGEN_INSTALL_DIR elsewhere to persist.
-            _kenref_resolve_eigen_tag(_kn_eigen_fetch_tag)
-            message(STATUS "Eigen3: not found -> fetching ${_kn_eigen_fetch_tag} + installing to ${KENREF_EIGEN_INSTALL_DIR}")
-            FetchContent_Declare(Eigen3
-                GIT_REPOSITORY "${KENREF_EIGEN_GIT_URL}"
-                GIT_TAG        "${_kn_eigen_fetch_tag}"
-                GIT_SHALLOW    TRUE
-                SOURCE_SUBDIR  cmake)
-            FetchContent_MakeAvailable(Eigen3)   # populates eigen3_SOURCE_DIR (no configure of Eigen)
-            if(NOT EXISTS "${KENREF_EIGEN_INSTALL_DIR}/share/eigen3/cmake/Eigen3Config.cmake")
-                # Complete Eigen install = headers + Eigen3Config/Version + eigen3.pc — exactly what distro
-                # packages (libeigen3-dev) ship. We turn OFF Eigen's OPTIONAL reference blas/lapack libs: they
-                # take minutes to compile, kenref uses Eigen header-only, and distros don't ship them either.
-                # (Set -DEIGEN_BUILD_BLAS=ON -DEIGEN_BUILD_LAPACK=ON via the build.sh `--` passthrough if you
-                #  really want them.) CMAKE_EXPORT_PACKAGE_REGISTRY=OFF prevents the ~/.cmake/packages pollution.
-                # built with KEnRef's build type (${KENREF_DEP_BUILD_TYPE}); same as kenref, never hardcoded.
-                execute_process(COMMAND "${CMAKE_COMMAND}" -S "${eigen3_SOURCE_DIR}" -B "${CMAKE_BINARY_DIR}/eigen-build"
-                                "-DCMAKE_INSTALL_PREFIX=${KENREF_EIGEN_INSTALL_DIR}" "-DCMAKE_BUILD_TYPE=${KENREF_DEP_BUILD_TYPE}"
-                                -DEIGEN_BUILD_BLAS=OFF -DEIGEN_BUILD_LAPACK=OFF -DEIGEN_BUILD_TESTING=OFF
-                                -DBUILD_TESTING=OFF -DEIGEN_BUILD_DOC=OFF -DEIGEN_BUILD_DEMOS=OFF
-                                -DCMAKE_EXPORT_PACKAGE_REGISTRY=OFF
-                                RESULT_VARIABLE _kn_ec)
-                if(_kn_ec EQUAL 0)
-                    execute_process(COMMAND "${CMAKE_COMMAND}" --install "${CMAKE_BINARY_DIR}/eigen-build" RESULT_VARIABLE _kn_ei)
-                endif()
-                if(NOT (_kn_ec EQUAL 0 AND _kn_ei EQUAL 0))
-                    message(FATAL_ERROR "Eigen3 install failed (see output above).")
-                endif()
-            endif()
+            # 2) fetch + install it (above). The prefix defaults to the build folder (no sudo); point
+            #    KENREF_EIGEN_INSTALL_DIR elsewhere to persist, or share one per version: KENREF_EIGEN_SHARED_INSTALL.
+            _kenref_stage_eigen()
             # find the staged Eigen -> normal 'found' path (Eigen3_DIR straight at the config dir, FORCE past
             # the NOTFOUND the first find_package cached). KENREF_EIGEN_FETCHED=TRUE -> it ships with kenref
             # (KEnRefCore.cmake installs it into the kenref prefix).
-            set(Eigen3_DIR "${KENREF_EIGEN_INSTALL_DIR}/share/eigen3/cmake" CACHE PATH "KEnRef-built Eigen3" FORCE)
+            set(Eigen3_DIR "${KENREF_EIGEN_STAGED_DIR}/share/eigen3/cmake" CACHE PATH "KEnRef-built Eigen3" FORCE)
             find_package(Eigen3 CONFIG REQUIRED NO_CMAKE_PACKAGE_REGISTRY)
             set(KENREF_EIGEN_FETCHED TRUE)
-            message(STATUS "Eigen3: built (${KENREF_DEP_BUILD_TYPE}) + staged v${Eigen3_VERSION} (${Eigen3_DIR}) — will ship with kenref")
+            message(STATUS "Eigen3: staged v${Eigen3_VERSION} (${Eigen3_DIR}) — will ship with kenref")
         else()
             message(FATAL_ERROR
                 "Eigen3 (>= ${KENREF_EIGEN_MIN_VERSION}) not found and KENREF_FETCH_MISSING=OFF.\n"
@@ -230,13 +398,13 @@ endmacro()
 # gromacs's source + build + library and drives it with its OWN classes (KEnRefForceProvider, the gmx
 # wrapper). Discovery honours the caller-set GROMACS_DIR (from GROMACS_INSTALL_DIR) / CMAKE_PREFIX_PATH —
 # concrete paths come from your dev env (~/scripts, CLion), not hardcoded here. Fetch fallback =
-# ExternalProject clone+build of upstream gromacs (heavy; scaffolded for now).
+# download + build of an upstream gromacs release (heavy: 20+ min).
 # ----------------------------------------------------------------------------
 # The kenref-gmx force provider's GROMACS (stock gromacs it links) — its download config. The PLUMED-patched
 # GROMACS is a separate consumer, handled on the PLUMED side (build-and-patch.sh), not here. build.sh's
 # --with-gmx does the actual fetch+build; these are the defaults it uses.
 set(KENREF_GMX_GROMACS_GIT_URL   "https://gitlab.com/gromacs/gromacs.git" CACHE STRING
-    "Upstream GROMACS git URL for the kenref-gmx force-provider fetch (stock gromacs)")
+    "Upstream GROMACS git URL, cloned for a tag with no known SHA-256 (stock gromacs)")
 # The tag to fetch. Pinned to a known-good release that KEnRef is developed/tested against rather than a moving
 # branch, so an auto-fetch is reproducible. (The force provider does not version-gate — override at will.)
 set(KENREF_GMX_GROMACS_GIT_TAG   "v2025.4"                                CACHE STRING
@@ -244,6 +412,46 @@ set(KENREF_GMX_GROMACS_GIT_TAG   "v2025.4"                                CACHE 
 # Fetch INTO the kenref build dir (tied to this build; no cross-version collision with a system gromacs).
 set(KENREF_GMX_GROMACS_FETCH_DIR "${CMAKE_BINARY_DIR}/gromacs-src"        CACHE PATH
     "Where to fetch GROMACS for the kenref-gmx force provider (inside the kenref build dir)")
+# A tag v<release> with a known SHA-256 is fetched as GROMACS's release tarball and verified, without touching
+# gitlab.com; any other tag or branch is cloned from KENREF_GMX_GROMACS_GIT_URL, unverified, unless
+# KENREF_GMX_GROMACS_TARBALL_SHA256 names the hash of its tarball. These hashes are of the files on
+# ftp.gromacs.org; their MD5s match the ones manual.gromacs.org publishes.
+set(_KENREF_GROMACS_SHA256_2025.4 "ca17720b4a260eb73649211e9f6a940ee7543452129844213c3accb0a927a5c3")
+set(_KENREF_GROMACS_SHA256_2025.5 "7d0c7791675d0171af71dbfb35bfbb90bc4deb08266e62fbdcdac996f1f60174")
+set(_KENREF_GROMACS_SHA256_2026.4 "58eda60979b124fcf9dff8b1b63cedfbc72fdb36d99e921dc1bdc310571098b6")
+set(KENREF_GMX_GROMACS_TARBALL_SHA256 "" CACHE STRING
+    "SHA-256 of gromacs-<release>.tar.gz, for a release KEnRef has no hash for (overrides a known one)")
+set(KENREF_GMX_GROMACS_TARBALL_URL "https://ftp.gromacs.org/gromacs/gromacs-<ver>.tar.gz" CACHE STRING
+    "GROMACS release-tarball URL(s), tried in order (<ver> is replaced by the tag without its v)")
+
+# Put the stock GROMACS source KENREF_GMX_GROMACS_GIT_TAG names at <dest>.
+function(_kenref_fetch_gromacs_source dest)
+    set(_tag "${KENREF_GMX_GROMACS_GIT_TAG}")
+    string(REGEX REPLACE "^v" "" _ver "${_tag}")
+    set(_sha "${KENREF_GMX_GROMACS_TARBALL_SHA256}")
+    if(NOT _sha)
+        set(_sha "${_KENREF_GROMACS_SHA256_${_ver}}")
+    endif()
+    if(_sha)
+        string(REPLACE "<ver>" "${_ver}" _urls "${KENREF_GMX_GROMACS_TARBALL_URL}")
+        set(_archive "${FETCHCONTENT_BASE_DIR}/gromacs-${_ver}.tar.gz")
+        _kenref_download_verified("GROMACS ${_ver}" "${_archive}" "${_sha}" ${_urls})
+        message(STATUS "GROMACS: unpacking ${_ver} -> ${dest}")
+        _kenref_extract_archive("${_archive}" "${dest}")
+    else()
+        message(WARNING "GROMACS: KEnRef has no SHA-256 for ${_tag}, so it is cloned from ${KENREF_GMX_GROMACS_GIT_URL}, "
+                        "unverified. To fetch its release tarball instead, pass "
+                        "-DKENREF_GMX_GROMACS_TARBALL_SHA256=<SHA-256 of gromacs-${_ver}.tar.gz>.")
+        find_package(Git REQUIRED)
+        message(STATUS "GROMACS: cloning ${_tag} -> ${dest}")
+        execute_process(COMMAND "${GIT_EXECUTABLE}" -c advice.detachedHead=false clone --depth 1 --branch "${_tag}"
+                        "${KENREF_GMX_GROMACS_GIT_URL}" "${dest}" RESULT_VARIABLE _rc)
+        if(NOT _rc EQUAL 0)
+            message(FATAL_ERROR "GROMACS clone failed. Provide -DGROMACS_BUILD_DIR=<an existing gromacs "
+                                "build dir> or -DGROMACS_SRC_DIR=<a gromacs source checkout>.")
+        endif()
+    endif()
+endfunction()
 
 # FIND a usable stock GROMACS (install cmake package + source + build tree — the force provider needs all
 # three), OR FETCH the source and DELEGATE its compilation to GROMACS's OWN cmake, then use that. All the
@@ -290,20 +498,13 @@ macro(kenref_provide_gromacs)
         # Build GROMACS ourselves. Two ways in:
         #   * the user gave -DGROMACS_SRC_DIR=<their checkout>  -> build THAT (no download, honoured even when
         #     KENREF_FETCH_MISSING=OFF: building a source you supplied is not a download).
-        #   * nothing given + downloads enabled                 -> clone a stock GROMACS first.
+        #   * nothing given + downloads enabled                 -> fetch a stock GROMACS first.
         # (Previously this branch unconditionally overwrote GROMACS_SRC_DIR with the fetch dir, silently
         #  discarding a user-provided checkout and cloning a different GROMACS.)
         if(NOT (DEFINED GROMACS_SRC_DIR AND EXISTS "${GROMACS_SRC_DIR}/CMakeLists.txt"))
-            find_package(Git REQUIRED)
             set(GROMACS_SRC_DIR "${KENREF_GMX_GROMACS_FETCH_DIR}")
             if(NOT EXISTS "${GROMACS_SRC_DIR}/CMakeLists.txt")
-                message(STATUS "GROMACS: fetching ${KENREF_GMX_GROMACS_GIT_TAG} -> ${GROMACS_SRC_DIR}")
-                execute_process(COMMAND "${GIT_EXECUTABLE}" clone --depth 1 --branch "${KENREF_GMX_GROMACS_GIT_TAG}"
-                                "${KENREF_GMX_GROMACS_GIT_URL}" "${GROMACS_SRC_DIR}" RESULT_VARIABLE _kg_rc)
-                if(NOT _kg_rc EQUAL 0)
-                    message(FATAL_ERROR "GROMACS clone failed. Provide -DGROMACS_BUILD_DIR=<an existing gromacs "
-                                        "build dir> or -DGROMACS_SRC_DIR=<a gromacs source checkout>.")
-                endif()
+                _kenref_fetch_gromacs_source("${GROMACS_SRC_DIR}")
             endif()
         else()
             message(STATUS "GROMACS: building the PROVIDED source -> ${GROMACS_SRC_DIR} (no download)")
