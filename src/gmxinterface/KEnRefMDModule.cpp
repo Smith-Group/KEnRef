@@ -162,9 +162,9 @@ void KEnRefMDModule::subscribeToSimulationSetupNotifications(gmx::MDModulesNotif
 	 * 2025.4 and 2026.x, and SimulationContext::multiSimulation_ exists in both, so no GMX_VERSION
 	 * shim is needed here (checked against both header sets, not assumed).
 	 *
-	 * With the MDModules restructure (gromacs#5748), `md.cpp` reads descriptor() instead of the
-	 * subscription, and GROMACS refuses a subscription that descriptor() does not declare; both use
-	 * isMultiSimulation(), so they agree. */
+	 * With the MDModules restructure (gromacs#5748), `md.cpp` reads the module's descriptor instead
+	 * of the subscription, and GROMACS refuses a subscription that the descriptor does not declare;
+	 * both use isMultiSimulation(), so they agree. */
 	if (isMultiSimulation()) {
 		const gmx_multisim_t *takenDirectly = simulationContext_->multiSimulation_.get();
 		/* The callback is a CROSS-CHECK rather than a formality. mdrun.cpp takes the multisim straight
@@ -188,7 +188,11 @@ bool KEnRefMDModule::isMultiSimulation() const {
 	return simulationContext_ != nullptr && simulationContext_->multiSimulation_ != nullptr;
 }
 
-#if KENREF_GMX_HAS_MODULE_DESCRIPTOR
+#if KENREF_GMX_HAS_MODULE_DESCRIBE
+void KEnRefMDModule::describe(gmx::MDModuleDescriptor *descriptor) const {
+	descriptor->sharesStateAcrossSimulations = isMultiSimulation();
+}
+#elif KENREF_GMX_HAS_MODULE_DESCRIPTOR
 gmx::MDModuleDescriptor KEnRefMDModule::descriptor() const {
 	gmx::MDModuleDescriptor descriptor;
 	descriptor.sharesStateAcrossSimulations = isMultiSimulation();
