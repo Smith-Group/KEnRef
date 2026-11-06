@@ -56,6 +56,40 @@ target_include_directories(kenref_gmxinterface PUBLIC
 )
 
 # ============================================================================
+# GROMACS MODULE INTERFACE FEATURES
+# ============================================================================
+# The MDModules restructure (gromacs#5748) changes the module interface before any GROMACS release has
+# it, so GMX_VERSION cannot tell; probe the headers instead. Re-probed at every configure, so that a
+# build dir pointed at another GROMACS does not keep the old answer.
+#   KENREF_GMX_HAS_MDP_SECTION_NAME   IMdpOptionProvider::mdpSectionName() is pure virtual (stage 1)
+#   KENREF_GMX_HAS_MODULE_DESCRIPTOR  IMDModule::descriptor() returns an MDModuleDescriptor (stage 2)
+include(CheckCXXSourceCompiles)
+include(CMakePushCheckState)
+cmake_push_check_state(RESET)
+set(CMAKE_REQUIRED_INCLUDES
+    "${GROMACS_BUILD_DIR}/src/include" "${GROMACS_SRC_DIR}/src/include" "${GROMACS_SRC_DIR}/src")
+set(CMAKE_REQUIRED_LIBRARIES Gromacs::libgromacs MPI::MPI_CXX)
+set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+unset(KENREF_GMX_HAS_MDP_SECTION_NAME CACHE)
+check_cxx_source_compiles([=[
+#include <string_view>
+#include "gromacs/mdtypes/imdpoptionprovider.h"
+using SectionName = std::string_view (gmx::IMdpOptionProvider::*)() const;
+SectionName probe = &gmx::IMdpOptionProvider::mdpSectionName;
+]=] KENREF_GMX_HAS_MDP_SECTION_NAME)
+unset(KENREF_GMX_HAS_MODULE_DESCRIPTOR CACHE)
+check_cxx_source_compiles([=[
+#include "gromacs/mdtypes/imdmodule.h"
+bool probe(const gmx::IMDModule& module) { return module.descriptor().sharesStateAcrossSimulations; }
+]=] KENREF_GMX_HAS_MODULE_DESCRIPTOR)
+cmake_pop_check_state()
+foreach(_kg_feature KENREF_GMX_HAS_MDP_SECTION_NAME KENREF_GMX_HAS_MODULE_DESCRIPTOR)
+    if(${_kg_feature})
+        target_compile_definitions(kenref_gmxinterface PUBLIC $<BUILD_INTERFACE:${_kg_feature}=1>)
+    endif()
+endforeach()
+
+# ============================================================================
 # EXECUTABLES
 # ============================================================================
 

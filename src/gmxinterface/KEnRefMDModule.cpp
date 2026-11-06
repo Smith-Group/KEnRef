@@ -160,8 +160,12 @@ void KEnRefMDModule::subscribeToSimulationSetupNotifications(gmx::MDModulesNotif
 	 *
 	 * NOT VERSION-DEPENDENT: `const gmx_multisim_t*` is a simulationSetupNotifier_ payload in both
 	 * 2025.4 and 2026.x, and SimulationContext::multiSimulation_ exists in both, so no GMX_VERSION
-	 * shim is needed here (checked against both header sets, not assumed). */
-	if (simulationContext_ != nullptr && simulationContext_->multiSimulation_ != nullptr) {
+	 * shim is needed here (checked against both header sets, not assumed).
+	 *
+	 * With the MDModules restructure (gromacs#5748), `md.cpp` reads descriptor() instead of the
+	 * subscription, and GROMACS refuses a subscription that descriptor() does not declare; both use
+	 * isMultiSimulation(), so they agree. */
+	if (isMultiSimulation()) {
 		const gmx_multisim_t *takenDirectly = simulationContext_->multiSimulation_.get();
 		/* The callback is a CROSS-CHECK rather than a formality. mdrun.cpp takes the multisim straight
 		 * out of the SimulationContext instead of waiting for this notification; if the pointer
@@ -179,6 +183,18 @@ void KEnRefMDModule::subscribeToSimulationSetupNotifications(gmx::MDModulesNotif
 		             "will checkpoint and stop the replicas in lockstep" << std::endl;
 	}
 }
+
+bool KEnRefMDModule::isMultiSimulation() const {
+	return simulationContext_ != nullptr && simulationContext_->multiSimulation_ != nullptr;
+}
+
+#if KENREF_GMX_HAS_MODULE_DESCRIPTOR
+gmx::MDModuleDescriptor KEnRefMDModule::descriptor() const {
+	gmx::MDModuleDescriptor descriptor;
+	descriptor.sharesStateAcrossSimulations = isMultiSimulation();
+	return descriptor;
+}
+#endif
 
 //! Subscribe to pre processing notifications
 #if GMX_VERSION >= 20260000

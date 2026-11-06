@@ -101,3 +101,31 @@ TEST_F(SubscribeOnceTest, MdrunAndGromacsTogetherSubscribeOnce) {
     mdModules.subscribeToSimulationSetupNotifications();
     EXPECT_EQ(occurrences(testing::internal::GetCapturedStdout(), kSubscribed), 1);
 }
+
+#if KENREF_GMX_HAS_MODULE_DESCRIPTOR
+// GROMACS with the MDModules restructure refuses a multisim subscription the module does not declare,
+// and keeps the replicas in step only when one declares it. Subscribed by GROMACS alone, so that its
+// check sees the subscription.
+TEST_F(SubscribeOnceTest, DeclaresSharedStateInAMultiSimulation) {
+    EXPECT_TRUE(raw_->descriptor().sharesStateAcrossSimulations);
+    gmx::MDModules mdModules;
+    mdModules.add("KEnRef", module_);
+    EXPECT_NO_THROW(mdModules.subscribeToSimulationSetupNotifications());
+    EXPECT_TRUE(mdModules.anyModuleSharesStateAcrossSimulations());
+}
+
+TEST_F(SubscribeOnceTest, DeclaresNoSharedStateInASingleSimulation) {
+    context_.multiSimulation_.reset();
+    EXPECT_FALSE(raw_->descriptor().sharesStateAcrossSimulations);
+    gmx::MDModules mdModules;
+    mdModules.add("KEnRef", module_);
+    EXPECT_NO_THROW(mdModules.subscribeToSimulationSetupNotifications());
+    EXPECT_FALSE(mdModules.anyModuleSharesStateAcrossSimulations());
+}
+#endif
+
+#if KENREF_GMX_HAS_MDP_SECTION_NAME
+TEST_F(SubscribeOnceTest, NamesItsMdpSection) {
+    EXPECT_EQ(module_->mdpOptionProvider()->mdpSectionName(), "kenref");
+}
+#endif
