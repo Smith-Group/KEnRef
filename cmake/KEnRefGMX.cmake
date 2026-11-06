@@ -62,7 +62,9 @@ target_include_directories(kenref_gmxinterface PUBLIC
 # it, so GMX_VERSION cannot tell; probe the headers instead. Re-probed at every configure, so that a
 # build dir pointed at another GROMACS does not keep the old answer.
 #   KENREF_GMX_HAS_MDP_SECTION_NAME   IMdpOptionProvider::mdpSectionName() is pure virtual (stage 1)
-#   KENREF_GMX_HAS_MODULE_DESCRIPTOR  IMDModule::descriptor() returns an MDModuleDescriptor (stage 2)
+#   KENREF_GMX_HAS_MODULE_DESCRIPTOR  IMDModule::descriptor() returns an MDModuleDescriptor (stages 2-3)
+#   KENREF_GMX_HAS_MODULE_DESCRIBE    IMDModule::describe() fills an MDModuleDescriptor that GROMACS
+#                                     allocates (stage 4, which replaced descriptor())
 include(CheckCXXSourceCompiles)
 include(CMakePushCheckState)
 cmake_push_check_state(RESET)
@@ -82,8 +84,15 @@ check_cxx_source_compiles([=[
 #include "gromacs/mdtypes/imdmodule.h"
 bool probe(const gmx::IMDModule& module) { return module.descriptor().sharesStateAcrossSimulations; }
 ]=] KENREF_GMX_HAS_MODULE_DESCRIPTOR)
+unset(KENREF_GMX_HAS_MODULE_DESCRIBE CACHE)
+check_cxx_source_compiles([=[
+#include "gromacs/mdtypes/imdmodule.h"
+using Describe = void (gmx::IMDModule::*)(gmx::MDModuleDescriptor*) const;
+Describe probe = &gmx::IMDModule::describe;
+]=] KENREF_GMX_HAS_MODULE_DESCRIBE)
 cmake_pop_check_state()
-foreach(_kg_feature KENREF_GMX_HAS_MDP_SECTION_NAME KENREF_GMX_HAS_MODULE_DESCRIPTOR)
+foreach(_kg_feature KENREF_GMX_HAS_MDP_SECTION_NAME KENREF_GMX_HAS_MODULE_DESCRIPTOR
+                    KENREF_GMX_HAS_MODULE_DESCRIBE)
     if(${_kg_feature})
         target_compile_definitions(kenref_gmxinterface PUBLIC $<BUILD_INTERFACE:${_kg_feature}=1>)
     endif()

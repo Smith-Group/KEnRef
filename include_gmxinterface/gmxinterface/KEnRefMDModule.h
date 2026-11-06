@@ -162,12 +162,16 @@ public:
      * needs nothing from the run-time notifiers, so the implementation is empty. */
     void subscribeToSimulationRunNotifications(gmx::MDModulesNotifiers* notifiers) override;
 #endif
-#if KENREF_GMX_HAS_MODULE_DESCRIPTOR
-    /*! \brief What GROMACS has to know about the module for this run.
+#if KENREF_GMX_HAS_MODULE_DESCRIBE
+    /*! \brief Fills in what GROMACS has to know about the module for this run.
      *
      * GROMACS with the MDModules restructure (gromacs#5748) reads whether the simulations share state
      * from this declaration, not from the multisim subscription, and refuses the subscription without
-     * it. KEnRef declares it in a multi-simulation run, when it also subscribes. */
+     * it. KEnRef declares it in a multi-simulation run, when it also subscribes. GROMACS allocates
+     * the descriptor (stage 4), so KEnRef sets only the fields it knows. */
+    void describe(gmx::MDModuleDescriptor* descriptor) const override;
+#elif KENREF_GMX_HAS_MODULE_DESCRIPTOR
+    //! The same declaration, returned by value as stages 2 and 3 of the restructure read it
     gmx::MDModuleDescriptor descriptor() const override;
 #endif
     virtual void setSimulationContext(gmx::SimulationContext* simulationContext);
