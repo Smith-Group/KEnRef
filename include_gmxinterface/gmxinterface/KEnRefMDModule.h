@@ -8,6 +8,7 @@
 #define KENREFMDMODULE_H_
 
 #include <iostream>
+#include <string_view>
 #include <gromacs/utility/keyvaluetreebuilder.h>//TODO you may remove it later
 //#include <gromacs/options/ioptionscontainerwithsections.h>
 //#include <gromacs/options.h>
@@ -49,6 +50,13 @@ public:
  * empty implementation as KEnRef does not use that yet. TODO It might move to a separate file later.
  */
 class KEnRefOptions final : public gmx::IMdpOptionProvider{
+#if KENREF_GMX_HAS_MDP_SECTION_NAME
+    /*! \brief The section of the structured mdp input that holds KEnRef's options.
+     *
+     * GROMACS with the MDModules restructure (gromacs#5748) asks every module for it. KEnRef declares
+     * no mdp options, so the section stays empty. */
+    std::string_view mdpSectionName() const override { return "kenref"; }
+#endif
     void initMdpTransform(gmx::IKeyValueTreeTransformRules* transform) override {
         std::cout << "====> initMdpTransform() called" << std::endl;
     }
@@ -154,8 +162,19 @@ public:
      * needs nothing from the run-time notifiers, so the implementation is empty. */
     void subscribeToSimulationRunNotifications(gmx::MDModulesNotifiers* notifiers) override;
 #endif
+#if KENREF_GMX_HAS_MODULE_DESCRIPTOR
+    /*! \brief What GROMACS has to know about the module for this run.
+     *
+     * GROMACS with the MDModules restructure (gromacs#5748) reads whether the simulations share state
+     * from this declaration, not from the multisim subscription, and refuses the subscription without
+     * it. KEnRef declares it in a multi-simulation run, when it also subscribes. */
+    gmx::MDModuleDescriptor descriptor() const override;
+#endif
     virtual void setSimulationContext(gmx::SimulationContext* simulationContext);
 
+private:
+    //! Whether this is a multi-simulation run, whose replicas KEnRef keeps in step
+    bool isMultiSimulation() const;
 };
 
 /*! \libinternal \brief Information about the Kinetic Ensemble Refinement module.
