@@ -126,6 +126,10 @@ class KEnRefMDModule final: public gmx::IMDModule {
         SubscribedNotifiers(const SubscribedNotifiers& /*other*/) noexcept {}
         SubscribedNotifiers& operator=(const SubscribedNotifiers& /*other*/) noexcept { return *this; }
     } subscribed_;
+    //! Whether GROMACS loaded the module as a plugin
+    bool runsAsPlugin_ = false;
+    //! The multisim that GROMACS notified a plugin of, or null when the run has none
+    const gmx_multisim_t* notifiedMultiSimulation_ = nullptr;
     std::shared_ptr<std::vector<int> const> guideAtoms0Indexed; //ZERO indexed
     std::shared_ptr<const CoordsMatrixType<KEnRef_Real_t>> guideAtomsReferenceCoords_;
 
@@ -137,7 +141,12 @@ class KEnRefMDModule final: public gmx::IMDModule {
     }
 
 public:
-    KEnRefMDModule();
+    /*! \brief Creates the module.
+     *
+     * \param[in] runsAsPlugin  Whether GROMACS loads the module as a plugin. A plugin reads its settings
+     *     and files at setup, and takes the multisim from GROMACS's setup notification.
+     */
+    explicit KEnRefMDModule(bool runsAsPlugin = false);
 	~KEnRefMDModule() override;
     [[maybe_unused]] KEnRefMDModule(const KEnRefMDModule &other);
     [[maybe_unused]] KEnRefMDModule(KEnRefMDModule &&other) noexcept;
@@ -177,6 +186,8 @@ public:
     virtual void setSimulationContext(gmx::SimulationContext* simulationContext);
 
 private:
+    //! Reads the guide atoms and their reference coordinates from the files that the settings name
+    void loadGuideAtoms();
     //! The multi-simulation of this run, or null when it runs alone
     const gmx_multisim_t* multiSimulation() const;
     //! Whether this is a multi-simulation run, whose replicas KEnRef keeps in step

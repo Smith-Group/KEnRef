@@ -12,10 +12,17 @@
 #include "gmxinterface/KEnRefMDModule.h"
 
 #include "gmxinterface/gmxwrapper.h"
+#include "gmxinterface/KEnRefSettingsOptions.h"
 
 
-KEnRefMDModule::KEnRefMDModule() {
+KEnRefMDModule::KEnRefMDModule(bool runsAsPlugin) : runsAsPlugin_(runsAsPlugin) {
+	// grompp creates a plugin too, without KEnRef's settings, so a plugin reads its files at setup
+	if (!runsAsPlugin_) {
+		loadGuideAtoms();
+	}
+}
 
+void KEnRefMDModule::loadGuideAtoms() {
 	std::vector<int>const& indices = GmxKEnRefInitializer::loadGmxIndexGroup(Settings::GUIDE_C_ALPHA, Settings::indexFileName);
 	this->guideAtoms0Indexed = std::make_shared<std::vector<int> const>(indices);
     std::cout << "Guide atoms indices (0 indexed):\n";
@@ -34,7 +41,6 @@ KEnRefMDModule::KEnRefMDModule() {
     this->guideAtomsReferenceCoords_ = std::make_shared<const CoordsMatrixType<KEnRef_Real_t >>(guideAtomsReferenceCoords);
 
     //TODO: build another matrix for subAtomsXReferenceCoords
-
 }
 
 KEnRefMDModule::~KEnRefMDModule() = default;
@@ -58,6 +64,11 @@ gmx::IMDOutputProvider* KEnRefMDModule::outputProvider() {
 //! Initializes force provider(s) from this module (only one now).
 void KEnRefMDModule::initForceProviders(gmx::ForceProviders* forceProviders) {
 	std::cout << "====> KEnRefMDModule::initForceProviders() called" << std::endl;
+	if (runsAsPlugin_) {
+		// No KEnRef command line here: a plugin reads the same settings from the KENREF_* variables
+		kenref::readSettingsFromEnvironment();
+		loadGuideAtoms();
+	}
 	forceProvider_ = std::make_shared<KEnRefForceProvider>();
 	forceProvider_->setMultiSimulation(multiSimulation());
     forceProvider_->setGuideAtom0Indices(this->guideAtoms0Indexed);
@@ -182,10 +193,18 @@ void KEnRefMDModule::subscribeToSimulationSetupNotifications(gmx::MDModulesNotif
 		std::cout << "KEnRef: multi-simulation run -- subscribed to the multisim record, so GROMACS "
 		             "will checkpoint and stop the replicas in lockstep" << std::endl;
 	}
+
+	/* A plugin has no SimulationContext of its own, so it takes the multisim from GROMACS. It does not
+	 * know yet whether there is one, so it always subscribes, and describe() declares that it shares
+	 * state. GROMACS keeps the simulations in lockstep only when there is a multisim. */
+	if (runsAsPlugin_) {
+		notifiers->simulationSetupNotifier_.subscribe(
+		        [this](const gmx_multisim_t *multiSimulation) { notifiedMultiSimulation_ = multiSimulation; });
+	}
 }
 
 const gmx_multisim_t* KEnRefMDModule::multiSimulation() const {
-	return simulationContext_ != nullptr ? simulationContext_->multiSimulation_.get() : nullptr;
+	return simulationContext_ != nullptr ? simulationContext_->multiSimulation_.get() : notifiedMultiSimulation_;
 }
 
 bool KEnRefMDModule::isMultiSimulation() const {
@@ -194,12 +213,12 @@ bool KEnRefMDModule::isMultiSimulation() const {
 
 #if KENREF_GMX_HAS_MODULE_DESCRIBE
 void KEnRefMDModule::describe(gmx::MDModuleDescriptor *descriptor) const {
-	descriptor->sharesStateAcrossSimulations = isMultiSimulation();
+	descriptor->sharesStateAcrossSimulations = runsAsPlugin_ || isMultiSimulation();
 }
 #elif KENREF_GMX_HAS_MODULE_DESCRIPTOR
 gmx::MDModuleDescriptor KEnRefMDModule::descriptor() const {
 	gmx::MDModuleDescriptor descriptor;
-	descriptor.sharesStateAcrossSimulations = isMultiSimulation();
+	descriptor.sharesStateAcrossSimulations = runsAsPlugin_ || isMultiSimulation();
 	return descriptor;
 }
 #endif

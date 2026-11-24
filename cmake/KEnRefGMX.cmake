@@ -65,6 +65,8 @@ target_include_directories(kenref_gmxinterface PUBLIC
 #   KENREF_GMX_HAS_MODULE_DESCRIPTOR  IMDModule::descriptor() returns an MDModuleDescriptor (stages 2-3)
 #   KENREF_GMX_HAS_MODULE_DESCRIBE    IMDModule::describe() fills an MDModuleDescriptor that GROMACS
 #                                     allocates (stage 4, which replaced descriptor())
+#   KENREF_GMX_HAS_MDMODULE_PLUGINS   GROMACS can load MDModules plugins (stage 4); KEnRef then also
+#                                     builds the plugin kenref.so
 include(CheckCXXSourceCompiles)
 include(CMakePushCheckState)
 cmake_push_check_state(RESET)
@@ -90,6 +92,11 @@ check_cxx_source_compiles([=[
 using Describe = void (gmx::IMDModule::*)(gmx::MDModuleDescriptor*) const;
 Describe probe = &gmx::IMDModule::describe;
 ]=] KENREF_GMX_HAS_MODULE_DESCRIBE)
+unset(KENREF_GMX_HAS_MDMODULE_PLUGINS CACHE)
+check_cxx_source_compiles([=[
+#include "gromacs/mdtypes/mdmodulepluginentrypoints.h"
+int main() { return GMX_MDMODULE_API_MAJOR > 0 ? 0 : 1; }
+]=] KENREF_GMX_HAS_MDMODULE_PLUGINS)
 cmake_pop_check_state()
 foreach(_kg_feature KENREF_GMX_HAS_MDP_SECTION_NAME KENREF_GMX_HAS_MODULE_DESCRIPTOR
                     KENREF_GMX_HAS_MODULE_DESCRIBE)
@@ -104,6 +111,27 @@ endforeach()
 
 add_executable(KEnRef "src/gmxinterface/gmxwrapper.cpp")
 target_link_libraries(KEnRef PRIVATE KENREF::CORE KENREF::GMXINTERFACE)
+
+# The plugin that a GROMACS built with GMX_MDMODULE_PLUGINS=ON loads when the mdp names it
+# (mdmodule-plugins = kenref). GROMACS finds it through GMX_MDMODULE_PLUGIN_PATH.
+set(KENREF_GMX_PLUGIN_DIR "lib/gromacs/plugins" CACHE STRING
+    "Where kenref.so is installed, relative to CMAKE_INSTALL_PREFIX")
+if(KENREF_GMX_HAS_MDMODULE_PLUGINS)
+    # The module code goes into a shared object
+    set_target_properties(kenref_gmxinterface PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    add_library(kenref_gmx_plugin MODULE "src/gmxplugin/KEnRefPlugin.cpp")
+    target_link_libraries(kenref_gmx_plugin PRIVATE KENREF::GMXINTERFACE)
+    target_compile_definitions(kenref_gmx_plugin PRIVATE KENREF_PLUGIN_VERSION="${PROJECT_VERSION}")
+    # GROMACS loads <module name>.so; INSTALL_RPATH_USE_LINK_PATH lets it find kenref_core
+    set_target_properties(kenref_gmx_plugin PROPERTIES
+        OUTPUT_NAME kenref
+        PREFIX ""
+        INSTALL_RPATH_USE_LINK_PATH ON)
+    install(TARGETS kenref_gmx_plugin LIBRARY DESTINATION "${KENREF_GMX_PLUGIN_DIR}")
+    message(STATUS "KEnRef: building the GROMACS plugin kenref.so (installed in ${KENREF_GMX_PLUGIN_DIR})")
+else()
+    message(STATUS "KEnRef: this GROMACS cannot load MDModules plugins, so kenref.so is not built")
+endif()
 
 # Tools depend on both
 add_executable(s2calc "src/tools/S2OrderParamsCalculator.cpp" "src/tools/AbstractCalculator.cpp")

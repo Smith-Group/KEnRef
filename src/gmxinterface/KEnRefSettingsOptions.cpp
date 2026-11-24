@@ -6,6 +6,8 @@
 #include "gmxinterface/KEnRefSettingsOptions.h"
 
 #include <iostream>
+#include <stdexcept>
+#include <string>
 
 #include "gmxinterface/gmxwrapper.h"
 #include "core/ModelRegistry.h"
@@ -43,6 +45,20 @@ void addSettingsOptions(CLI::App *app) {
 
     // Load from config file
     app->set_config("--params", "params.toml", "Read a TOML config file", false)->envname("KENREF_PARAMS");
+}
+
+void readSettingsFromEnvironment() {
+    kenref::bootstrapModels();
+    CLI::App app{"KEnRef"};
+    addSettingsOptions(&app);
+    const char *const argv[] = {"kenref"};
+    try {
+        app.parse(1, argv);
+    } catch (const CLI::ParseError &e) {
+        throw std::runtime_error(std::string("KEnRef could not read its settings from the KENREF_* "
+                                             "environment variables: ") + e.what());
+    }
+    useAtomNameMappingAsDefaultReference();
 }
 
 void useAtomNameMappingAsDefaultReference() {

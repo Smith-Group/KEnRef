@@ -167,6 +167,32 @@ The modulefile is generated at `<prefix>/modulefiles/kenref/<version>` (`-DKENRE
 the prefix isn't `/usr/local`** (there the modulefile already lives under `/usr/local/modulefiles`). Then
 `module use /usr/local/modulefiles && module load kenref/<version>` works too.
 
+## The GROMACS plugin `kenref.so`
+
+A GROMACS that can load MDModules plugins (the MDModules restructure, gromacs#5748, built with
+`-DGMX_MDMODULE_PLUGINS=ON`) runs KEnRef in a stock `gmx mdrun`, without `bin/KEnRef`. KEnRef then also builds
+`kenref.so` and installs it in `<prefix>/lib/gromacs/plugins` (`-DKENREF_GMX_PLUGIN_DIR`). The mdp names it,
+and grompp records it in the tpr:
+
+```
+mdmodule-plugins = kenref
+```
+
+mdrun loads it from the directories in `GMX_MDMODULE_PLUGIN_PATH`. The plugin reads the settings that
+`bin/KEnRef` takes on its command line from the same environment variables: `KENREF_PARAMS` (the TOML file),
+`KENREF_K`, `KENREF_N`, `KENREF_MAX_FORCE`, `KENREF_MODEL` and the others in `bin/KEnRef --help`.
+
+```bash
+export GMX_MDMODULE_PLUGIN_PATH=<prefix>/lib/gromacs/plugins
+export KENREF_PARAMS=params.toml KENREF_K=1.0 KENREF_N=0.25
+mpirun -np 2 -x GMX_MDMODULE_PLUGIN_PATH -x KENREF_PARAMS -x KENREF_K -x KENREF_N \
+    gmx_mpi mdrun -multidir rep0 rep1 -deffnm md
+```
+
+For now the plugin, like `bin/KEnRef`, builds against the GROMACS build and source trees, and runs only in
+the GROMACS it was built against. Unlike `bin/KEnRef`, it does not refuse replicas that would run different
+numbers of steps.
+
 ## Checking a build: the runtime gates
 
 Five scripts at the repository root run a KEnRef-GROMACS binary (and, for one of them, PLUMED) on the

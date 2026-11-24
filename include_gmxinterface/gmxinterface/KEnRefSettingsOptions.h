@@ -14,6 +14,13 @@ namespace kenref {
 //! Declares KEnRef's settings on \p app, each also read from its KENREF_* environment variable
 void addSettingsOptions(CLI::App *app);
 
+/*! \brief Reads the settings from the KENREF_* environment variables and KENREF_PARAMS.
+ *
+ * For the GROMACS plugin, which has no KEnRef command line. Throws std::runtime_error when they
+ * are incomplete or wrong.
+ */
+void readSettingsFromEnvironment();
+
 //! Uses the atom-name mapping file as the reference file when no reference file was given
 void useAtomNameMappingAsDefaultReference();
 
