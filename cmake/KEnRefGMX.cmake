@@ -128,9 +128,11 @@ if(KENREF_GMX_HAS_MDMODULE_PLUGINS)
         PREFIX ""
         INSTALL_RPATH_USE_LINK_PATH ON)
     install(TARGETS kenref_gmx_plugin LIBRARY DESTINATION "${KENREF_GMX_PLUGIN_DIR}")
-    # For plugin_validate.sh only, so not installed
+    # For plugin_validate.sh, which also checks an install, so it goes off PATH
     add_executable(kenref_tpr_add_plugin "src/tools/TprAddPlugin.cpp")
     target_link_libraries(kenref_tpr_add_plugin PRIVATE KENREF::GMXINTERFACE)
+    set_target_properties(kenref_tpr_add_plugin PROPERTIES INSTALL_RPATH_USE_LINK_PATH ON)
+    install(TARGETS kenref_tpr_add_plugin RUNTIME DESTINATION libexec/kenref)
     message(STATUS "KEnRef: building the GROMACS plugin kenref.so (installed in ${KENREF_GMX_PLUGIN_DIR})")
 else()
     message(STATUS "KEnRef: this GROMACS cannot load MDModules plugins, so kenref.so is not built")

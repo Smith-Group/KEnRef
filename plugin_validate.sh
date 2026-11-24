@@ -13,15 +13,23 @@
 #
 # Environment:
 #   GMX      the stock gmx_mpi of the GROMACS KEnRef was built against
-#   PLUGIN   kenref.so                         (default: next to BIN)
 #   BIN      bin/KEnRef, for case M            (default: cmake-build-cli-gmx/KEnRef)
-#   ADDPLUGIN kenref_tpr_add_plugin             (default: next to BIN)
+#   PLUGIN   kenref.so                         (default: next to BIN in a build tree, else the install's)
+#   ADDPLUGIN kenref_tpr_add_plugin             (default: next to BIN in a build tree, else the install's)
 #   ACCEL    the SIMD width, when no path names it
 set -u
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN="${BIN:-$REPO/cmake-build-cli-gmx/KEnRef}"
-PLUGIN="${PLUGIN:-$(dirname "$BIN")/kenref.so}"
-ADDPLUGIN="${ADDPLUGIN:-$(dirname "$BIN")/kenref_tpr_add_plugin}"
+# A build tree has them next to bin/KEnRef; an install in lib/gromacs/plugins and libexec/kenref
+BIN_DIR="$(dirname "$BIN")"
+if [ -z "${PLUGIN:-}" ]; then
+    PLUGIN="$BIN_DIR/kenref.so"
+    [ -e "$PLUGIN" ] || PLUGIN="$BIN_DIR/../lib/gromacs/plugins/kenref.so"
+fi
+if [ -z "${ADDPLUGIN:-}" ]; then
+    ADDPLUGIN="$BIN_DIR/kenref_tpr_add_plugin"
+    [ -e "$ADDPLUGIN" ] || ADDPLUGIN="$BIN_DIR/../libexec/kenref/kenref_tpr_add_plugin"
+fi
 GMX="${GMX:-$(command -v gmx_mpi || echo gmx_mpi)}"
 MPIRUN="${MPIRUN:-mpirun}"
 NSTEPS="${NSTEPS:-2}"
