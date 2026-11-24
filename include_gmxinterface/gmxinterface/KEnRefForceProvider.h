@@ -18,7 +18,7 @@
 #include <optional>
 #include <string>
 #include <gromacs/mdtypes/iforceprovider.h>
-#include <gromacs/mdrun/simulationcontext.h>
+#include <gromacs/mdrunutility/multisim.h>
 #include <gromacs/selection/selection.h>
 #include <gromacs/domdec/localatomset.h>
 #include <gromacs/domdec/localatomsetmanager.h>
@@ -38,7 +38,8 @@ private:
 	//force the user to select one value
 	std::string selectedEnergyModel; // registry model name (SIGMA / PLATEAUS / RELAX / ...)
 
-	gmx::SimulationContext *simulationContext_ = nullptr;
+	//! The multi-simulation of this run, or null when it runs alone
+	const gmx_multisim_t *multiSimulation_ = nullptr;
 	bool paramsInitialized = false; // We use it instead of (step == 0), because the simulation may be continuing after 0
 	std::shared_ptr<std::vector<int> const> guideAtom0Indices_; //ZERO indexed
 	std::shared_ptr<CoordsMatrixType<KEnRef_Real_t> const> guideAtomsReferenceCoords_; //ZERO indexed
@@ -126,7 +127,8 @@ public:
 	void calculateForces(const gmx::ForceProviderInput &forceProviderInput,
 	                     gmx::ForceProviderOutput *forceProviderOutput) override;
 
-    [[maybe_unused]]void setSimulationContext(gmx::SimulationContext *simulationContext);
+    //! Sets the multi-simulation of this run; null, the default, when it runs alone
+    void setMultiSimulation(const gmx_multisim_t *multiSimulation);
 
 	/*! \brief Hand over the manager that owns every LocalAtomSet, before any atom set is registered.
 	 *

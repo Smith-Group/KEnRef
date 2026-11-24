@@ -230,8 +230,8 @@ KEnRefForceProvider::KEnRefForceProvider() = default;
 
 KEnRefForceProvider::~KEnRefForceProvider() = default;
 
-[[maybe_unused]] void KEnRefForceProvider::setSimulationContext(gmx::SimulationContext *simulationContext) {
-    this->simulationContext_ = simulationContext;
+void KEnRefForceProvider::setMultiSimulation(const gmx_multisim_t *multiSimulation) {
+    this->multiSimulation_ = multiSimulation;
 }
 
 void KEnRefForceProvider::setGuideAtom0Indices(std::shared_ptr<std::vector<int> const> targetAtoms0Indices) {
@@ -261,10 +261,10 @@ void KEnRefForceProvider::calculateForces(const gmx::ForceProviderInput &forcePr
 
     // Stash the per-step GROMACS state + MPI info so the EngineAdapter callbacks (invoked by
     // driver_->step(*this) below) can reach the current input/output and the multi-simulation info.
-    isMultiSimulation_ = this->simulationContext_->multiSimulation_ != nullptr;
-    numSimulations_ = isMultiSimulation_ ? this->simulationContext_->multiSimulation_->numSimulations_ : 1;
-    simulationIndex_ = isMultiSimulation_ ? this->simulationContext_->multiSimulation_->simulationIndex_ : 0;
-    mainRanksComm_ = isMultiSimulation_ ? this->simulationContext_->multiSimulation_->mainRanksComm_ : MPI_COMM_NULL;
+    isMultiSimulation_ = this->multiSimulation_ != nullptr;
+    numSimulations_ = isMultiSimulation_ ? this->multiSimulation_->numSimulations_ : 1;
+    simulationIndex_ = isMultiSimulation_ ? this->multiSimulation_->simulationIndex_ : 0;
+    mainRanksComm_ = isMultiSimulation_ ? this->multiSimulation_->mainRanksComm_ : MPI_COMM_NULL;
     currentInput_ = &forceProviderInput;
     currentOutput_ = forceProviderOutput;
     /* Refresh every step rather than caching at setup: it is one MPI_Comm_rank on an intra-simulation
@@ -670,10 +670,10 @@ void KEnRefForceProvider::initParamsAtSetup() {
     /* The multi-simulation facts are constant for the run, so read them once here. They used to be
      * read at step 0; calculateForces() still refreshes them every step, which is free and keeps a
      * single source of truth. numSimulations_ in particular is needed BELOW, by buildModelIndexing. */
-    isMultiSimulation_ = this->simulationContext_->multiSimulation_ != nullptr;
-    numSimulations_ = isMultiSimulation_ ? this->simulationContext_->multiSimulation_->numSimulations_ : 1;
-    simulationIndex_ = isMultiSimulation_ ? this->simulationContext_->multiSimulation_->simulationIndex_ : 0;
-    mainRanksComm_ = isMultiSimulation_ ? this->simulationContext_->multiSimulation_->mainRanksComm_ : MPI_COMM_NULL;
+    isMultiSimulation_ = this->multiSimulation_ != nullptr;
+    numSimulations_ = isMultiSimulation_ ? this->multiSimulation_->numSimulations_ : 1;
+    simulationIndex_ = isMultiSimulation_ ? this->multiSimulation_->simulationIndex_ : 0;
+    mainRanksComm_ = isMultiSimulation_ ? this->multiSimulation_->mainRanksComm_ : MPI_COMM_NULL;
     const bool isMultiSimulation = isMultiSimulation_;
     const int numSimulations = numSimulations_;
 

@@ -59,7 +59,7 @@ gmx::IMDOutputProvider* KEnRefMDModule::outputProvider() {
 void KEnRefMDModule::initForceProviders(gmx::ForceProviders* forceProviders) {
 	std::cout << "====> KEnRefMDModule::initForceProviders() called" << std::endl;
 	forceProvider_ = std::make_shared<KEnRefForceProvider>();
-	forceProvider_->setSimulationContext(simulationContext_);
+	forceProvider_->setMultiSimulation(multiSimulation());
     forceProvider_->setGuideAtom0Indices(this->guideAtoms0Indexed);
     forceProvider_->setGuideAtomsReferenceCoords(this->guideAtomsReferenceCoords_);
 	forceProvider_->set_selected_energy_model(Settings::selected_energy_model);
@@ -184,8 +184,12 @@ void KEnRefMDModule::subscribeToSimulationSetupNotifications(gmx::MDModulesNotif
 	}
 }
 
+const gmx_multisim_t* KEnRefMDModule::multiSimulation() const {
+	return simulationContext_ != nullptr ? simulationContext_->multiSimulation_.get() : nullptr;
+}
+
 bool KEnRefMDModule::isMultiSimulation() const {
-	return simulationContext_ != nullptr && simulationContext_->multiSimulation_ != nullptr;
+	return multiSimulation() != nullptr;
 }
 
 #if KENREF_GMX_HAS_MODULE_DESCRIBE

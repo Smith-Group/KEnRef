@@ -177,6 +177,8 @@ public:
     virtual void setSimulationContext(gmx::SimulationContext* simulationContext);
 
 private:
+    //! The multi-simulation of this run, or null when it runs alone
+    const gmx_multisim_t* multiSimulation() const;
     //! Whether this is a multi-simulation run, whose replicas KEnRef keeps in step
     bool isMultiSimulation() const;
 };
