@@ -195,7 +195,7 @@ numbers of steps.
 
 ## Checking a build: the runtime gates
 
-Five scripts at the repository root run a KEnRef-GROMACS binary (and, for one of them, PLUMED) on the
+Six scripts at the repository root run a KEnRef-GROMACS binary (and, for one of them, PLUMED) on the
 committed fixtures and check the result. Each takes `BIN=<path to KEnRef>`; its header has the details.
 
 | script | checks |
@@ -204,6 +204,7 @@ committed fixtures and check the result. Each takes `BIN=<path to KEnRef>`; its 
 | `rt_validate_plumed.sh` | the same two energies through `plumed driver` (`PLUMED=<plumed>`), equal to GROMACS's on the same frame, and a broken reference structure refused |
 | `dd_validate.sh` | the step-0 energy does not depend on the number of domain-decomposition ranks (1, 2, 4, 4 with a PME rank) |
 | `multireplica_step_mismatch_validate.sh` | a multi-replica (`-multidir`) run whose replicas would stop at different steps is refused at setup instead of hanging (`GMX=<gmx_mpi>`) |
+| `plugin_validate.sh` | the three cases of `rt_validate.sh` and a two-replica run through `kenref.so` in a stock `gmx_mpi` (`GMX=<gmx_mpi>`), with the same energies as `bin/KEnRef` |
 | `smoke_test_installs.sh` | 500-step MD on the installed tiers, both engines |
 
 **The expected energies depend on the SIMD width**, because a different vector width sums in a different
